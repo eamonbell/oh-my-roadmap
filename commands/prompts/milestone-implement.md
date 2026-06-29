@@ -1,4 +1,3 @@
 # /milestone:implement
 
-Implement the approved milestone or active approved change request. Execute one wave at a time on the active branch. Dispatch only tasks with non-overlapping ownership. Require worker notes, per-wave review, blocking-finding resolution, and evidence.
-
+Implement the approved milestone or active approved change request. Before edits, inspect the approved plan, relevant existing code, and relevant documentation. Use the built-in `ask` tool if implementation uncovers missing decisions, ownership gaps, unplanned files, acceptance ambiguity, cleanup scope questions, or approval needs. Execute one wave at a time on the active branch. Dispatch only tasks with non-overlapping ownership. Track progress with `update_task_status` and `update_wave_status`. Require worker notes, per-wave review, blocking-finding resolution, and evidence.

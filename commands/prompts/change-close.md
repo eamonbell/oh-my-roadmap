@@ -1,4 +1,3 @@
 # /change:close
 
-Close the active change request only after its evidence bundle is appended and blocking findings are resolved or explicitly deferred. Use `roadmap_engineer_transition` with `close_change`.
-
+Close the active change request only after inspecting the change plan, notes, changed code, relevant documentation, and verification evidence. Use the built-in `ask` tool for any unresolved deferral, risk disposition, acceptance, verification, cleanup, or approval decision. Record the structured evidence bundle and resolve or explicitly defer blocking findings. Use `roadmap_engineer_transition` with `record_closeout`, then `close_change`.

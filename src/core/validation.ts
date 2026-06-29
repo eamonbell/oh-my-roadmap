@@ -2,14 +2,12 @@ import * as fs from "node:fs/promises";
 import { milestoneNotesPath } from "./paths";
 import { parseMarkdownDocument } from "./frontmatter";
 import { loadState } from "./store";
-import { PHASES, type ChangeRequest, type LoadedState, type MilestonePlan, type ValidationIssue, type ValidationResult } from "./types";
+import { validateCloseoutEvidence } from "./closeout";
+import { issue, validateChangeRequest, validateMilestonePlan } from "./plan-validation";
+import { PHASES, type LoadedState, type ValidationIssue, type ValidationResult } from "./types";
 
 const ROADMAP_APPROVED_INDEX = PHASES.indexOf("roadmap_approved");
 const MILESTONE_APPROVED_INDEX = PHASES.indexOf("milestone_approved");
-
-function issue(code: string, message: string, path?: string): ValidationIssue {
-  return path ? { code, message, path } : { code, message };
-}
 
 function phaseIndex(phase: string): number {
   return PHASES.indexOf(phase as never);
@@ -17,83 +15,6 @@ function phaseIndex(phase: string): number {
 
 function hasApproval(approvals: { by: string; at: string; summary: string }[]): boolean {
   return approvals.length > 0;
-}
-
-function validateMilestonePlan(plan: MilestonePlan, errors: ValidationIssue[]): void {
-  if (!plan.milestone_id) errors.push(issue("milestone.id.missing", "Milestone ID is required"));
-  if (!plan.title) errors.push(issue("milestone.title.missing", "Milestone title is required"));
-  if (plan.cleanup_policy !== "approval-gated") {
-    errors.push(issue("milestone.cleanup.invalid", "Cleanup policy must be approval-gated"));
-  }
-  if (plan.open_questions.length > 0) {
-    errors.push(issue("milestone.questions.open", "Milestone has open material questions"));
-  }
-  if (plan.verification_commands.length === 0) {
-    errors.push(issue("milestone.verify.missing", "Milestone plan must define verification commands"));
-  }
-  if (plan.acceptance_criteria.length === 0) {
-    errors.push(issue("milestone.acceptance.missing", "Milestone plan must define acceptance criteria"));
-  }
-  if (plan.tasks.length === 0) errors.push(issue("milestone.tasks.missing", "Milestone plan must define tasks"));
-  if (plan.waves.length === 0) errors.push(issue("milestone.waves.missing", "Milestone plan must define waves"));
-
-  const taskIds = new Set<string>();
-  for (const task of plan.tasks) {
-    if (taskIds.has(task.id)) errors.push(issue("task.duplicate", `Duplicate task id: ${task.id}`));
-    taskIds.add(task.id);
-    if (!task.worker) errors.push(issue("task.worker.missing", `Task ${task.id} must assign a worker`));
-    if (task.owned_files.length === 0 && task.owned_modules.length === 0) {
-      errors.push(issue("task.ownership.missing", `Task ${task.id} must own files or modules`));
-    }
-  }
-
-  const waveIds = new Set<string>();
-  for (const wave of plan.waves) {
-    if (waveIds.has(wave.id)) errors.push(issue("wave.duplicate", `Duplicate wave id: ${wave.id}`));
-    waveIds.add(wave.id);
-    const owned = new Map<string, string>();
-    for (const taskId of wave.tasks) {
-      const task = plan.tasks.find((candidate) => candidate.id === taskId);
-      if (!task) {
-        errors.push(issue("wave.task.unknown", `Wave ${wave.id} references unknown task ${taskId}`));
-        continue;
-      }
-      for (const owner of [...task.owned_files, ...task.owned_modules]) {
-        const previous = owned.get(owner);
-        if (previous) {
-          errors.push(
-            issue(
-              "wave.ownership.overlap",
-              `Wave ${wave.id} has overlapping ownership for ${owner}: ${previous} and ${task.id}`,
-            ),
-          );
-        }
-        owned.set(owner, task.id);
-      }
-    }
-  }
-}
-
-function validateChangeRequest(change: ChangeRequest, errors: ValidationIssue[]): void {
-  if (change.status !== "draft" && !hasApproval(change.approvals)) {
-    errors.push(issue("change.approval.missing", "Change request implementation requires plan approval"));
-  }
-  validateMilestonePlan(
-    {
-      roadmap_id: change.roadmap_id,
-      milestone_id: change.milestone_id,
-      title: change.title,
-      status: "milestone_approved",
-      approvals: change.approvals,
-      open_questions: [],
-      verification_commands: change.verification_commands,
-      acceptance_criteria: change.acceptance_criteria,
-      cleanup_policy: "approval-gated",
-      tasks: change.tasks,
-      waves: change.waves,
-    },
-    errors,
-  );
 }
 
 async function findOpenBlockingNotes(
@@ -182,13 +103,33 @@ export async function validateRoadmapState(cwd: string): Promise<ValidationResul
     if (phaseIndex(roadmap.phase) >= MILESTONE_APPROVED_INDEX && !hasApproval(state.milestone.approvals)) {
       errors.push(issue("milestone.approval.missing", "Milestone approval must be recorded"));
     }
+    if (roadmap.phase === "complete") {
+      validateCloseoutEvidence(
+        state.closeout,
+        state.milestone.acceptance_criteria,
+        state.milestone.verification_commands,
+        errors,
+        "closeout",
+      );
+    }
   }
 
   if (state.active.change_request_id && !state.changeRequest) {
     errors.push(issue("change.missing", "Active pointer references a missing change request"));
   }
 
-  if (state.changeRequest) validateChangeRequest(state.changeRequest, errors);
+  if (state.changeRequest) {
+    validateChangeRequest(state.changeRequest, errors);
+    if (state.changeRequest.status === "closed") {
+      validateCloseoutEvidence(
+        state.changeRequest.closeout,
+        state.changeRequest.acceptance_criteria,
+        state.changeRequest.verification_commands,
+        errors,
+        "change.closeout",
+      );
+    }
+  }
   errors.push(...(await findOpenBlockingNotes(cwd, state)));
 
   if (roadmap.bypass?.active) {
@@ -206,7 +147,11 @@ export async function validateImplementationGate(cwd: string): Promise<Validatio
   if (state.roadmap.bypass?.active) return result;
 
   const errors: ValidationIssue[] = [...result.errors];
-  if (!["implementing", "reviewing"].includes(state.roadmap.phase)) {
+  const activeChangeApproved =
+    state.changeRequest &&
+    ["approved", "implementing"].includes(state.changeRequest.status) &&
+    ["reviewing", "closeout", "complete"].includes(state.roadmap.phase);
+  if (!activeChangeApproved && !["implementing", "reviewing"].includes(state.roadmap.phase)) {
     errors.push(
       issue(
         "gate.phase.closed",
@@ -217,7 +162,7 @@ export async function validateImplementationGate(cwd: string): Promise<Validatio
   if (!state.milestone || !hasApproval(state.milestone.approvals)) {
     errors.push(issue("gate.milestone.unapproved", "File writes require an approved milestone plan"));
   }
-  if (state.changeRequest && state.changeRequest.status !== "approved" && state.changeRequest.status !== "implementing") {
+  if (state.changeRequest && !["approved", "implementing"].includes(state.changeRequest.status)) {
     errors.push(issue("gate.change.unapproved", "Active change request must be approved before file writes"));
   }
 

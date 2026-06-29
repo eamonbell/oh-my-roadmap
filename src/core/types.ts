@@ -20,6 +20,37 @@ export interface Approval {
   summary: string;
 }
 
+export type EvidenceStatus = "open" | "passed" | "failed" | "deferred";
+
+export interface EvidenceResult {
+  item: string;
+  status: EvidenceStatus;
+  reason?: string;
+  approver?: string;
+  at?: string;
+}
+
+export interface RiskDisposition {
+  risk: string;
+  disposition: "resolved" | "deferred";
+  reason?: string;
+  approver?: string;
+}
+
+export interface CloseoutEvidence {
+  roadmap_id: string;
+  milestone_id: string;
+  change_request_id?: string;
+  status: "open" | "recorded" | "closed";
+  acceptance_results: EvidenceResult[];
+  verification_results: EvidenceResult[];
+  worker_notes_reviewed: boolean;
+  review_summary: string;
+  unresolved_risks: RiskDisposition[];
+  closed_by?: string;
+  closed_at?: string;
+}
+
 export interface ActivePointer {
   roadmap_id: string;
   milestone_id?: string;
@@ -106,6 +137,7 @@ export interface ChangeRequest {
   acceptance_criteria: string[];
   tasks: TaskPlan[];
   waves: WavePlan[];
+  closeout?: CloseoutEvidence;
 }
 
 export interface ValidationIssue {
@@ -125,4 +157,5 @@ export interface LoadedState {
   roadmap?: RoadmapState;
   milestone?: MilestonePlan;
   changeRequest?: ChangeRequest;
+  closeout?: CloseoutEvidence;
 }

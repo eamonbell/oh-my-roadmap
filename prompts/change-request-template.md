@@ -19,5 +19,16 @@ waves: []
 
 ## Context From Actual Implementation
 
-## Change Plan
+## User Interview
 
+Record decisions gathered with the built-in `ask` tool and any questions still open.
+
+## Relevant Existing Code
+
+List repo paths, ownership notes, and changed interfaces that shape this request.
+
+## Relevant Documentation
+
+List project docs, external docs, standards, or API references used while planning.
+
+## Change Plan

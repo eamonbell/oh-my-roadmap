@@ -6,7 +6,7 @@
 
 The extension activates only when a roadmap command creates or resumes `.roadmaps/active.yml`. While no active roadmap exists, normal work is not gated.
 
-When a roadmap is active, direct file-write tools are blocked unless the active state validates and the roadmap is in `implementing` or `reviewing`. Mutating shell commands are not classified or blocked in v1; use them carefully.
+When a roadmap is active, direct file-write tools are blocked unless the active state validates and the roadmap is in an approved implementation state. Mutating shell commands are not classified or blocked in v1; use them carefully.
 
 The canonical phase sequence is:
 
@@ -39,6 +39,9 @@ State is stored under `.roadmaps`:
 
 - Roadmap approval requires recorded repo discovery.
 - External research must be recorded when discovery identifies current-docs or external-API risk.
+- Phase transitions are strict; agents must record discovery, approve the roadmap, plan and approve a milestone, implement, review, close out, then complete in order.
+- Planning agents must use the built-in `ask` tool to interview the user until material decisions, tradeoffs, approvals, gaps, and open questions are closed.
+- Roadmap, milestone, change, review, and closeout artifacts should reference relevant existing code and documentation paths when those references help future agents understand the plan.
 - Roadmaps define phased intent, not full implementation details.
 - Milestone plans must be decision-complete before implementation starts.
 - Milestone plans must include exact verification commands, acceptance criteria, dependency analysis, execution waves, worker assignments, and exclusive file/module ownership.
@@ -49,11 +52,21 @@ State is stored under `.roadmaps`:
 - No worktrees or isolated workspaces.
 - All agents work on the active branch.
 - Same-wave tasks cannot overlap owned files or modules.
+- Each task must appear in exactly one wave.
+- Task dependencies must reference known tasks in earlier waves and must not form cycles.
+- Only one wave may be `running` or `reviewing`; later waves cannot start until earlier waves are complete.
 - A worker that needs an unowned file/module must stop and append a blocking note.
 - Review runs after every wave and at closeout.
 - Blocking review findings stop later waves until resolved or explicitly deferred.
+
+Task and wave progress is recorded with `roadmap_engineer_transition` operations `update_task_status` and `update_wave_status`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
+
+## Closeout Evidence
+
+Milestone completion requires structured closeout evidence in `closeout.md`. Every acceptance criterion and verification command must have a result of `passed` or `deferred`. Deferred items require a reason and approver. Closeout must also confirm worker notes were reviewed, include a review summary, and list any unresolved risks with a disposition.
 
 ## Change Requests
 
 `/change:request` is allowed after implementation has produced changes, including `reviewing`, `closeout`, or `complete`. A change request uses the original milestone plan, actual implementation notes, evidence, and the user request as planning context. Implementation reopens only after the change plan is approved.
 
+Approved change requests may implement from `reviewing`, `closeout`, or `complete` without restoring a previous phase. Closing a change request records its own structured evidence bundle, marks the change `closed`, clears the active change pointer, and preserves the current roadmap phase. The completed milestone remains active so post-completion changes can still target it.

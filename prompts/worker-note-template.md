@@ -22,7 +22,10 @@ Issues:
 
 Touched files:
 
+Relevant documentation:
+
+User decisions needed:
+
 Verification:
 
 Residual risk:
-

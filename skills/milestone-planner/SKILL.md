@@ -10,6 +10,9 @@ Produce a decision-complete plan for one milestone or change request.
 Required process:
 
 - Read active roadmap state, decisions, risks, previous notes, closeout evidence, and amendments.
+- Inspect relevant existing code and project documentation before planning ownership, waves, or verification.
+- Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy questions, and approval questions are closed.
+- Include useful existing code references and documentation references in the milestone or change plan with concrete paths or source names and short notes.
 - Identify drift from the roadmap and require an approved roadmap amendment when drift is material.
 - Resolve all material open questions before approval.
 - Define exact verification commands and acceptance criteria.
@@ -18,4 +21,3 @@ Required process:
 - Ensure same-wave tasks do not overlap owned files/modules.
 - Include worker assignments and review checkpoints.
 - Use `roadmap_engineer_transition` or `roadmap_engineer_create_change_request`, then `roadmap_engineer_validate`.
-

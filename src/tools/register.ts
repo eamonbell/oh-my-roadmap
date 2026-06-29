@@ -43,6 +43,29 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     status: z.enum(["pending", "running", "reviewing", "blocked", "complete"]).default("pending"),
     tasks: z.array(z.string()),
   });
+  const evidenceResultSchema = z.object({
+    item: z.string(),
+    status: z.enum(["open", "passed", "failed", "deferred"]),
+    reason: z.string().optional(),
+    approver: z.string().optional(),
+    at: z.string().optional(),
+  });
+  const riskDispositionSchema = z.object({
+    risk: z.string(),
+    disposition: z.enum(["resolved", "deferred"]),
+    reason: z.string().optional(),
+    approver: z.string().optional(),
+  });
+  const closeoutSchema = z.object({
+    status: z.enum(["open", "recorded", "closed"]),
+    acceptance_results: z.array(evidenceResultSchema),
+    verification_results: z.array(evidenceResultSchema),
+    worker_notes_reviewed: z.boolean(),
+    review_summary: z.string(),
+    unresolved_risks: z.array(riskDispositionSchema),
+    closed_by: z.string().optional(),
+    closed_at: z.string().optional(),
+  });
   const milestoneInputSchema = z.object({
     milestoneId: z.string(),
     title: z.string(),
@@ -96,6 +119,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     approval: "write",
     parameters: z.object({
       operation: z.enum([
+        "record_discovery",
         "approve_roadmap",
         "start_milestone_planning",
         "create_milestone_plan",
@@ -108,10 +132,26 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
         "clear_bypass",
         "approve_change",
         "close_change",
+        "update_task_status",
+        "update_wave_status",
+        "record_closeout",
       ]),
       ...approvalSchema.shape,
       reason: z.string().optional(),
+      discovery: z
+        .object({
+          recorded: z.boolean().optional(),
+          external_research_required: z.boolean().optional(),
+          external_research_recorded: z.boolean().optional(),
+          findings: z.array(z.string()).optional(),
+        })
+        .optional(),
       milestone: milestoneInputSchema.optional(),
+      taskId: z.string().optional(),
+      taskStatus: z.enum(["assigned", "started", "done", "blocked"]).optional(),
+      waveId: z.string().optional(),
+      waveStatus: z.enum(["pending", "running", "reviewing", "blocked", "complete"]).optional(),
+      closeout: closeoutSchema.optional(),
     }),
     async execute(_id, params, _signal, _update, ctx) {
       const input = params as TransitionInput;

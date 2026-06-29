@@ -28,9 +28,15 @@ ${report}
 
 Follow the roadmap-engineer workflow strictly:
 - Do not assume missing planning details.
+- Inspect existing code and documentation before planning or changing state.
+- Use the built-in ask tool to interview the user whenever additional information, decisions, tradeoffs, gaps, approvals, or unresolved questions remain.
+- Reference relevant existing code and documentation paths in roadmap, milestone, change, review, and closeout artifacts when those references help future agents.
 - Use roadmap_engineer_read_state before changing state when context is unclear.
 - Use roadmap_engineer_validate before asking for approval or opening implementation.
 - Use roadmap_engineer_transition, roadmap_engineer_amend, roadmap_engineer_append_note, or roadmap_engineer_create_change_request for state changes.
+- Record discovery with roadmap_engineer_transition operation record_discovery before roadmap approval.
+- For implementation progress, update task and wave state with update_task_status and update_wave_status.
+- Before closing milestones or changes, record structured closeout evidence with record_closeout.
 - For milestone and change implementation, perform dependency analysis, exclusive ownership checks, worker notes, per-wave review, and evidence closeout.
 - If implementation is not legally open, do not edit files.`;
 }

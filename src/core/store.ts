@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import {
   activePointerPath,
   changeRequestPath,
@@ -14,20 +13,33 @@ import {
   roadmapStatePath,
   risksPath,
 } from "./paths";
+import { serializeMarkdownDocument, serializeYaml } from "./frontmatter";
 import {
-  parseMarkdownDocument,
-  parseYaml,
-  serializeMarkdownDocument,
-  serializeYaml,
-} from "./frontmatter";
+  appendText,
+  fileExists,
+  readMarkdownData,
+  readYamlFile,
+  writeMarkdownData,
+  writeText,
+  writeYamlFile,
+} from "./files";
+import {
+  loadMilestoneCloseout,
+  openCloseoutEvidence,
+  validateCloseoutEvidence,
+  writeMilestoneCloseout,
+} from "./closeout";
 import type {
   ActivePointer,
   Approval,
   ChangeRequest,
+  CloseoutEvidence,
   LoadedState,
   MilestonePlan,
   Phase,
   RoadmapState,
+  TaskPlan,
+  WavePlan,
 } from "./types";
 
 export interface InitRoadmapInput {
@@ -72,6 +84,7 @@ export interface CreateChangeRequestInput {
 
 export interface TransitionInput {
   operation:
+    | "record_discovery"
     | "approve_roadmap"
     | "start_milestone_planning"
     | "create_milestone_plan"
@@ -83,11 +96,20 @@ export interface TransitionInput {
     | "request_bypass"
     | "clear_bypass"
     | "approve_change"
-    | "close_change";
+    | "close_change"
+    | "update_task_status"
+    | "update_wave_status"
+    | "record_closeout";
   approver?: string;
   summary?: string;
   reason?: string;
+  discovery?: Partial<RoadmapState["discovery"]>;
   milestone?: CreateMilestonePlanInput;
+  taskId?: string;
+  taskStatus?: TaskPlan["status"];
+  waveId?: string;
+  waveStatus?: WavePlan["status"];
+  closeout?: CloseoutEvidence;
 }
 
 export interface AmendmentInput {
@@ -107,32 +129,6 @@ export function assertSlug(slug: string, field: string): void {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
     throw new Error(`${field} must be a lower-case slug using letters, numbers, and hyphens`);
   }
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readText(filePath: string): Promise<string> {
-  return await fs.readFile(filePath, "utf8");
-}
-
-async function writeText(filePath: string, text: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, text, "utf8");
-}
-
-async function readYamlFile<T>(filePath: string): Promise<T> {
-  return parseYaml<T>(await readText(filePath));
-}
-
-async function writeYamlFile(filePath: string, data: unknown): Promise<void> {
-  await writeText(filePath, serializeYaml(data));
 }
 
 export async function loadActive(cwd: string): Promise<ActivePointer | undefined> {
@@ -159,10 +155,9 @@ export async function loadMilestonePlan(
   roadmapId: string,
   milestoneId: string,
 ): Promise<MilestonePlan> {
-  const doc = parseMarkdownDocument<Record<string, unknown>>(
-    await readText(milestonePlanPath(cwd, roadmapId, milestoneId)),
+  return await readMarkdownData<MilestonePlan>(
+    milestonePlanPath(cwd, roadmapId, milestoneId),
   );
-  return doc.data as unknown as MilestonePlan;
 }
 
 export async function writeMilestonePlan(
@@ -170,9 +165,10 @@ export async function writeMilestonePlan(
   plan: MilestonePlan,
   body: string,
 ): Promise<void> {
-  await writeText(
+  await writeMarkdownData(
     milestonePlanPath(cwd, plan.roadmap_id, plan.milestone_id),
-    serializeMarkdownDocument({ ...plan } as unknown as Record<string, unknown>, body),
+    { ...plan } as unknown as Record<string, unknown>,
+    body,
   );
 }
 
@@ -182,10 +178,9 @@ export async function loadChangeRequest(
   milestoneId: string,
   changeRequestId: string,
 ): Promise<ChangeRequest> {
-  const doc = parseMarkdownDocument<Record<string, unknown>>(
-    await readText(changeRequestPath(cwd, roadmapId, milestoneId, changeRequestId)),
+  return await readMarkdownData<ChangeRequest>(
+    changeRequestPath(cwd, roadmapId, milestoneId, changeRequestId),
   );
-  return doc.data as unknown as ChangeRequest;
 }
 
 export async function loadState(cwd: string): Promise<LoadedState> {
@@ -200,10 +195,15 @@ export async function loadState(cwd: string): Promise<LoadedState> {
     active.milestone_id && active.change_request_id
       ? await loadChangeRequest(cwd, active.roadmap_id, active.milestone_id, active.change_request_id)
       : undefined;
+  const closeout =
+    active.milestone_id && (await fileExists(milestoneCloseoutPath(cwd, active.roadmap_id, active.milestone_id)))
+      ? await loadMilestoneCloseout(cwd, active.roadmap_id, active.milestone_id)
+      : undefined;
 
   const loaded: LoadedState = { active, roadmap };
   if (milestone) loaded.milestone = milestone;
   if (changeRequest) loaded.changeRequest = changeRequest;
+  if (closeout) loaded.closeout = closeout;
   return loaded;
 }
 
@@ -277,11 +277,7 @@ export async function createMilestonePlan(
   await writeText(
     milestoneCloseoutPath(cwd, roadmap.roadmap_id, input.milestoneId),
     serializeMarkdownDocument(
-      {
-        roadmap_id: roadmap.roadmap_id,
-        milestone_id: input.milestoneId,
-        status: "open",
-      },
+      openCloseoutEvidence(roadmap.roadmap_id, input.milestoneId) as unknown as Record<string, unknown>,
       "# Closeout Evidence\n",
     ),
   );
@@ -316,6 +312,62 @@ function setMilestoneStatus(roadmap: RoadmapState, milestoneId: string, status: 
   if (milestone) milestone.status = status;
 }
 
+function requirePhase(actual: Phase, expected: Phase, operation: string): void {
+  if (actual !== expected) {
+    throw new Error(`${operation} requires phase ${expected}; current phase is ${actual}`);
+  }
+}
+
+function requireActiveMilestone(
+  milestoneId: string | undefined,
+  milestone: MilestonePlan | undefined,
+): asserts milestone is MilestonePlan {
+  if (!milestoneId || !milestone) throw new Error("No active milestone");
+}
+
+function requireMilestoneId(milestoneId: string | undefined): string {
+  if (!milestoneId) throw new Error("No active milestone");
+  return milestoneId;
+}
+
+function closeoutOrThrow(
+  evidence: CloseoutEvidence | undefined,
+  acceptance: string[],
+  verification: string[],
+): void {
+  const errors: { code: string; message: string; path?: string }[] = [];
+  validateCloseoutEvidence(evidence, acceptance, verification, errors, "closeout");
+  if (errors.length > 0) {
+    throw new Error(errors[0]?.message ?? "Closeout evidence is invalid");
+  }
+}
+
+async function writeChangeRequest(
+  cwd: string,
+  change: ChangeRequest,
+  body?: string,
+): Promise<void> {
+  await writeMarkdownData(
+    changeRequestPath(cwd, change.roadmap_id, change.milestone_id, change.change_request_id),
+    { ...change } as unknown as Record<string, unknown>,
+    body ?? `# ${change.title}\n\n${change.request}\n`,
+  );
+}
+
+async function writeActivePointer(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string | undefined,
+  changeRequestId?: string,
+): Promise<void> {
+  await writeActive(cwd, {
+    roadmap_id: roadmapId,
+    ...(milestoneId ? { milestone_id: milestoneId } : {}),
+    ...(changeRequestId ? { change_request_id: changeRequestId } : {}),
+    updated_at: nowIso(),
+  });
+}
+
 export async function transition(cwd: string, input: TransitionInput): Promise<LoadedState> {
   const loaded = await loadState(cwd);
   if (!loaded.active || !loaded.roadmap) {
@@ -326,41 +378,99 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   const activeMilestoneId = loaded.active.milestone_id ?? roadmap.active_milestone_id;
 
   switch (input.operation) {
+    case "record_discovery":
+      if (!["discovery", "roadmap_draft"].includes(roadmap.phase)) {
+        throw new Error(`record_discovery requires phase discovery or roadmap_draft; current phase is ${roadmap.phase}`);
+      }
+      roadmap.discovery = {
+        recorded: input.discovery?.recorded ?? true,
+        external_research_required:
+          input.discovery?.external_research_required ?? roadmap.discovery.external_research_required,
+        external_research_recorded:
+          input.discovery?.external_research_recorded ?? roadmap.discovery.external_research_recorded,
+        findings: input.discovery?.findings ?? roadmap.discovery.findings,
+      };
+      roadmap.phase = "roadmap_draft";
+      break;
     case "approve_roadmap":
+      requirePhase(roadmap.phase, "roadmap_draft", input.operation);
+      if (!roadmap.discovery.recorded) throw new Error("Roadmap approval requires recorded repo discovery");
+      if (roadmap.discovery.external_research_required && !roadmap.discovery.external_research_recorded) {
+        throw new Error("Roadmap approval requires recorded external research");
+      }
+      if (roadmap.open_questions.length > 0) {
+        throw new Error("Roadmap approval requires all material questions to be resolved");
+      }
       roadmap.phase = "roadmap_approved";
       roadmap.approvals.push(approval(input.approver, input.summary));
       break;
     case "start_milestone_planning":
+      requirePhase(roadmap.phase, "roadmap_approved", input.operation);
       roadmap.phase = "milestone_planning";
       break;
     case "create_milestone_plan":
+      requirePhase(roadmap.phase, "milestone_planning", input.operation);
       if (!input.milestone) throw new Error("create_milestone_plan requires milestone input");
       await createMilestonePlan(cwd, roadmap, input.milestone);
       return await loadState(cwd);
     case "approve_milestone": {
-      if (!activeMilestoneId || !loaded.milestone) throw new Error("No active milestone to approve");
+      requirePhase(roadmap.phase, "milestone_planning", input.operation);
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const milestoneId = requireMilestoneId(activeMilestoneId);
       const plan = { ...loaded.milestone, status: "milestone_approved" as Phase };
+      if (plan.open_questions.length > 0) throw new Error("Milestone approval requires open questions to be resolved");
+      if (plan.approvals.length > 0) throw new Error("Milestone is already approved");
       plan.approvals.push(approval(input.approver, input.summary));
       await writeMilestonePlan(cwd, plan, `# ${plan.title}\n\nDecision-complete milestone plan.\n`);
       roadmap.phase = "milestone_approved";
-      setMilestoneStatus(roadmap, activeMilestoneId, "milestone_approved");
+      setMilestoneStatus(roadmap, milestoneId, "milestone_approved");
       break;
     }
-    case "start_implementation":
+    case "start_implementation": {
+      if (loaded.changeRequest) {
+        if (!["reviewing", "closeout", "complete"].includes(roadmap.phase)) {
+          throw new Error("Change implementation can start only from reviewing, closeout, or complete");
+        }
+        if (!["approved", "implementing"].includes(loaded.changeRequest.status)) {
+          throw new Error("Change implementation requires an approved change request");
+        }
+        const change = { ...loaded.changeRequest, status: "implementing" as const };
+        await writeChangeRequest(cwd, change);
+        break;
+      }
+      requirePhase(roadmap.phase, "milestone_approved", input.operation);
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const milestoneId = requireMilestoneId(activeMilestoneId);
+      if (loaded.milestone.approvals.length === 0) throw new Error("Implementation requires milestone approval");
       roadmap.phase = "implementing";
-      if (activeMilestoneId) setMilestoneStatus(roadmap, activeMilestoneId, "implementing");
+      setMilestoneStatus(roadmap, milestoneId, "implementing");
       break;
+    }
     case "start_reviewing":
+      requirePhase(roadmap.phase, "implementing", input.operation);
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const reviewingMilestoneId = requireMilestoneId(activeMilestoneId);
       roadmap.phase = "reviewing";
-      if (activeMilestoneId) setMilestoneStatus(roadmap, activeMilestoneId, "reviewing");
+      setMilestoneStatus(roadmap, reviewingMilestoneId, "reviewing");
       break;
     case "start_closeout":
+      requirePhase(roadmap.phase, "reviewing", input.operation);
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const closeoutMilestoneId = requireMilestoneId(activeMilestoneId);
       roadmap.phase = "closeout";
-      if (activeMilestoneId) setMilestoneStatus(roadmap, activeMilestoneId, "closeout");
+      setMilestoneStatus(roadmap, closeoutMilestoneId, "closeout");
       break;
     case "complete_milestone":
+      requirePhase(roadmap.phase, "closeout", input.operation);
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const completedMilestoneId = requireMilestoneId(activeMilestoneId);
+      closeoutOrThrow(
+        loaded.closeout,
+        loaded.milestone.acceptance_criteria,
+        loaded.milestone.verification_commands,
+      );
       roadmap.phase = "complete";
-      if (activeMilestoneId) setMilestoneStatus(roadmap, activeMilestoneId, "complete");
+      setMilestoneStatus(roadmap, completedMilestoneId, "complete");
       break;
     case "request_bypass":
       if (!input.reason) throw new Error("Bypass requires a reason");
@@ -378,31 +488,115 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       if (!loaded.changeRequest || !activeMilestoneId) {
         throw new Error("No active change request to approve");
       }
+      if (loaded.changeRequest.status !== "draft") throw new Error("Only draft change requests can be approved");
       const change = {
         ...loaded.changeRequest,
         status: "approved" as const,
         approvals: [...loaded.changeRequest.approvals, approval(input.approver, input.summary)],
       };
-      await writeText(
-        changeRequestPath(cwd, roadmap.roadmap_id, activeMilestoneId, change.change_request_id),
-        serializeMarkdownDocument({ ...change } as unknown as Record<string, unknown>, `# ${change.title}\n\n${change.request}\n`),
-      );
+      await writeChangeRequest(cwd, change);
       break;
     }
-    case "close_change":
+    case "close_change": {
+      if (!loaded.changeRequest || !activeMilestoneId) throw new Error("No active change request to close");
+      const milestoneId = requireMilestoneId(activeMilestoneId);
+      if (!loaded.changeRequest.closeout) throw new Error("Change closeout evidence is required");
+      closeoutOrThrow(
+        loaded.changeRequest.closeout,
+        loaded.changeRequest.acceptance_criteria,
+        loaded.changeRequest.verification_commands,
+      );
+      const change = { ...loaded.changeRequest, status: "closed" as const };
+      await writeChangeRequest(cwd, change);
       delete roadmap.active_change_request_id;
-      await writeActive(cwd, {
-        roadmap_id: roadmap.roadmap_id,
-        ...(activeMilestoneId ? { milestone_id: activeMilestoneId } : {}),
-        updated_at: nowIso(),
-      });
+      await writeActivePointer(cwd, roadmap.roadmap_id, milestoneId);
       break;
+    }
+    case "update_task_status": {
+      if (!input.taskId || !input.taskStatus) throw new Error("update_task_status requires taskId and taskStatus");
+      if (loaded.changeRequest) {
+        const tasks = updateTaskStatus(loaded.changeRequest.tasks, input.taskId, input.taskStatus);
+        await writeChangeRequest(cwd, { ...loaded.changeRequest, tasks });
+        break;
+      }
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const tasks = updateTaskStatus(loaded.milestone.tasks, input.taskId, input.taskStatus);
+      await writeMilestonePlan(cwd, { ...loaded.milestone, tasks }, `# ${loaded.milestone.title}\n\nDecision-complete milestone plan.\n`);
+      break;
+    }
+    case "update_wave_status": {
+      if (!input.waveId || !input.waveStatus) throw new Error("update_wave_status requires waveId and waveStatus");
+      if (loaded.changeRequest) {
+        const waves = updateWaveStatus(loaded.changeRequest.waves, input.waveId, input.waveStatus);
+        await writeChangeRequest(cwd, { ...loaded.changeRequest, waves });
+        break;
+      }
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const waves = updateWaveStatus(loaded.milestone.waves, input.waveId, input.waveStatus);
+      await writeMilestonePlan(cwd, { ...loaded.milestone, waves }, `# ${loaded.milestone.title}\n\nDecision-complete milestone plan.\n`);
+      break;
+    }
+    case "record_closeout": {
+      if (!input.closeout) throw new Error("record_closeout requires closeout evidence");
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      const milestoneId = requireMilestoneId(activeMilestoneId);
+      const evidence = {
+        ...input.closeout,
+        roadmap_id: roadmap.roadmap_id,
+        milestone_id: milestoneId,
+        status: input.closeout.status,
+        ...(input.closeout.status === "closed" && !input.closeout.closed_at
+          ? { closed_at: nowIso() }
+          : {}),
+      };
+      if (loaded.changeRequest) {
+        const changeEvidence = {
+          ...evidence,
+          change_request_id: loaded.changeRequest.change_request_id,
+        };
+        const change = { ...loaded.changeRequest, closeout: changeEvidence };
+        await writeChangeRequest(cwd, change);
+        break;
+      }
+      await writeMilestoneCloseout(cwd, evidence);
+      break;
+    }
     default:
       input.operation satisfies never;
   }
 
   await writeRoadmapState(cwd, roadmap);
   return await loadState(cwd);
+}
+
+function updateTaskStatus(
+  tasks: TaskPlan[],
+  taskId: string,
+  status: TaskPlan["status"],
+): TaskPlan[] {
+  let found = false;
+  const updated = tasks.map((task) => {
+    if (task.id !== taskId) return task;
+    found = true;
+    return { ...task, status };
+  });
+  if (!found) throw new Error(`Unknown task: ${taskId}`);
+  return updated;
+}
+
+function updateWaveStatus(
+  waves: WavePlan[],
+  waveId: string,
+  status: WavePlan["status"],
+): WavePlan[] {
+  let found = false;
+  const updated = waves.map((wave) => {
+    if (wave.id !== waveId) return wave;
+    found = true;
+    return { ...wave, status };
+  });
+  if (!found) throw new Error(`Unknown wave: ${waveId}`);
+  return updated;
 }
 
 export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
@@ -426,7 +620,7 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
   };
   const entry = `\n---\n${serializeYaml(metadata).trimEnd()}\n---\n\n## ${input.title}\n\n${input.body.trimEnd()}\n`;
   const filePath = milestoneNotesPath(cwd, roadmapId, milestoneId);
-  await fs.appendFile(filePath, entry, "utf8");
+  await appendText(filePath, entry);
   return filePath;
 }
 
@@ -443,7 +637,7 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
   const entry = `\n## ${input.title}\n\n- Scope: ${input.scope}\n- Material: ${input.material ? "yes" : "no"}\n- ${approvedLine}\n- At: ${nowIso()}\n\n${input.body.trimEnd()}\n`;
 
   if (input.scope === "roadmap") {
-    await fs.appendFile(decisionsPath(cwd, loaded.active.roadmap_id), entry, "utf8");
+    await appendText(decisionsPath(cwd, loaded.active.roadmap_id), entry);
     return decisionsPath(cwd, loaded.active.roadmap_id);
   }
 

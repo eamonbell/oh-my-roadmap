@@ -14,6 +14,18 @@ waves: []
 
 # Example Milestone
 
+## User Interview
+
+Record decisions gathered with the built-in `ask` tool and any questions still open.
+
+## Relevant Existing Code
+
+List repo paths, ownership notes, and interfaces that shape this milestone.
+
+## Relevant Documentation
+
+List project docs, external docs, standards, or API references used while planning.
+
 ## Decisions
 
 ## Dependency Analysis
@@ -21,4 +33,3 @@ waves: []
 ## Execution Waves
 
 ## Verification
-

@@ -14,5 +14,10 @@ Findings:
 
 Blocking findings:
 
-Deferrals:
+Relevant existing code:
 
+Relevant documentation:
+
+User decisions needed:
+
+Deferrals:

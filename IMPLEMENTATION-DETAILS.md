@@ -78,7 +78,7 @@ Implemented phase sequence:
 discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> milestone_approved -> implementing -> reviewing -> closeout -> complete
 ```
 
-Current implementation uses this phase list as the canonical `Phase` union. Transition operations can move the roadmap through approval, planning, implementation, review, closeout, completion, bypass, and change-request states.
+Current implementation uses this phase list as the canonical `Phase` union. Transition operations enforce the legal phase sequence before writing state, with an explicit exception for approved change-request implementation from `reviewing`, `closeout`, or `complete`.
 
 Milestone plans contain:
 
@@ -111,7 +111,19 @@ Waves contain:
 - `status`
 - `tasks`
 
-Change requests contain the milestone linkage, request text, approval list, verification commands, acceptance criteria, tasks, and waves. Only one active change request is allowed.
+Closeout evidence contains:
+
+- `status`
+- `acceptance_results`
+- `verification_results`
+- `worker_notes_reviewed`
+- `review_summary`
+- `unresolved_risks`
+- optional closed metadata
+
+Milestone completion requires every acceptance criterion and verification command to be `passed` or `deferred`. Deferred results require a reason and approver.
+
+Change requests contain the milestone linkage, request text, approval list, verification commands, acceptance criteria, tasks, waves, and optional closeout evidence. Only one active change request is allowed.
 
 ## Custom Tools
 
@@ -126,6 +138,7 @@ Implemented model-callable tools:
 
 - `roadmap_engineer_transition`
   - Supports operations:
+    - `record_discovery`
     - `approve_roadmap`
     - `start_milestone_planning`
     - `create_milestone_plan`
@@ -138,6 +151,9 @@ Implemented model-callable tools:
     - `clear_bypass`
     - `approve_change`
     - `close_change`
+    - `update_task_status`
+    - `update_wave_status`
+    - `record_closeout`
 
 - `roadmap_engineer_append_note`
   - Appends immutable Markdown note entries to the active milestone `notes.md`.
@@ -328,6 +344,13 @@ Covered scenarios:
 - Rejects overlapping owned file/module ownership in the same wave.
 - Blocks open blocking notes until resolved or deferred.
 - Creates and gates approved post-implementation change requests.
+- Enforces strict legal and illegal phase transitions.
+- Tracks task and wave status updates.
+- Rejects duplicate wave membership, unknown dependencies, dependency cycles, same/later-wave dependencies, multiple active waves, and out-of-order waves.
+- Requires structured closeout evidence before milestone completion.
+- Allows approved closeout deferrals with reason and approver.
+- Marks closed change requests as `closed`, clears the active change pointer, and preserves the roadmap phase.
+- Proves bypass suppresses only file-write gate errors, not invalid state.
 - Renders reports.
 - Blocks direct file-write tool calls while allowing `bash`.
 - Test reset helper removes `.roadmaps`.
@@ -344,7 +367,7 @@ omp --extension . -p '/extensions'
 Observed verification status at implementation completion:
 
 - `bun run check`: passed.
-- `bun test`: passed, 8 tests, 0 failures.
+- `bun test`: passed, 16 tests, 0 failures.
 - `bun run verify`: passed.
 - `omp --extension . -p '/extensions'`: passed with unsandboxed OMP database access and listed the `roadmap_engineer_*` tools.
 
@@ -359,13 +382,9 @@ Observed verification status at implementation completion:
 ## Known Gaps And Follow-Up Planning Targets
 
 - Shell mutation enforcement is intentionally out of scope for v1.
-- The current state transitions are permissive; they do not enforce every legal previous-phase transition before writing the next phase.
 - The command prompt files under `commands/prompts/` are documentation/reference; executable commands are registered programmatically.
 - Templates are not yet used as render sources by `store.ts`.
 - Worker subagent dispatch is guided by prompts/skills and OMP task usage, not implemented as a custom scheduler.
 - Role model/thinking configuration was planned but not implemented as a config file or runtime setting.
-- Closeout evidence is scaffolded but not deeply validated against every acceptance criterion.
-- Change-request closeout records state, but does not yet rewrite the change request status to `closed`.
 - There is no dedicated report parser for decisions/risks; they are append/read artifacts for planners.
 - There is no marketplace or project-scope installer metadata beyond the local OMP extension package layout.
-
