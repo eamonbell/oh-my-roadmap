@@ -34,11 +34,19 @@ function sectionRefs(entries: ContextEntryResult[] | undefined): SectionReferenc
 
 function roadmapSummary(roadmap: RoadmapState | undefined): Record<string, unknown> | undefined {
   if (!roadmap) return undefined;
+  const check = roadmap.roadmap_milestone_check;
+  const checkStatus = roadmap.phase === "roadmap_draft" && check.status !== "pending" && (
+    check.roadmap_revision !== roadmap.roadmap_revision ||
+    check.roadmap_content_hash !== roadmap.roadmap_content_hash
+  ) ? "stale" : check.status;
   return {
     roadmap_id: roadmap.roadmap_id,
     title: roadmap.title,
     phase: roadmap.phase,
     roadmap_finalized: roadmap.roadmap_finalized,
+    roadmap_revision: roadmap.roadmap_revision,
+    roadmap_content_hash: roadmap.roadmap_content_hash,
+    roadmap_milestone_check_status: checkStatus,
     roadmap_milestone_check: roadmap.roadmap_milestone_check,
     open_questions: roadmap.open_questions,
     active_milestone_id: roadmap.active_milestone_id,

@@ -5,6 +5,7 @@ import {
   appendNote,
   createChangeRequest,
   initRoadmap,
+  listQualityGates,
   loadState,
   transition,
   updateRoadmap,
@@ -12,6 +13,7 @@ import {
   type AppendNoteInput,
   type CreateChangeRequestInput,
   type InitRoadmapInput,
+  type ListQualityGatesInput,
   type TransitionInput,
   type UpdateRoadmapInput,
 } from "../core/store";
@@ -294,6 +296,23 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     }),
     async execute(_id, params, _signal, _update, ctx) {
       const result = await readRoadmapEvents(ctx.cwd, params as ReadRoadmapEventsInput);
+      return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_list_quality_gates",
+    label: "List Quality Gates",
+    description: "Read the current quality gate state and durable quality_gate.recorded history.",
+    approval: "read",
+    parameters: z.object({
+      roadmapId: z.string().optional(),
+      gate: z.enum(["roadmap_milestone_check", "wave_flow_check"]).optional(),
+      status: z.enum(["pending", "passed", "failed"]).optional(),
+      limit: z.number().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await listQualityGates(ctx.cwd, params as ListQualityGatesInput);
       return textResult(JSON.stringify(result, null, 2), result);
     },
   } as ToolDefinition);

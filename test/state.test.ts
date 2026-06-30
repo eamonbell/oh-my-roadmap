@@ -9,6 +9,7 @@ import {
   createChangeRequest,
   initRoadmap,
   loadState,
+  listQualityGates,
   renderRoadmapMarkdown,
   resetRoadmapStateForTest,
   transition,
@@ -307,7 +308,7 @@ describe("roadmap state lifecycle", () => {
     await updateRoadmap(cwd, roadmapInput());
 
     let validation = await validateRoadmapState(cwd);
-    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.not_passed");
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.pending");
     await expect(
       transition(cwd, { operation: "approve_roadmap", approver: "user" }),
     ).rejects.toThrow("passed roadmap-milestone check");
@@ -331,7 +332,7 @@ describe("roadmap state lifecycle", () => {
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
   });
 
-  test("draft roadmap updates reset roadmap-milestone check state", async () => {
+  test("draft roadmap updates make the previous roadmap-milestone check stale", async () => {
     await initRoadmap(cwd, { roadmapId: "reset-check-roadmap", title: "Reset Check Roadmap" });
     await transition(cwd, {
       operation: "record_discovery",
@@ -339,19 +340,53 @@ describe("roadmap state lifecycle", () => {
     });
     await updateRoadmap(cwd, roadmapInput());
     await recordPassedRoadmapMilestoneCheck();
+    const checked = await loadState(cwd);
+    const checkedRevision = checked.roadmap?.roadmap_milestone_check.roadmap_revision;
 
     await updateRoadmap(cwd, roadmapInput({
       goal: "Refactor roadmap-engineer state safely after checker rerun.",
     }));
 
     const state = await loadState(cwd);
-    expect(state.roadmap?.roadmap_milestone_check.status).toBe("pending");
+    expect(state.roadmap?.roadmap_revision).toBe((checkedRevision ?? 0) + 1);
+    expect(state.roadmap?.roadmap_milestone_check.status).toBe("passed");
+    expect(state.roadmap?.roadmap_milestone_check.roadmap_revision).toBe(checkedRevision);
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.stale");
     await expect(
       transition(cwd, { operation: "approve_roadmap", approver: "user" }),
-    ).rejects.toThrow("passed roadmap-milestone check");
+    ).rejects.toThrow("current roadmap revision");
 
     await recordPassedRoadmapMilestoneCheck("Rerun roadmap milestone check passed.");
+    const refreshed = await loadState(cwd);
+    expect(refreshed.roadmap?.roadmap_milestone_check.roadmap_revision).toBe(refreshed.roadmap?.roadmap_revision);
+    expect(refreshed.roadmap?.roadmap_milestone_check.roadmap_content_hash).toBe(refreshed.roadmap?.roadmap_content_hash);
+    expect(refreshed.roadmap?.roadmap_milestone_check.event_id).toMatch(/^evt_/);
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+  });
+
+  test("preserves failed roadmap-milestone check findings in quality gate history", async () => {
+    await initRoadmap(cwd, { roadmapId: "failed-history-roadmap", title: "Failed History Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput());
+    await transition(cwd, {
+      operation: "record_roadmap_milestone_check",
+      roadmapMilestoneCheck: {
+        status: "failed",
+        checkedBy: "roadmap-milestone-checker",
+        summary: "Milestone sequence is incomplete.",
+        findings: ["m01-core lacks rollout evidence."],
+      },
+    });
+    await recordPassedRoadmapMilestoneCheck("Roadmap milestone check passed after revision.");
+
+    const gates = await listQualityGates(cwd, { gate: "roadmap_milestone_check" });
+    expect(gates.current).toMatchObject({ status: "passed" });
+    expect(gates.history.map((event) => event.details?.gate_status)).toEqual(["failed", "passed"]);
+    expect(gates.history[0]?.details?.findings).toEqual(["m01-core lacks rollout evidence."]);
   });
 
   test("reopens an approved roadmap and requires regenerated approval", async () => {

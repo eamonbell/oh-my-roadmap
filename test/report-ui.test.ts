@@ -36,6 +36,16 @@ const summary: RoadmapDetailSummary = {
     active: false,
     label: "inactive",
   },
+  qualityGate: {
+    gate: "roadmap_milestone_check",
+    status: "passed",
+    label: "passed (checked revision 1, current revision 1)",
+    roadmapRevision: 1,
+    checkedRevision: 1,
+    roadmapContentHash: "sha256:current",
+    checkedContentHash: "sha256:current",
+    eventId: "evt_test",
+  },
   validation: {
     valid: true,
     status: "valid",

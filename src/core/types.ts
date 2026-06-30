@@ -96,7 +96,9 @@ export interface RoadmapState {
   created_at: string;
   updated_at: string;
   roadmap_finalized: boolean;
-  roadmap_milestone_check: WaveFlowCheck;
+  roadmap_revision: number;
+  roadmap_content_hash: string;
+  roadmap_milestone_check: RoadmapMilestoneCheck;
   goal: string;
   success_criteria: string[];
   constraints: string[];
@@ -127,6 +129,12 @@ export interface WaveFlowCheck {
   checked_at: string;
   summary: string;
   findings: string[];
+}
+
+export interface RoadmapMilestoneCheck extends WaveFlowCheck {
+  roadmap_revision: number;
+  roadmap_content_hash: string;
+  event_id: string;
 }
 
 export interface TaskPlan {

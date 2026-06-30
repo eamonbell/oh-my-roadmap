@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -34,7 +35,7 @@ import {
   validateCloseoutEvidence,
   writeMilestoneCloseout,
 } from "./closeout";
-import { appendRoadmapEvent } from "./events";
+import { appendRoadmapEvent, readRoadmapEvents } from "./events";
 import type {
   ActivePointer,
   Approval,
@@ -45,6 +46,8 @@ import type {
   LoadedState,
   MilestonePlan,
   Phase,
+  RoadmapEvent,
+  RoadmapMilestoneCheck,
   RoadmapMilestoneOutline,
   RoadmapEventScope,
   RoadmapState,
@@ -127,6 +130,18 @@ export interface WaveFlowCheckInput {
   checkedBy?: string;
   summary?: string;
   findings?: string[];
+}
+
+export interface ListQualityGatesInput {
+  roadmapId?: string;
+  gate?: "roadmap_milestone_check" | "wave_flow_check";
+  status?: WaveFlowCheckStatus;
+  limit?: number;
+}
+
+export interface ListQualityGatesResult {
+  current?: WaveFlowCheck | RoadmapMilestoneCheck;
+  history: RoadmapEvent[];
 }
 
 export interface TransitionInput {
@@ -250,6 +265,9 @@ function roadmapMilestoneCheckSnapshot(loaded: LoadedState): Record<string, unkn
     status: check?.status ?? null,
     checked_by: check?.checked_by ?? "",
     checked_at: check?.checked_at ?? "",
+    roadmap_revision: check?.roadmap_revision ?? null,
+    roadmap_content_hash: check?.roadmap_content_hash ?? "",
+    event_id: check?.event_id ?? "",
   };
 }
 
@@ -344,7 +362,7 @@ function transitionEventType(operation: TransitionInput["operation"]): string {
   }
 }
 
-function transitionDetails(input: TransitionInput): Record<string, unknown> | undefined {
+function transitionDetails(input: TransitionInput, after?: LoadedState): Record<string, unknown> | undefined {
   const details: Record<string, unknown> = {};
   if (input.summary) details.summary = input.summary;
   if (input.reason) details.reason = input.reason;
@@ -354,6 +372,13 @@ function transitionDetails(input: TransitionInput): Record<string, unknown> | un
   if (input.closeout) details.closeout_status = input.closeout.status;
   if (input.waveFlowCheck) details.gate_status = input.waveFlowCheck.status;
   if (input.roadmapMilestoneCheck) details.gate_status = input.roadmapMilestoneCheck.status;
+  if (input.operation === "record_roadmap_milestone_check" && after?.roadmap) {
+    const check = after.roadmap.roadmap_milestone_check;
+    details.roadmap_revision = check.roadmap_revision;
+    details.roadmap_content_hash = check.roadmap_content_hash;
+    details.summary = check.summary;
+    details.findings = check.findings;
+  }
   return Object.keys(details).length > 0 ? details : undefined;
 }
 
@@ -381,9 +406,9 @@ async function appendTransitionEvent(
   input: TransitionInput,
   before: LoadedState,
   after: LoadedState,
-): Promise<void> {
-  const details = transitionDetails(input);
-  await appendRoadmapEvent(cwd, {
+): Promise<RoadmapEvent> {
+  const details = transitionDetails(input, after);
+  return await appendRoadmapEvent(cwd, {
     actor: transitionActor(input),
     type: transitionEventType(input.operation),
     operation: input.operation,
@@ -423,6 +448,19 @@ function pendingWaveFlowCheck(): WaveFlowCheck {
     checked_at: "",
     summary: "",
     findings: [],
+  };
+}
+
+export function roadmapContentHash(state: RoadmapState): string {
+  return `sha256:${crypto.createHash("sha256").update(renderRoadmapMarkdown(state)).digest("hex")}`;
+}
+
+function pendingRoadmapMilestoneCheck(roadmapRevision: number, roadmapContentHash: string): RoadmapMilestoneCheck {
+  return {
+    ...pendingWaveFlowCheck(),
+    roadmap_revision: roadmapRevision,
+    roadmap_content_hash: roadmapContentHash,
+    event_id: "",
   };
 }
 
@@ -503,8 +541,13 @@ function recordedWaveFlowCheck(input: WaveFlowCheckInput): WaveFlowCheck {
   return recordedCheck(input, "wave-flow-checker");
 }
 
-function recordedRoadmapMilestoneCheck(input: WaveFlowCheckInput): WaveFlowCheck {
-  return recordedCheck(input, "roadmap-milestone-checker");
+function recordedRoadmapMilestoneCheck(input: WaveFlowCheckInput, roadmap: RoadmapState): RoadmapMilestoneCheck {
+  return {
+    ...recordedCheck(input, "roadmap-milestone-checker"),
+    roadmap_revision: roadmap.roadmap_revision,
+    roadmap_content_hash: roadmap.roadmap_content_hash,
+    event_id: "",
+  };
 }
 
 function normalizeWaveFlowCheck(value: unknown): WaveFlowCheck {
@@ -517,6 +560,19 @@ function normalizeWaveFlowCheck(value: unknown): WaveFlowCheck {
     checked_at: valueString(raw.checked_at),
     summary: valueString(raw.summary),
     findings: valueList(raw.findings),
+  };
+}
+
+function normalizeRoadmapMilestoneCheck(value: unknown, roadmapRevision: number, roadmapContentHash: string): RoadmapMilestoneCheck {
+  const check = normalizeWaveFlowCheck(value);
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<RoadmapMilestoneCheck>
+    : {};
+  return {
+    ...check,
+    roadmap_revision: Number.isFinite(raw.roadmap_revision) ? Number(raw.roadmap_revision) : roadmapRevision,
+    roadmap_content_hash: valueString(raw.roadmap_content_hash) || roadmapContentHash,
+    event_id: valueString(raw.event_id),
   };
 }
 
@@ -605,11 +661,18 @@ function normalizeChangeRequest(change: ChangeRequest): ChangeRequest {
 }
 
 function normalizeRoadmapState(state: RoadmapState): RoadmapState {
-  return {
+  const raw = state as unknown as Record<string, unknown>;
+  const roadmapRevision = Number.isFinite(raw.roadmap_revision) ? Number(raw.roadmap_revision) : 0;
+  const withoutCheck = {
     ...state,
-    roadmap_milestone_check: normalizeWaveFlowCheck(
-      (state as unknown as Record<string, unknown>).roadmap_milestone_check,
-    ),
+    roadmap_revision: roadmapRevision,
+    roadmap_content_hash: valueString(raw.roadmap_content_hash),
+  };
+  const roadmapContent = withoutCheck.roadmap_content_hash || roadmapContentHash(withoutCheck);
+  return {
+    ...withoutCheck,
+    roadmap_content_hash: roadmapContent,
+    roadmap_milestone_check: normalizeRoadmapMilestoneCheck(raw.roadmap_milestone_check, roadmapRevision, roadmapContent),
   };
 }
 
@@ -883,8 +946,17 @@ async function assertRoadmapReadyForApproval(cwd: string, roadmap: RoadmapState)
   const expected = renderRoadmapMarkdown(roadmap);
   const actual = await readText(roadmapDocPath(cwd, roadmap.roadmap_id));
   if (actual !== expected) throw new Error("Roadmap approval requires generated roadmap.md to match state");
+  if (roadmap.roadmap_content_hash !== roadmapContentHash(roadmap)) {
+    throw new Error("Roadmap approval requires roadmap content hash to match generated roadmap state");
+  }
   if (roadmap.roadmap_milestone_check.status !== "passed") {
     throw new Error("Roadmap approval requires a passed roadmap-milestone check");
+  }
+  if (roadmap.roadmap_milestone_check.roadmap_revision !== roadmap.roadmap_revision) {
+    throw new Error("Roadmap approval requires a roadmap-milestone check for the current roadmap revision");
+  }
+  if (roadmap.roadmap_milestone_check.roadmap_content_hash !== roadmap.roadmap_content_hash) {
+    throw new Error("Roadmap approval requires a roadmap-milestone check for the current roadmap content hash");
   }
   if (roadmap.roadmap_milestone_check.checked_by.trim() === "") {
     throw new Error("Passed roadmap-milestone check must record who checked it");
@@ -916,6 +988,7 @@ export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<
 export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
   await withStoreWriteLock(cwd, async () => {
     state.updated_at = nowIso();
+    state.roadmap_content_hash = roadmapContentHash(state);
     await writeYamlFile(roadmapStatePath(cwd, state.roadmap_id), state);
     if (state.roadmap_finalized) {
       await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
@@ -984,6 +1057,40 @@ export async function loadState(cwd: string): Promise<LoadedState> {
   return loaded;
 }
 
+export async function listQualityGates(cwd: string, input: ListQualityGatesInput = {}): Promise<ListQualityGatesResult> {
+  const gate = input.gate ?? "roadmap_milestone_check";
+  const eventInput = {
+    type: ["quality_gate.recorded"],
+    limit: 500,
+    ...(input.roadmapId ? { roadmapId: input.roadmapId } : {}),
+  };
+  const result = await readRoadmapEvents(cwd, {
+    ...eventInput,
+  });
+  const filteredHistory = result.events.filter((event) => {
+    if (event.scope.gate !== gate) return false;
+    if (input.status === undefined) return true;
+    return event.details?.gate_status === input.status;
+  });
+  const history = input.limit === undefined ? filteredHistory : filteredHistory.slice(-Math.max(0, Math.floor(input.limit)));
+
+  const state = await loadState(cwd);
+  let current: WaveFlowCheck | RoadmapMilestoneCheck | undefined;
+  const roadmapId = input.roadmapId ?? state.active?.roadmap_id;
+  if (gate === "roadmap_milestone_check" && roadmapId) {
+    current = state.roadmap?.roadmap_id === roadmapId
+      ? state.roadmap.roadmap_milestone_check
+      : (await loadRoadmapState(cwd, roadmapId)).roadmap_milestone_check;
+  } else if (gate === "wave_flow_check" && (!input.roadmapId || input.roadmapId === state.active?.roadmap_id)) {
+    current = state.changeRequest?.wave_flow_check ?? state.milestone?.wave_flow_check;
+  }
+
+  return {
+    ...(current ? { current } : {}),
+    history,
+  };
+}
+
 export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
   return await withStoreWriteLock(cwd, async () => {
   assertSlug(input.roadmapId, "roadmapId");
@@ -1001,7 +1108,9 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
     created_at: createdAt,
     updated_at: createdAt,
     roadmap_finalized: false,
-    roadmap_milestone_check: pendingWaveFlowCheck(),
+    roadmap_revision: 0,
+    roadmap_content_hash: "",
+    roadmap_milestone_check: pendingRoadmapMilestoneCheck(0, ""),
     goal: input.summary ?? "",
     success_criteria: [],
     constraints: [],
@@ -1019,6 +1128,8 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
     open_questions: [],
     milestones: [],
   };
+  state.roadmap_content_hash = roadmapContentHash(state);
+  state.roadmap_milestone_check = pendingRoadmapMilestoneCheck(state.roadmap_revision, state.roadmap_content_hash);
 
   await fs.mkdir(roadmapDir(cwd, input.roadmapId), { recursive: true });
   await writeRoadmapState(cwd, state);
@@ -1066,7 +1177,7 @@ export async function updateRoadmap(
   const state: RoadmapState = {
     ...roadmap,
     roadmap_finalized: true,
-    roadmap_milestone_check: pendingWaveFlowCheck(),
+    roadmap_revision: roadmap.roadmap_revision + 1,
     goal: input.goal,
     success_criteria: input.successCriteria,
     constraints: input.constraints,
@@ -1079,6 +1190,10 @@ export async function updateRoadmap(
       status: milestone.status ?? "planned",
     })),
   };
+  state.roadmap_content_hash = roadmapContentHash(state);
+  if (roadmap.roadmap_milestone_check.status === "pending") {
+    state.roadmap_milestone_check = pendingRoadmapMilestoneCheck(state.roadmap_revision, state.roadmap_content_hash);
+  }
 
   await writeRoadmapState(cwd, state);
   await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
@@ -1363,7 +1478,8 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       if (!input.roadmapMilestoneCheck) {
         throw new Error("record_roadmap_milestone_check requires checker input");
       }
-      roadmap.roadmap_milestone_check = recordedRoadmapMilestoneCheck(input.roadmapMilestoneCheck);
+      roadmap.roadmap_content_hash = roadmapContentHash(roadmap);
+      roadmap.roadmap_milestone_check = recordedRoadmapMilestoneCheck(input.roadmapMilestoneCheck, roadmap);
       break;
     case "reopen_roadmap": {
       requirePhase(roadmap.phase, "roadmap_approved", input.operation);
@@ -1376,7 +1492,11 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
 
       roadmap.phase = "roadmap_draft";
       roadmap.roadmap_finalized = false;
-      roadmap.roadmap_milestone_check = pendingWaveFlowCheck();
+      roadmap.roadmap_content_hash = roadmapContentHash(roadmap);
+      roadmap.roadmap_milestone_check = pendingRoadmapMilestoneCheck(
+        roadmap.roadmap_revision,
+        roadmap.roadmap_content_hash,
+      );
       await appendText(
         decisionsPath(cwd, roadmap.roadmap_id),
         `\n## Roadmap Reopened\n\n- Reason: ${reason}\n- At: ${nowIso()}\n\nRoadmap reopened for pre-milestone changes. Regenerate the structured roadmap and require reapproval before milestone planning.\n`,
@@ -1633,7 +1753,12 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
 
   await writeRoadmapState(cwd, roadmap);
   const after = await loadState(cwd);
-  await appendTransitionEvent(cwd, input, beforeEvent, after);
+  const event = await appendTransitionEvent(cwd, input, beforeEvent, after);
+  if (input.operation === "record_roadmap_milestone_check" && after.roadmap) {
+    after.roadmap.roadmap_milestone_check.event_id = event.id;
+    await writeRoadmapState(cwd, after.roadmap);
+    return await loadState(cwd);
+  }
   return after;
   });
   });

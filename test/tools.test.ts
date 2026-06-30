@@ -64,10 +64,12 @@ describe("roadmap context tools", () => {
     const searchTool = tools.get("roadmap_engineer_search_context");
     const readTool = tools.get("roadmap_engineer_read_context");
     const readEventsTool = tools.get("roadmap_engineer_read_events");
+    const listQualityGatesTool = tools.get("roadmap_engineer_list_quality_gates");
     expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
     expect(readEventsTool?.approval).toBe("read");
+    expect(listQualityGatesTool?.approval).toBe("read");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -158,6 +160,7 @@ describe("roadmap context tools", () => {
 
     registerRoadmapTools(api);
     const transitionTool = tools.get("roadmap_engineer_transition");
+    const listQualityGatesTool = tools.get("roadmap_engineer_list_quality_gates");
     expect(transitionTool?.approval).toBe("write");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-transition-tool-"));
@@ -190,8 +193,34 @@ describe("roadmap context tools", () => {
           roadmap_milestone_check: {
             status: "passed",
             checked_by: "roadmap-milestone-checker",
+            roadmap_revision: 1,
           },
         },
+      });
+      expect(JSON.stringify(result?.details)).toContain('"event_id":"evt_');
+
+      const gates = await listQualityGatesTool?.execute(
+        "quality-gates",
+        { gate: "roadmap_milestone_check", status: "passed" },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(gates?.details).toMatchObject({
+        current: {
+          status: "passed",
+          roadmap_revision: 1,
+        },
+        history: [
+          {
+            type: "quality_gate.recorded",
+            scope: { gate: "roadmap_milestone_check" },
+            details: {
+              gate_status: "passed",
+              roadmap_revision: 1,
+            },
+          },
+        ],
       });
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
