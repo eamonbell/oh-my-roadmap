@@ -69,7 +69,7 @@ Implementation resume is driven by a persisted progress cursor on milestone and 
 
 Mutating store operations use `.roadmaps/store.lock` to serialize concurrent writers and write YAML/Markdown state files through atomic replacement. Append-only notes are routed through the same lock so note ordering stays consistent with task, wave, and progress updates.
 
-Large roadmap registers are reviewed through read-only context tools. `roadmap_engineer_search_context` searches active-roadmap notes across all milestones plus roadmap-level decisions and risks, returning snippets and metadata by default. `roadmap_engineer_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
+Large roadmap registers are reviewed through read-only context tools. `roadmap_engineer_read_state` returns compact structured state by default and exposes focused scopes for roadmap, active milestone, active change, and usage orientation. `roadmap_engineer_search_context` searches active-roadmap notes, roadmap sections, plan sections, roadmap-level decisions, and risks, returning snippets and metadata by default. `roadmap_engineer_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
 
 ## Closeout Evidence
 

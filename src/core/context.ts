@@ -23,6 +23,7 @@ export type {
 } from "./context-types";
 
 const DEFAULT_ARTIFACTS: ContextArtifact[] = ["notes", "decisions", "risks"];
+const READ_ARTIFACTS: ContextArtifact[] = ["notes", "decisions", "risks", "roadmap", "plan"];
 const DEFAULT_MAX_RESULTS = 20;
 const DEFAULT_SNIPPET_CHARS = 240;
 const DEFAULT_MAX_BODY_CHARS = 4000;
@@ -126,7 +127,7 @@ function resultFor(
 
 function uniqueArtifacts(artifacts: ContextArtifact[] | undefined): ContextArtifact[] {
   if (!artifacts || artifacts.length === 0) return DEFAULT_ARTIFACTS;
-  return DEFAULT_ARTIFACTS.filter((artifact) => artifacts.includes(artifact));
+  return Array.from(new Set(artifacts));
 }
 
 function matchesFilters(entry: ContextEntry, input: SearchContextInput): boolean {
@@ -175,7 +176,7 @@ export async function searchContext(cwd: string, input: SearchContextInput): Pro
 
 export async function readContext(cwd: string, input: ReadContextInput): Promise<ContextReadResult> {
   const maxBodyChars = positiveNumber(input.maxBodyChars, DEFAULT_MAX_BODY_CHARS);
-  const { roadmapId, entries } = await loadContextEntries(cwd, DEFAULT_ARTIFACTS);
+  const { roadmapId, entries } = await loadContextEntries(cwd, READ_ARTIFACTS);
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   const results: ContextEntryResult[] = [];
   const missingIds: string[] = [];
