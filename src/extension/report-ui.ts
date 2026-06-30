@@ -2,6 +2,8 @@ import { Component, matchesKey, ScrollView, TUI } from "@oh-my-pi/pi-tui";
 import type {
   ActiveRoadmapDetailSummary,
   RoadmapDetailBlocker,
+  RoadmapDetailControl,
+  RoadmapDetailEvent,
   RoadmapDetailIssue,
   RoadmapDetailSummary,
   RoadmapDetailTask,
@@ -21,6 +23,7 @@ const EMPTY_NEXT_ACTION = "Create a roadmap with /roadmap:new.";
 export class RoadmapDetailsView implements Component {
   readonly #summary: RoadmapDetailSummary;
   readonly #done: () => void;
+  readonly #onControl: ((key: string) => void) | undefined;
   readonly #tui: TUI;
 
   readonly #scrollView = new ScrollView([], {
@@ -28,10 +31,11 @@ export class RoadmapDetailsView implements Component {
     scrollbar: "auto",
   });
 
-  constructor(summary: RoadmapDetailSummary, tui: TUI, done: () => void) {
+  constructor(summary: RoadmapDetailSummary, tui: TUI, done: () => void, onControl?: (key: string) => void) {
     this.#summary = summary;
     this.#tui = tui;
     this.#done = done;
+    this.#onControl = onControl;
   }
 
   handleInput(data: string): void {
@@ -45,6 +49,15 @@ export class RoadmapDetailsView implements Component {
     ) {
       this.#done();
       return;
+    }
+
+    if (this.#summary.kind === "active") {
+      const key = data.toLowerCase();
+      const control = this.#summary.availableControls.find((candidate) => candidate.key === key);
+      if (control) {
+        this.#onControl?.(control.key);
+        return;
+      }
     }
 
     if (this.#scrollView.handleScrollKey(data)) {
@@ -153,6 +166,7 @@ function renderHealthRail(summary: ActiveRoadmapDetailSummary): string[] {
     ...keyValueLines("Quality gate", summary.qualityGate.status, RAIL_WIDTH),
     ...keyValueLines("Validation", summary.validation.status, RAIL_WIDTH),
     ...keyValueLines("Gate", summary.gate.status, RAIL_WIDTH),
+    ...keyValueLines("Open blockers", String(summary.roadmapHealth.openBlockerCount), RAIL_WIDTH),
     ...keyValueLines("Issues", issueCountLabel(summary), RAIL_WIDTH),
     "",
     sectionHeader("Context"),
@@ -165,13 +179,22 @@ function renderHealthRail(summary: ActiveRoadmapDetailSummary): string[] {
 function renderMainDetails(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
   return [
     sectionHeader("Next Action"),
-    ...arrowLines(summary.nextAction, contentWidth),
+    ...renderNextAction(summary, contentWidth),
     "",
     sectionHeader("Active Work"),
     ...renderActiveWork(summary, contentWidth),
     "",
+    sectionHeader("Controls"),
+    ...renderControls(summary.availableControls, contentWidth),
+    "",
     sectionHeader("Quality Gate"),
     ...renderQualityGate(summary, contentWidth),
+    "",
+    sectionHeader("Blockers"),
+    ...renderCanonicalBlockers(summary, contentWidth),
+    "",
+    sectionHeader("Recent Events"),
+    ...renderEvents(summary.recentEvents, contentWidth),
     "",
     sectionHeader("Issues"),
     ...renderIssues(summary, contentWidth),
@@ -187,10 +210,25 @@ function renderMainDetails(summary: ActiveRoadmapDetailSummary, contentWidth: nu
   ];
 }
 
+function renderNextAction(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
+  const next = summary.nextAction;
+  const lines = [
+    ...arrowLines(`${next.label}: ${next.description}`, contentWidth),
+    ...keyValueLines("Status", next.status, contentWidth),
+    ...keyValueLines("Safe", next.safe_to_apply ? "yes" : "no", contentWidth),
+  ];
+  if (next.blockers.length > 0) lines.push(...keyValueLines("Blockers", next.blockers.join("; "), contentWidth));
+  if (next.missing_inputs.length > 0) lines.push(...keyValueLines("Missing", next.missing_inputs.join("; "), contentWidth));
+  if (next.tool) lines.push(...keyValueLines("Tool", `${next.tool.name} ${JSON.stringify(next.tool.input)}`, contentWidth));
+  return lines;
+}
+
 function renderActiveWork(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
   const lines = [
     ...keyValueLines("Active wave", summary.waves.active?.label ?? "none", contentWidth),
+    ...keyValueLines("Progress", summary.activeExecution?.progressStep ?? "none", contentWidth),
     ...keyValueLines("Wave counts", waveCountsLabel(summary), contentWidth),
+    ...keyValueLines("Task counts", taskCountsLabel(summary), contentWidth),
     ...keyValueLines("Blockers", summary.blockers.length > 0 ? String(summary.blockers.length) : "none", contentWidth),
   ];
 
@@ -220,8 +258,53 @@ function renderQualityGate(summary: ActiveRoadmapDetailSummary, contentWidth: nu
   if (gate.latestFinding) {
     lines.push(...keyValueLines("Finding", gate.latestFinding, contentWidth));
   }
+  if (gate.history.length > 0) {
+    lines.push(`${s.dim}History${s.reset}`);
+    lines.push(...gate.history.flatMap((event) => eventLines(event, contentWidth)));
+  }
 
   return lines;
+}
+
+function renderControls(controls: RoadmapDetailControl[], contentWidth: number): string[] {
+  if (controls.length === 0) return [`${s.dim}No controls available.${s.reset}`];
+  return controls.flatMap((control) => {
+    const status = control.enabled ? "enabled" : `disabled: ${control.reason ?? "unavailable"}`;
+    const text = `[${control.key}] ${control.label} (${status})`;
+    const lines = bulletLines(text, contentWidth, control.enabled ? s.cyan : s.dim);
+    if (control.tool) {
+      lines.push(...keyValueLines("Tool", `${control.tool.name} ${JSON.stringify(control.tool.input)}`, contentWidth));
+    }
+    if (control.prompt) {
+      const firstLine = control.prompt.split("\n")[0] ?? control.prompt;
+      lines.push(...keyValueLines("Insert", firstLine, contentWidth));
+    }
+    return lines;
+  });
+}
+
+function renderCanonicalBlockers(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
+  const counts = summary.canonicalBlockers.counts;
+  const lines = [
+    ...keyValueLines("Counts", `open ${counts.open}, resolved ${counts.resolved}, deferred ${counts.deferred}`, contentWidth),
+  ];
+  if (summary.canonicalBlockers.open.length === 0) {
+    lines.push(`${s.green}✓${s.reset} No open canonical blockers.`);
+    return lines;
+  }
+  lines.push(...summary.canonicalBlockers.open.flatMap((blocker) =>
+    bulletLines(`${blocker.label}; scope ${JSON.stringify(blocker.scope)}`, contentWidth, s.red)
+  ));
+  return lines;
+}
+
+function renderEvents(events: RoadmapDetailEvent[], contentWidth: number): string[] {
+  if (events.length === 0) return [`${s.dim}No recent events.${s.reset}`];
+  return events.flatMap((event) => eventLines(event, contentWidth));
+}
+
+function eventLines(event: RoadmapDetailEvent, contentWidth: number): string[] {
+  return bulletLines(`${event.at} ${event.type} ${event.id}: ${event.summary}`, contentWidth, s.dim);
 }
 
 function renderIssues(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
@@ -414,6 +497,17 @@ function waveCountsLabel(summary: ActiveRoadmapDetailSummary): string {
     `reviewing ${counts.reviewing}`,
     `blocked ${counts.blocked}`,
     `complete ${counts.complete}`,
+  ].join(", ");
+}
+
+function taskCountsLabel(summary: ActiveRoadmapDetailSummary): string {
+  const counts = summary.activeExecution?.taskCounts;
+  if (!counts) return "none";
+  return [
+    `assigned ${counts.assigned}`,
+    `started ${counts.started}`,
+    `done ${counts.done}`,
+    `blocked ${counts.blocked}`,
   ].join(", ");
 }
 
