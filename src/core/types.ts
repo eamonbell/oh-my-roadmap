@@ -181,6 +181,26 @@ export interface ImplementationProgress {
   updated_at: string;
 }
 
+export interface TaskRuntime {
+  id: string;
+  status: TaskPlan["status"];
+}
+
+export interface WaveRuntime {
+  id: string;
+  status: WavePlan["status"];
+}
+
+export interface PlanRuntime {
+  tasks: TaskRuntime[];
+  waves: WaveRuntime[];
+  progress: ImplementationProgress;
+  wave_flow_check: WaveFlowCheck;
+}
+
+export type MilestoneRuntime = PlanRuntime;
+export type ChangeRequestRuntime = PlanRuntime;
+
 export interface MilestonePlan {
   roadmap_id: string;
   milestone_id: string;

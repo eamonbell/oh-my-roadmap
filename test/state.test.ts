@@ -18,7 +18,16 @@ import {
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
 } from "../src/core/store";
-import { decisionsPath, milestoneNotesPath, milestonePlanPath, roadmapDocPath, storeLockPath } from "../src/core/paths";
+import {
+  changeRequestPath,
+  changeRequestRuntimePath,
+  decisionsPath,
+  milestoneNotesPath,
+  milestonePlanPath,
+  milestoneRuntimePath,
+  roadmapDocPath,
+  storeLockPath,
+} from "../src/core/paths";
 import type { CloseoutEvidence } from "../src/core/types";
 import { validateImplementationGate, validateRoadmapState } from "../src/core/validation";
 import { summarizeState } from "../src/core/state-summary";
@@ -741,7 +750,7 @@ describe("roadmap state lifecycle", () => {
     await expect(transition(cwd, { operation: "approve_milestone" })).rejects.toThrow("passed wave-flow check");
   });
 
-  test("renders generated milestone markdown and updates implementation progress", async () => {
+  test("writes milestone runtime and overlays implementation progress", async () => {
     await approvedRoadmap();
     await transition(cwd, { operation: "start_milestone_planning" });
     await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
@@ -760,9 +769,17 @@ describe("roadmap state lifecycle", () => {
     expect(planMarkdown).toContain("## Required Work");
     expect(planMarkdown).toContain("### t01-state - State engine");
     expect(planMarkdown).toContain("## Execution Waves");
-    expect(planMarkdown).toContain("## Wave Flow Check");
-    expect(planMarkdown).toContain("- Status: pending");
-    expect(planMarkdown).toContain("## Progress");
+    expect(planMarkdown).not.toContain("## Wave Flow Check");
+    expect(planMarkdown).not.toContain("## Progress");
+    expect(planMarkdown).not.toContain("Status: assigned");
+    expect(planMarkdown).not.toContain("Status: pending");
+    const runtimeMarkdown = await fs.readFile(
+      milestoneRuntimePath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id),
+      "utf8",
+    );
+    expect(runtimeMarkdown).toContain("status: assigned");
+    expect(runtimeMarkdown).toContain("step: not_started");
+    const originalPlanMarkdown = planMarkdown;
 
     await transition(cwd, {
       operation: "update_implementation_progress",
@@ -780,8 +797,32 @@ describe("roadmap state lifecycle", () => {
     });
     if (!state.milestone) throw new Error("Expected milestone");
     planMarkdown = await fs.readFile(milestonePlanPath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id), "utf8");
-    expect(planMarkdown).toContain("- Step: workers_running");
-    expect(planMarkdown).toContain("- Active tasks: t01-state");
+    expect(planMarkdown).toBe(originalPlanMarkdown);
+    const updatedRuntimeMarkdown = await fs.readFile(
+      milestoneRuntimePath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id),
+      "utf8",
+    );
+    expect(updatedRuntimeMarkdown).toContain("step: workers_running");
+    expect(updatedRuntimeMarkdown).toContain("- t01-state");
+  });
+
+  test("task and wave status updates mutate runtime without rewriting milestone plan", async () => {
+    await approvedMilestone();
+    const state = await loadState(cwd);
+    if (!state.milestone) throw new Error("Expected milestone");
+    const planPath = milestonePlanPath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id);
+    const originalPlanMarkdown = await fs.readFile(planPath, "utf8");
+
+    await transition(cwd, { operation: "update_task_status", taskId: "t01-state", taskStatus: "started" });
+    await transition(cwd, { operation: "update_wave_status", waveId: "w01", waveStatus: "running" });
+
+    const updated = await loadState(cwd);
+    expect(updated.milestone?.tasks.find((task) => task.id === "t01-state")?.status).toBe("started");
+    expect(updated.milestone?.waves.find((wave) => wave.id === "w01")?.status).toBe("running");
+    expect(await fs.readFile(planPath, "utf8")).toBe(originalPlanMarkdown);
+    const runtimeMarkdown = await fs.readFile(milestoneRuntimePath(cwd, "complex-refactor", "m01-core"), "utf8");
+    expect(runtimeMarkdown).toContain("status: started");
+    expect(runtimeMarkdown).toContain("status: running");
   });
 
   test("rejects illegal phase skips", async () => {
@@ -1140,6 +1181,51 @@ describe("roadmap state lifecycle", () => {
     await transition(cwd, { operation: "approve_change", approver: "user" });
     state = await loadState(cwd);
     expect(state.changeRequest?.status).toBe("approved");
+  });
+
+  test("change request runtime overlays mutable execution state", async () => {
+    await closeoutPhase();
+    await createChangeRequest(cwd, {
+      changeRequestId: "c01-runtime",
+      title: "Runtime-backed change",
+      request: "Adjust a completed workflow.",
+      verificationCommands: ["bun test"],
+      acceptanceCriteria: ["Runtime state is overlaid"],
+      tasks: [{ ...milestoneInput().tasks[0]!, id: "t01-runtime", depends_on: [] }],
+      waves: [testWave("w01", ["t01-runtime"])],
+    });
+
+    let state = await loadState(cwd);
+    expect(state.changeRequest?.tasks.find((task) => task.id === "t01-runtime")?.status).toBe("assigned");
+    if (!state.changeRequest) throw new Error("Expected change request");
+    const changePath = changeRequestPath(cwd, "complex-refactor", "m01-core", "c01-runtime");
+    const originalChangeMarkdown = await fs.readFile(changePath, "utf8");
+    expect(originalChangeMarkdown).not.toContain("Status: assigned");
+    expect(originalChangeMarkdown).not.toContain("## Progress");
+    const runtimePath = changeRequestRuntimePath(cwd, "complex-refactor", "m01-core", "c01-runtime");
+    expect(await fs.readFile(runtimePath, "utf8")).toContain("status: assigned");
+
+    await transition(cwd, { operation: "update_task_status", taskId: "t01-runtime", taskStatus: "started" });
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: {
+        activeWaveId: "w01",
+        step: "workers_running",
+        activeTaskIds: ["t01-runtime"],
+      },
+    });
+
+    state = await loadState(cwd);
+    expect(state.changeRequest?.tasks.find((task) => task.id === "t01-runtime")?.status).toBe("started");
+    expect(state.changeRequest?.progress).toMatchObject({
+      active_wave_id: "w01",
+      step: "workers_running",
+      active_task_ids: ["t01-runtime"],
+    });
+    expect(await fs.readFile(changePath, "utf8")).toBe(originalChangeMarkdown);
+    const runtimeMarkdown = await fs.readFile(runtimePath, "utf8");
+    expect(runtimeMarkdown).toContain("status: started");
+    expect(runtimeMarkdown).toContain("step: workers_running");
   });
 
   test("allows change requests from reviewing, closeout, and complete phases", async () => {
