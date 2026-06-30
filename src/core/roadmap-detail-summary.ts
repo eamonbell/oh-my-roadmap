@@ -5,6 +5,7 @@ import type {
   ChangeRequest,
   LoadedState,
   MilestonePlan,
+  Phase,
   RoadmapEvent,
   RoadmapBlocker,
   TaskPlan,
@@ -258,6 +259,7 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
 
   const validation = await validateRoadmapState(cwd);
   const gate = await validateImplementationGate(cwd);
+  const next = await nextActionPlan(cwd);
   const context = activePlanContext(state);
   const canonicalBlockers = await loadRoadmapBlockers(cwd, state.roadmap.roadmap_id);
   const openCanonicalBlockers = canonicalBlockers.filter((blocker) => blocker.status === "open");
@@ -272,10 +274,12 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
   })).events.map(eventSummary).reverse();
   const qualityGate = qualityGateSummary(state.roadmap, qualityGateHistory);
   const validationSummary = checkSummary(validation, validation.valid ? "valid" : "invalid");
-  const gateSummary = checkSummary(gate, gate.valid ? "open" : "closed");
+  const gateSummary = displayGateSummary(
+    checkSummary(gate, gate.valid ? "open" : "closed"),
+    implementationGateIssuesAreActionable(state, next),
+  );
   const waves = wavesSummary(context);
   const activeTasks = activeTasksSummary(context);
-  const next = await nextActionPlan(cwd);
   const canonicalBlockerDetails = canonicalBlockersSummary(canonicalBlockers);
 
   const summary: ActiveRoadmapDetailSummary = {
@@ -308,6 +312,26 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
 
   summary.availableControls = availableControls(summary);
   return summary;
+}
+
+function implementationGateIssuesAreActionable(state: LoadedState, next: NextActionPlan): boolean {
+  return isImplementationPhase(state.roadmap?.phase) ||
+    state.changeRequest?.status === "implementing" ||
+    next.id.startsWith("progress:");
+}
+
+function isImplementationPhase(phase: Phase | undefined): boolean {
+  return phase === "implementing" || phase === "reviewing";
+}
+
+function displayGateSummary(gate: RoadmapDetailCheck, actionable: boolean): RoadmapDetailCheck {
+  if (actionable) return gate;
+  return {
+    ...gate,
+    errors: [],
+    warnings: [],
+    issues: [],
+  };
 }
 
 export async function applyRoadmapDetailControl(cwd: string, key: string): Promise<RoadmapDetailControlResult> {
@@ -412,7 +436,7 @@ function roadmapHealthSummary(
   gate: RoadmapDetailCheck,
   openBlockerCount: number,
 ): RoadmapDetailHealth {
-  const status = openBlockerCount > 0 || gate.status === "closed"
+  const status = openBlockerCount > 0 || gate.errors.length > 0
     ? "blocked"
     : validation.status === "invalid" || qualityGate.status !== "passed"
       ? "attention"
