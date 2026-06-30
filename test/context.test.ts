@@ -7,7 +7,6 @@ import { searchContext, readContext } from "../src/core/context";
 import { decisionsPath, milestoneNotesPath, milestonePlanPath, risksPath, roadmapDocPath } from "../src/core/paths";
 
 let cwd = "";
-const AIDEA_ROADMAPS = "/Users/eamon/Development/Aidea/aidea-service/.roadmaps";
 
 beforeEach(async () => {
   cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-context-"));
@@ -255,42 +254,5 @@ describe("roadmap context search", () => {
       "plan:m01-core:required-work",
     ]);
     expect(expanded.results[1]?.body).toContain("### t01-parser - Parser");
-  });
-
-  test("indexes copied Aidea roadmap and plan sections without modifying originals", async () => {
-    if (!(await pathExists(path.join(AIDEA_ROADMAPS, "active.yml")))) return;
-
-    const copiedCwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-aidea-copy-"));
-    try {
-      await fs.cp(AIDEA_ROADMAPS, path.join(copiedCwd, ".roadmaps"), { recursive: true });
-
-      const roadmap = await searchContext(copiedCwd, {
-        artifacts: ["roadmap"],
-        query: "StepResultEnvelope",
-        maxResults: 5,
-      });
-      expect(roadmap.total).toBeGreaterThan(0);
-      expect(roadmap.results[0]?.id.startsWith("roadmap:")).toBe(true);
-      expect(roadmap.results[0]?.body).toBeUndefined();
-
-      const plan = await searchContext(copiedCwd, {
-        artifacts: ["plan"],
-        query: "T1-model-migration",
-        maxResults: 5,
-      });
-      expect(plan.total).toBeGreaterThan(0);
-      expect(plan.results[0]?.id.startsWith("plan:contract-model-validation:")).toBe(true);
-      expect(plan.results[0]?.body).toBeUndefined();
-
-      const expanded = await readContext(copiedCwd, {
-        ids: [roadmap.results[0]?.id ?? "", plan.results[0]?.id ?? ""],
-        maxBodyChars: 320,
-      });
-      expect(expanded.found).toBe(2);
-      expect(expanded.results.every((entry) => (entry.body?.length ?? 0) <= 320)).toBe(true);
-      expect(expanded.results.some((entry) => entry.bodyTruncated)).toBe(true);
-    } finally {
-      await fs.rm(copiedCwd, { recursive: true, force: true });
-    }
   });
 });
