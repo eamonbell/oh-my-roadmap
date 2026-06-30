@@ -302,6 +302,13 @@ describe("roadmap detail summary", () => {
     const before = await buildRoadmapDetailSummary(cwd);
     expect(before.kind).toBe("active");
     if (before.kind !== "active") throw new Error("Expected active summary");
+    expect(before.roadmap.phase).toBe("roadmap_approved");
+    expect(before.gate.status).toBe("closed");
+    expect(before.gate.issues).toEqual([]);
+    expect(before.roadmapHealth).toMatchObject({
+      status: "healthy",
+      implementationGateStatus: "closed",
+    });
     expect(before.availableControls.find((control) => control.key === "a")).toMatchObject({
       enabled: true,
       tool: {
@@ -323,6 +330,12 @@ describe("roadmap detail summary", () => {
     expect(after.kind).toBe("active");
     if (after.kind !== "active") throw new Error("Expected active summary");
     expect(after.roadmap.phase).toBe("milestone_planning");
+    expect(after.gate.status).toBe("closed");
+    expect(after.gate.issues).toEqual([]);
+    expect(after.roadmapHealth).toMatchObject({
+      status: "healthy",
+      implementationGateStatus: "closed",
+    });
     await expect(applyRoadmapDetailControl(cwd, "a")).rejects.toThrow("disabled");
 
     await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
@@ -339,6 +352,12 @@ describe("roadmap detail summary", () => {
     expect(approval.kind).toBe("active");
     if (approval.kind !== "active") throw new Error("Expected active summary");
     expect(approval.nextAction.status).toBe("approval_required");
+    expect(approval.gate.status).toBe("closed");
+    expect(approval.gate.issues).toEqual([]);
+    expect(approval.roadmapHealth).toMatchObject({
+      status: "healthy",
+      implementationGateStatus: "closed",
+    });
     expect(approval.availableControls.find((control) => control.key === "p")).toMatchObject({
       enabled: true,
       action: "insert_prompt",
@@ -351,6 +370,19 @@ describe("roadmap detail summary", () => {
 
   test("enables wave dispatch only before a wave has been dispatched", async () => {
     await approvedMilestone();
+
+    const approved = await buildRoadmapDetailSummary(cwd);
+    expect(approved.kind).toBe("active");
+    if (approved.kind !== "active") throw new Error("Expected active summary");
+    expect(approved.roadmap.phase).toBe("milestone_approved");
+    expect(approved.nextAction.id).toBe("milestone:m01-core:start-implementation");
+    expect(approved.gate.status).toBe("closed");
+    expect(approved.gate.issues).toEqual([]);
+    expect(approved.roadmapHealth).toMatchObject({
+      status: "healthy",
+      implementationGateStatus: "closed",
+    });
+
     await transition(cwd, { operation: "start_implementation" });
 
     const ready = await buildRoadmapDetailSummary(cwd);
