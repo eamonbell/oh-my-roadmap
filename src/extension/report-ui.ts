@@ -5,6 +5,7 @@ import type {
   RoadmapDetailIssue,
   RoadmapDetailSummary,
   RoadmapDetailTask,
+  RoadmapDetailUsageTotals,
 } from "../core/roadmap-detail-summary";
 
 export type { RoadmapDetailSummary } from "../core/roadmap-detail-summary";
@@ -224,22 +225,111 @@ function renderIssues(summary: ActiveRoadmapDetailSummary, contentWidth: number)
 function renderUsage(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
   if (!summary.usage) return [`${s.dim}No usage recorded.${s.reset}`];
 
-  const lines = [
-    ...keyValueLines("Roadmap", summary.usage.roadmap.label, contentWidth),
-    ...keyValueLines("Top agents", summary.usage.topAgentsLabel, contentWidth),
+  const rows = [
+    usageRow("Roadmap", summary.usage.roadmap, summary.usage.topAgentsLabel),
   ];
 
   if (summary.usage.milestone) {
-    lines.push(...keyValueLines(`Milestone ${summary.usage.milestone.id}`, summary.usage.milestone.totals.label, contentWidth));
-    lines.push(...keyValueLines("Milestone agents", summary.usage.milestone.topAgentsLabel, contentWidth));
+    rows.push(usageRow(`Milestone ${summary.usage.milestone.id}`, summary.usage.milestone.totals, summary.usage.milestone.topAgentsLabel));
   }
 
   if (summary.usage.changeRequest) {
-    lines.push(...keyValueLines(`Change ${summary.usage.changeRequest.id}`, summary.usage.changeRequest.totals.label, contentWidth));
-    lines.push(...keyValueLines("Change agents", summary.usage.changeRequest.topAgentsLabel, contentWidth));
+    rows.push(usageRow(`Change ${summary.usage.changeRequest.id}`, summary.usage.changeRequest.totals, summary.usage.changeRequest.topAgentsLabel));
+  }
+
+  return contentWidth < 84
+    ? renderCompactUsageTable(rows, contentWidth)
+    : renderUsageTable(rows, contentWidth);
+}
+
+type UsageTableRow = {
+  scope: string;
+  cost: string;
+  requests: string;
+  tokens: string;
+  agents: string;
+  details: string;
+};
+
+function usageRow(
+  scope: string,
+  totals: RoadmapDetailUsageTotals,
+  agents: string,
+): UsageTableRow {
+  return {
+    scope,
+    cost: totals.costLabel,
+    requests: String(totals.raw.requests),
+    tokens: String(totals.totalTokens),
+    agents,
+    details: totals.label,
+  };
+}
+
+function renderUsageTable(rows: UsageTableRow[], contentWidth: number): string[] {
+  const scopeWidth = Math.min(18, Math.max(10, Math.floor(contentWidth * 0.22)));
+  const costWidth = 12;
+  const requestsWidth = 5;
+  const tokensWidth = 8;
+  const separatorWidth = 12;
+  const agentsWidth = Math.max(10, contentWidth - scopeWidth - costWidth - requestsWidth - tokensWidth - separatorWidth);
+  const lines = [
+    tableRow(["Scope", "Cost", "Req", "Tokens", "Top agents"], [scopeWidth, costWidth, requestsWidth, tokensWidth, agentsWidth], true),
+    tableDivider([scopeWidth, costWidth, requestsWidth, tokensWidth, agentsWidth]),
+  ];
+
+  for (const row of rows) {
+    lines.push(...wrappedTableRow(
+      [row.scope, row.cost, row.requests, row.tokens, row.agents],
+      [scopeWidth, costWidth, requestsWidth, tokensWidth, agentsWidth],
+    ));
   }
 
   return lines;
+}
+
+function renderCompactUsageTable(rows: UsageTableRow[], contentWidth: number): string[] {
+  const scopeWidth = Math.min(18, Math.max(10, Math.floor(contentWidth * 0.34)));
+  const detailsWidth = Math.max(10, contentWidth - scopeWidth - 3);
+  const lines = [
+    tableRow(["Scope", "Usage"], [scopeWidth, detailsWidth], true),
+    tableDivider([scopeWidth, detailsWidth]),
+  ];
+
+  for (const row of rows) {
+    lines.push(...wrappedTableRow(
+      [row.scope, `${row.details}; agents ${row.agents}`],
+      [scopeWidth, detailsWidth],
+    ));
+  }
+
+  return lines;
+}
+
+function wrappedTableRow(values: string[], widths: number[]): string[] {
+  const wrappedCells = values.map((value, index) => wrapWords(value, widths[index] ?? 1));
+  const rowCount = Math.max(...wrappedCells.map((cell) => cell.length));
+  const rows: string[] = [];
+
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+    rows.push(tableRow(
+      wrappedCells.map((cell) => cell[rowIndex] ?? ""),
+      widths,
+      false,
+    ));
+  }
+
+  return rows;
+}
+
+function tableRow(values: string[], widths: number[], header: boolean): string {
+  const cells = values.map((value, index) => padAnsiToWidth(truncateAnsi(value, widths[index] ?? 1), widths[index] ?? 1));
+  const line = cells.join(`${s.dim} │ ${s.reset}`);
+  return header ? `${s.dim}${line}${s.reset}` : line;
+}
+
+function tableDivider(widths: number[]): string {
+  return `${s.dim}${widths.map((width) => "─".repeat(width)).join("─┼─")}${s.reset}`;
 }
 
 function taskLines(task: RoadmapDetailTask, contentWidth: number): string[] {

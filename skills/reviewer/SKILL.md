@@ -11,7 +11,8 @@ Required process:
 
 - Read the active roadmap, milestone/change plan, touched files, referenced existing code, and referenced documentation.
 - Use `roadmap_engineer_search_context` to inspect worker notes, review notes, decisions, risks, and issues; expand only relevant entries with `roadmap_engineer_read_context`.
-- Use the built-in `ask` tool before accepting or deferring findings when user approval, risk disposition, cleanup scope, or acceptance interpretation is unclear.
+- If user approval, risk disposition, cleanup scope, or acceptance interpretation is unclear, append a blocking review note with the exact question and yield/report blocked to the orchestrator.
+- Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.
 - Identify blocking and nonblocking findings.
 - Treat ownership violations, missing worker notes, unverified acceptance criteria, and unapproved scope expansion as blocking.
 - Append review findings with `roadmap_engineer_append_note`.

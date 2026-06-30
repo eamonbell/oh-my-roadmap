@@ -106,6 +106,38 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("start_milestone_planning to advance from the completed milestone");
   });
 
+  test("milestone:implement keeps user questions in the orchestrator role", async () => {
+    const commands = new Map<string, RegisteredTestCommand>();
+    const sentMessages: Array<{ content: string; options: unknown }> = [];
+    const api = {
+      registerCommand(name: string, command: RegisteredTestCommand) {
+        commands.set(name, command);
+      },
+      sendUserMessage(content: string, options?: unknown) {
+        sentMessages.push({ content, options });
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapCommands(api);
+
+    const command = commands.get("milestone:implement");
+    expect(command).toBeDefined();
+
+    await command?.handler(
+      "",
+      { cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)) } as unknown as ExtensionCommandContext,
+    );
+
+    expect(sentMessages).toHaveLength(1);
+    const sent = sentMessages[0];
+    if (!sent) throw new Error("Expected a sent message");
+    expect(sent.content).toContain("Use the built-in `ask` tool from the orchestrator/main-agent role");
+    expect(sent.content).toContain("If workers or reviewers append blocking notes");
+    expect(sent.content).toContain("ask the user from the orchestrator/main-agent role");
+    expect(sent.content).toContain("Do not write or modify code yourself");
+    expect(sent.content).toContain("Never perform wave reviews yourself");
+  });
+
   test("roadmap:details renders local details without prompting the model", async () => {
     const commands = new Map<string, RegisteredTestCommand>();
     const sentMessages: Array<{ content: string; options: unknown }> = [];

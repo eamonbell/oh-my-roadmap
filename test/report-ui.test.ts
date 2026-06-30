@@ -107,8 +107,28 @@ const summary: RoadmapDetailSummary = {
       costLabel: "$0.0100",
       totalTokens: 100,
     },
-    topAgents: [],
-    topAgentsLabel: "none",
+    topAgents: [
+      {
+        agent: "implementation_orchestrator",
+        totals: {
+          raw: {
+            estimated_usd: 0.01,
+            usd_unavailable: false,
+            requests: 2,
+            input_tokens: 50,
+            output_tokens: 30,
+            cache_read_tokens: 10,
+            cache_write_tokens: 10,
+            reasoning_tokens: 0,
+          },
+          label: "$0.0100, 2 req, 100 tok, in 50, out 30, cache 10/10, reasoning 0",
+          costLabel: "$0.0100",
+          totalTokens: 100,
+        },
+        label: "implementation_orchestrator: $0.0100, 2 req, 100 tok, in 50, out 30, cache 10/10, reasoning 0",
+      },
+    ],
+    topAgentsLabel: "implementation_orchestrator: $0.0100, 2 req, 100 tok, in 50, out 30, cache 10/10, reasoning 0",
   },
 };
 
@@ -132,6 +152,9 @@ describe("roadmap details renderer", () => {
     expect(issues).toBeGreaterThan(activeWork);
     expect(usage).toBeGreaterThan(issues);
     expect(metadata).toBeGreaterThan(usage);
+    expect(output).toContain("Scope");
+    expect(output).toContain("Usage");
+    expect(output).toContain("implementation_orchestrator");
   });
 
   test("uses a two-column body on wide terminals", () => {
@@ -141,6 +164,10 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("Active Work");
     expect(output).toContain("Issues");
     expect(output).toContain("task-a [worker-light");
+    expect(output).toContain("Cost");
+    expect(output).toContain("Req");
+    expect(output).toContain("Tokens");
+    expect(output).toContain("Top agents");
   });
 
   test("renders empty summaries without parsing report text", () => {
