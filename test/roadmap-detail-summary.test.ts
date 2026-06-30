@@ -247,6 +247,10 @@ describe("roadmap detail summary", () => {
         name: "roadmap_engineer_apply_next_action",
       },
     });
+    expect(summary.availableControls.find((control) => control.key === "d")).toMatchObject({
+      label: "Prepare wave dispatch",
+      enabled: false,
+    });
     expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("roadmap_engineer_resolve_blocker");
     expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("roadmap_engineer_defer_blocker");
     expect(summary.usage?.roadmap.label).toBe("$0.0123, 1 req, 20 tok, in 10, out 5, cache 2/3, reasoning 4");
@@ -305,6 +309,10 @@ describe("roadmap detail summary", () => {
         input: { actionId: before.nextAction.id },
       },
     });
+    expect(before.availableControls.find((control) => control.key === "d")).toMatchObject({
+      enabled: false,
+      reason: "No dispatchable active wave",
+    });
 
     const result = await applyRoadmapDetailControl(cwd, "a");
     expect(result.action).toBe("applied_next_action");
@@ -339,5 +347,40 @@ describe("roadmap detail summary", () => {
     expect(prompt.action).toBe("insert_prompt");
     if (prompt.action !== "insert_prompt") throw new Error("Expected prompt control");
     expect(prompt.prompt).toContain("Ask the user for explicit approval");
+  });
+
+  test("enables wave dispatch only before a wave has been dispatched", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+
+    const ready = await buildRoadmapDetailSummary(cwd);
+    expect(ready.kind).toBe("active");
+    if (ready.kind !== "active") throw new Error("Expected active summary");
+    expect(ready.activeExecution?.progressStep).toBe("not_started");
+    expect(ready.availableControls.find((control) => control.key === "d")).toMatchObject({
+      enabled: true,
+      tool: {
+        name: "roadmap_engineer_prepare_wave_dispatch",
+        input: { roadmapId: "summary-roadmap", milestoneId: "m01-core" },
+      },
+    });
+
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: {
+        activeWaveId: "w01",
+        step: "workers_running",
+        activeTaskIds: ["t01-state"],
+      },
+    });
+
+    const running = await buildRoadmapDetailSummary(cwd);
+    expect(running.kind).toBe("active");
+    if (running.kind !== "active") throw new Error("Expected active summary");
+    expect(running.activeExecution?.progressStep).toBe("workers_running");
+    expect(running.availableControls.find((control) => control.key === "d")).toMatchObject({
+      enabled: false,
+      reason: "No dispatchable active wave",
+    });
   });
 });
