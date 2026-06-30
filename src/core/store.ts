@@ -19,6 +19,7 @@ import {
   roadmapStatePath,
   risksPath,
 } from "./paths";
+import { withDiagnosticTiming } from "../diagnostics";
 import { loadUsageSummary } from "./usage";
 import { withStoreWriteLock } from "./lock";
 import { serializeMarkdownDocument, serializeYaml } from "./frontmatter";
@@ -1123,29 +1124,29 @@ async function assertRoadmapReadyForApproval(cwd: string, roadmap: RoadmapState)
   }
 }
 
-export async function loadActive(cwd: string): Promise<ActivePointer | undefined> {
+async function loadActiveImpl(cwd: string): Promise<ActivePointer | undefined> {
   const filePath = activePointerPath(cwd);
   if (!(await fileExists(filePath))) return undefined;
   return await readYamlFile<ActivePointer>(filePath);
 }
 
-export async function writeActive(cwd: string, active: ActivePointer): Promise<void> {
+async function writeActiveImpl(cwd: string, active: ActivePointer): Promise<void> {
   await withStoreWriteLock(cwd, async () => {
     await writeYamlFile(activePointerPath(cwd), active);
   });
 }
 
-export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<RoadmapState> {
+async function loadRoadmapStateImpl(cwd: string, roadmapId: string): Promise<RoadmapState> {
   return normalizeRoadmapState(await readYamlFile<RoadmapState>(roadmapStatePath(cwd, roadmapId)));
 }
 
-export async function loadRoadmapBlockers(cwd: string, roadmapId: string): Promise<RoadmapBlocker[]> {
+async function loadRoadmapBlockersImpl(cwd: string, roadmapId: string): Promise<RoadmapBlocker[]> {
   const filePath = roadmapBlockersPath(cwd, roadmapId);
   if (!(await fileExists(filePath))) return [];
   return normalizeBlockers(await readYamlFile<unknown>(filePath));
 }
 
-export async function writeRoadmapBlockers(
+async function writeRoadmapBlockersImpl(
   cwd: string,
   roadmapId: string,
   blockers: RoadmapBlocker[],
@@ -1153,7 +1154,7 @@ export async function writeRoadmapBlockers(
   await writeYamlFile(roadmapBlockersPath(cwd, roadmapId), blockerYaml(blockers));
 }
 
-export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
+async function writeRoadmapStateImpl(cwd: string, state: RoadmapState): Promise<void> {
   await withStoreWriteLock(cwd, async () => {
     state.updated_at = nowIso();
     state.roadmap_content_hash = roadmapContentHash(state);
@@ -1164,7 +1165,7 @@ export async function writeRoadmapState(cwd: string, state: RoadmapState): Promi
   });
 }
 
-export async function loadMilestonePlan(
+async function loadMilestonePlanImpl(
   cwd: string,
   roadmapId: string,
   milestoneId: string,
@@ -1177,7 +1178,7 @@ export async function loadMilestonePlan(
   return applyRuntime(plan, await loadMilestoneRuntime(cwd, roadmapId, milestoneId));
 }
 
-export async function writeMilestonePlan(
+async function writeMilestonePlanImpl(
   cwd: string,
   plan: MilestonePlan,
   body?: string,
@@ -1192,7 +1193,7 @@ export async function writeMilestonePlan(
   });
 }
 
-export async function loadMilestoneRuntime(
+async function loadMilestoneRuntimeImpl(
   cwd: string,
   roadmapId: string,
   milestoneId: string,
@@ -1205,7 +1206,7 @@ export async function loadMilestoneRuntime(
   ), plan);
 }
 
-export async function writeMilestoneRuntime(
+async function writeMilestoneRuntimeImpl(
   cwd: string,
   plan: MilestonePlan,
 ): Promise<void> {
@@ -1216,7 +1217,7 @@ export async function writeMilestoneRuntime(
   );
 }
 
-export async function loadChangeRequest(
+async function loadChangeRequestImpl(
   cwd: string,
   roadmapId: string,
   milestoneId: string,
@@ -1230,7 +1231,7 @@ export async function loadChangeRequest(
   return applyRuntime(change, await loadChangeRequestRuntime(cwd, roadmapId, milestoneId, changeRequestId));
 }
 
-export async function loadChangeRequestRuntime(
+async function loadChangeRequestRuntimeImpl(
   cwd: string,
   roadmapId: string,
   milestoneId: string,
@@ -1244,7 +1245,7 @@ export async function loadChangeRequestRuntime(
   ), change);
 }
 
-export async function writeChangeRequestRuntime(
+async function writeChangeRequestRuntimeImpl(
   cwd: string,
   change: ChangeRequest,
 ): Promise<void> {
@@ -1255,7 +1256,7 @@ export async function writeChangeRequestRuntime(
   );
 }
 
-export async function loadState(cwd: string): Promise<LoadedState> {
+async function loadStateImpl(cwd: string): Promise<LoadedState> {
   const active = await loadActive(cwd);
   if (!active) return {};
 
@@ -1280,7 +1281,7 @@ export async function loadState(cwd: string): Promise<LoadedState> {
   return loaded;
 }
 
-export async function listQualityGates(cwd: string, input: ListQualityGatesInput = {}): Promise<ListQualityGatesResult> {
+async function listQualityGatesImpl(cwd: string, input: ListQualityGatesInput = {}): Promise<ListQualityGatesResult> {
   const gate = input.gate ?? "roadmap_milestone_check";
   const eventInput = {
     type: ["quality_gate.recorded"],
@@ -1349,7 +1350,7 @@ function resultLimit(limit: number | undefined, total: number): number {
   return Math.floor(limit);
 }
 
-export async function listBlockers(cwd: string, input: ListBlockersInput = {}): Promise<ListBlockersResult> {
+async function listBlockersImpl(cwd: string, input: ListBlockersInput = {}): Promise<ListBlockersResult> {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
   if (!roadmapId) return { total: 0, returned: 0, blockers: [] };
@@ -1364,7 +1365,7 @@ export async function listBlockers(cwd: string, input: ListBlockersInput = {}): 
   };
 }
 
-export async function openBlocker(cwd: string, input: OpenBlockerInput): Promise<RoadmapBlocker> {
+async function openBlockerImpl(cwd: string, input: OpenBlockerInput): Promise<RoadmapBlocker> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   const scope = activeBlockerScope(loaded, input);
@@ -1400,7 +1401,7 @@ function findBlocker(blockers: RoadmapBlocker[], blockerId: string): { blocker: 
   return { blocker, index };
 }
 
-export async function resolveBlocker(cwd: string, input: ResolveBlockerInput): Promise<RoadmapBlocker> {
+async function resolveBlockerImpl(cwd: string, input: ResolveBlockerInput): Promise<RoadmapBlocker> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
@@ -1428,7 +1429,7 @@ export async function resolveBlocker(cwd: string, input: ResolveBlockerInput): P
   });
 }
 
-export async function deferBlocker(cwd: string, input: DeferBlockerInput): Promise<RoadmapBlocker> {
+async function deferBlockerImpl(cwd: string, input: DeferBlockerInput): Promise<RoadmapBlocker> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
@@ -1456,7 +1457,7 @@ export async function deferBlocker(cwd: string, input: DeferBlockerInput): Promi
   });
 }
 
-export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
+async function initRoadmapImpl(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
   return await withStoreWriteLock(cwd, async () => {
   assertSlug(input.roadmapId, "roadmapId");
   const existingActive = await loadActive(cwd);
@@ -1521,7 +1522,7 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
   });
 }
 
-export async function updateRoadmap(
+async function updateRoadmapImpl(
   cwd: string,
   input: UpdateRoadmapInput,
 ): Promise<RoadmapState> {
@@ -1579,7 +1580,7 @@ export async function updateRoadmap(
   });
 }
 
-export async function createMilestonePlan(
+async function createMilestonePlanImpl(
   cwd: string,
   roadmap: RoadmapState,
   input: CreateMilestonePlanInput,
@@ -1795,7 +1796,7 @@ async function writeActivePointer(
   });
 }
 
-export async function transition(cwd: string, input: TransitionInput): Promise<LoadedState> {
+async function transitionImpl(cwd: string, input: TransitionInput): Promise<LoadedState> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   if (!loaded.active || !loaded.roadmap) {
@@ -2222,7 +2223,7 @@ async function appendNoteEntry(
   return { filePath, scope };
 }
 
-export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
+async function appendNoteImpl(cwd: string, input: AppendNoteInput): Promise<string> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
@@ -2274,7 +2275,7 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
   });
 }
 
-export async function amend(cwd: string, input: AmendmentInput): Promise<string> {
+async function amendImpl(cwd: string, input: AmendmentInput): Promise<string> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   if (!loaded.active?.roadmap_id || !loaded.roadmap) throw new Error("No active roadmap");
@@ -2330,7 +2331,7 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
   });
 }
 
-export async function createChangeRequest(
+async function createChangeRequestImpl(
   cwd: string,
   input: CreateChangeRequestInput,
 ): Promise<ChangeRequest> {
@@ -2402,6 +2403,250 @@ export async function createChangeRequest(
   return change;
   });
   });
+}
+
+function storeTiming<T>(
+  operation: string,
+  cwd: string,
+  metadata: Record<string, unknown> | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withDiagnosticTiming({
+    component: "core",
+    operation: `store.${operation}`,
+    cwd,
+    slowMs: 250,
+    ...(metadata ? { metadata } : {}),
+  }, fn);
+}
+
+export async function loadActive(cwd: string): Promise<ActivePointer | undefined> {
+  return await storeTiming("loadActive", cwd, undefined, async () => await loadActiveImpl(cwd));
+}
+
+export async function writeActive(cwd: string, active: ActivePointer): Promise<void> {
+  return await storeTiming("writeActive", cwd, { roadmap_id: active.roadmap_id }, async () => await writeActiveImpl(cwd, active));
+}
+
+export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<RoadmapState> {
+  return await storeTiming("loadRoadmapState", cwd, { roadmap_id: roadmapId }, async () => await loadRoadmapStateImpl(cwd, roadmapId));
+}
+
+export async function loadRoadmapBlockers(cwd: string, roadmapId: string): Promise<RoadmapBlocker[]> {
+  return await storeTiming("loadRoadmapBlockers", cwd, { roadmap_id: roadmapId }, async () => await loadRoadmapBlockersImpl(cwd, roadmapId));
+}
+
+export async function writeRoadmapBlockers(
+  cwd: string,
+  roadmapId: string,
+  blockers: RoadmapBlocker[],
+): Promise<void> {
+  return await storeTiming("writeRoadmapBlockers", cwd, {
+    roadmap_id: roadmapId,
+    blocker_count: blockers.length,
+  }, async () => await writeRoadmapBlockersImpl(cwd, roadmapId, blockers));
+}
+
+export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
+  return await storeTiming("writeRoadmapState", cwd, {
+    roadmap_id: state.roadmap_id,
+    phase: state.phase,
+  }, async () => await writeRoadmapStateImpl(cwd, state));
+}
+
+export async function loadMilestonePlan(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+): Promise<MilestonePlan> {
+  return await storeTiming("loadMilestonePlan", cwd, {
+    roadmap_id: roadmapId,
+    milestone_id: milestoneId,
+  }, async () => await loadMilestonePlanImpl(cwd, roadmapId, milestoneId));
+}
+
+export async function writeMilestonePlan(
+  cwd: string,
+  plan: MilestonePlan,
+  body?: string,
+): Promise<void> {
+  return await storeTiming("writeMilestonePlan", cwd, {
+    roadmap_id: plan.roadmap_id,
+    milestone_id: plan.milestone_id,
+  }, async () => await writeMilestonePlanImpl(cwd, plan, body));
+}
+
+export async function loadMilestoneRuntime(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+): Promise<MilestoneRuntime> {
+  return await storeTiming("loadMilestoneRuntime", cwd, {
+    roadmap_id: roadmapId,
+    milestone_id: milestoneId,
+  }, async () => await loadMilestoneRuntimeImpl(cwd, roadmapId, milestoneId));
+}
+
+export async function writeMilestoneRuntime(
+  cwd: string,
+  plan: MilestonePlan,
+): Promise<void> {
+  return await storeTiming("writeMilestoneRuntime", cwd, {
+    roadmap_id: plan.roadmap_id,
+    milestone_id: plan.milestone_id,
+  }, async () => await writeMilestoneRuntimeImpl(cwd, plan));
+}
+
+export async function loadChangeRequest(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+  changeRequestId: string,
+): Promise<ChangeRequest> {
+  return await storeTiming("loadChangeRequest", cwd, {
+    roadmap_id: roadmapId,
+    milestone_id: milestoneId,
+    change_request_id: changeRequestId,
+  }, async () => await loadChangeRequestImpl(cwd, roadmapId, milestoneId, changeRequestId));
+}
+
+export async function loadChangeRequestRuntime(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+  changeRequestId: string,
+): Promise<ChangeRequestRuntime> {
+  return await storeTiming("loadChangeRequestRuntime", cwd, {
+    roadmap_id: roadmapId,
+    milestone_id: milestoneId,
+    change_request_id: changeRequestId,
+  }, async () => await loadChangeRequestRuntimeImpl(cwd, roadmapId, milestoneId, changeRequestId));
+}
+
+export async function writeChangeRequestRuntime(
+  cwd: string,
+  change: ChangeRequest,
+): Promise<void> {
+  return await storeTiming("writeChangeRequestRuntime", cwd, {
+    roadmap_id: change.roadmap_id,
+    milestone_id: change.milestone_id,
+    change_request_id: change.change_request_id,
+  }, async () => await writeChangeRequestRuntimeImpl(cwd, change));
+}
+
+export async function loadState(cwd: string): Promise<LoadedState> {
+  return await storeTiming("loadState", cwd, undefined, async () => await loadStateImpl(cwd));
+}
+
+export async function listQualityGates(cwd: string, input: ListQualityGatesInput = {}): Promise<ListQualityGatesResult> {
+  return await storeTiming("listQualityGates", cwd, {
+    roadmap_id: input.roadmapId,
+    gate: input.gate ?? "roadmap_milestone_check",
+    status: input.status,
+  }, async () => await listQualityGatesImpl(cwd, input));
+}
+
+export async function listBlockers(cwd: string, input: ListBlockersInput = {}): Promise<ListBlockersResult> {
+  return await storeTiming("listBlockers", cwd, {
+    roadmap_id: input.roadmapId,
+    milestone_id: input.milestoneId,
+    change_request_id: input.changeRequestId,
+    task_id: input.taskId,
+    wave_id: input.waveId,
+    status: input.status,
+    severity: input.severity,
+  }, async () => await listBlockersImpl(cwd, input));
+}
+
+export async function openBlocker(cwd: string, input: OpenBlockerInput): Promise<RoadmapBlocker> {
+  return await storeTiming("openBlocker", cwd, {
+    roadmap_id: input.roadmapId,
+    milestone_id: input.milestoneId,
+    change_request_id: input.changeRequestId,
+    task_id: input.taskId,
+    wave_id: input.waveId,
+    severity: input.severity ?? "blocking",
+  }, async () => await openBlockerImpl(cwd, input));
+}
+
+export async function resolveBlocker(cwd: string, input: ResolveBlockerInput): Promise<RoadmapBlocker> {
+  return await storeTiming("resolveBlocker", cwd, {
+    roadmap_id: input.roadmapId,
+    blocker_id: input.blockerId,
+  }, async () => await resolveBlockerImpl(cwd, input));
+}
+
+export async function deferBlocker(cwd: string, input: DeferBlockerInput): Promise<RoadmapBlocker> {
+  return await storeTiming("deferBlocker", cwd, {
+    roadmap_id: input.roadmapId,
+    blocker_id: input.blockerId,
+  }, async () => await deferBlockerImpl(cwd, input));
+}
+
+export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
+  return await storeTiming("initRoadmap", cwd, {
+    roadmap_id: input.roadmapId,
+  }, async () => await initRoadmapImpl(cwd, input));
+}
+
+export async function updateRoadmap(
+  cwd: string,
+  input: UpdateRoadmapInput,
+): Promise<RoadmapState> {
+  return await storeTiming("updateRoadmap", cwd, {
+    milestone_count: input.milestones.length,
+  }, async () => await updateRoadmapImpl(cwd, input));
+}
+
+export async function createMilestonePlan(
+  cwd: string,
+  roadmap: RoadmapState,
+  input: CreateMilestonePlanInput,
+): Promise<MilestonePlan> {
+  return await storeTiming("createMilestonePlan", cwd, {
+    roadmap_id: roadmap.roadmap_id,
+    milestone_id: input.milestoneId,
+    task_count: input.tasks.length,
+    wave_count: input.waves.length,
+  }, async () => await createMilestonePlanImpl(cwd, roadmap, input));
+}
+
+export async function transition(cwd: string, input: TransitionInput): Promise<LoadedState> {
+  return await storeTiming("transition", cwd, {
+    operation: input.operation,
+    task_id: input.taskId,
+    wave_id: input.waveId,
+  }, async () => await transitionImpl(cwd, input));
+}
+
+export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
+  return await storeTiming("appendNote", cwd, {
+    kind: input.kind,
+    roadmap_id: input.roadmapId,
+    milestone_id: input.milestoneId,
+    task_id: input.taskId,
+    wave_id: input.waveId,
+    blocking: input.blocking ?? false,
+    status: input.status ?? "open",
+  }, async () => await appendNoteImpl(cwd, input));
+}
+
+export async function amend(cwd: string, input: AmendmentInput): Promise<string> {
+  return await storeTiming("amend", cwd, {
+    scope: input.scope,
+    material: input.material,
+  }, async () => await amendImpl(cwd, input));
+}
+
+export async function createChangeRequest(
+  cwd: string,
+  input: CreateChangeRequestInput,
+): Promise<ChangeRequest> {
+  return await storeTiming("createChangeRequest", cwd, {
+    change_request_id: input.changeRequestId,
+    task_count: input.tasks.length,
+    wave_count: input.waves.length,
+  }, async () => await createChangeRequestImpl(cwd, input));
 }
 
 export async function resetRoadmapStateForTest(cwd: string): Promise<void> {

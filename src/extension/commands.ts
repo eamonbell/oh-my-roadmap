@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-
 import { initProject } from "../core/project-init";
 import { applyRoadmapDetailControl, buildRoadmapDetailSummary } from "../core/roadmap-detail-summary";
 import { renderReport } from "../core/report";
+import { withDiagnosticTiming } from "../diagnostics";
 import { RoadmapDetailsView } from "./report-ui.ts";
 
 const COMMANDS = [
@@ -111,14 +112,25 @@ async function sendCommandPrompt(api: ExtensionAPI, name: string, args: string, 
 }
 
 async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
-  const summary = await buildRoadmapDetailSummary(ctx.cwd);
+  const summary = await withDiagnosticTiming({
+    component: "command",
+    operation: "roadmap:details.summary",
+    cwd: ctx.cwd,
+    slowMs: 1000,
+  }, async () => await buildRoadmapDetailSummary(ctx.cwd));
 
   void ctx.ui
     .custom(
       (tui, _theme, _keybindings, done) => {
         const close = () => done(undefined);
         return new RoadmapDetailsView(summary, tui, close, (key) => {
-          void applyRoadmapDetailControl(ctx.cwd, key)
+          void withDiagnosticTiming({
+            component: "command",
+            operation: "roadmap:details.control",
+            cwd: ctx.cwd,
+            slowMs: 1000,
+            metadata: { control_key: key },
+          }, async () => await applyRoadmapDetailControl(ctx.cwd, key))
             .then((result) => {
               if (result.action === "applied_next_action") {
                 ctx.ui.notify(`Applied next action: ${result.result.plan.label}`, "info");
@@ -145,24 +157,38 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
   api.registerCommand(INIT_COMMAND, {
     description: "Scaffold roadmap-engineer project config and local generated agents",
     handler: async (_args, ctx) => {
-      try {
-        const result = await initProject(ctx.cwd);
-        ctx.ui.notify(
-          `Initialized roadmap-engineer project files: ${result.configPath}, ${Object.values(result.agentPaths).join(", ")}`,
-          "info",
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`roadmap:init failed: ${message}`, "error");
-        throw error;
-      }
+      await withDiagnosticTiming({
+        component: "command",
+        operation: INIT_COMMAND,
+        cwd: ctx.cwd,
+        slowMs: 1000,
+      }, async () => {
+        try {
+          const result = await initProject(ctx.cwd);
+          ctx.ui.notify(
+            `Initialized roadmap-engineer project files: ${result.configPath}, ${Object.values(result.agentPaths).join(", ")}`,
+            "info",
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          ctx.ui.notify(`roadmap:init failed: ${message}`, "error");
+          throw error;
+        }
+      });
     },
   });
 
   api.registerCommand(DETAILS_COMMAND, {
     description: "View current roadmap state without prompting the model",
     handler: async (_args, ctx) => {
-      await showRoadmapDetails(api, ctx);
+      await withDiagnosticTiming({
+        component: "command",
+        operation: DETAILS_COMMAND,
+        cwd: ctx.cwd,
+        slowMs: 1000,
+      }, async () => {
+        await showRoadmapDetails(api, ctx);
+      });
     },
   });
 
@@ -170,7 +196,14 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
     api.registerCommand(name, {
       description,
       handler: async (args, ctx) => {
-        await sendCommandPrompt(api, name, args, ctx);
+        await withDiagnosticTiming({
+          component: "command",
+          operation: name,
+          cwd: ctx.cwd,
+          slowMs: 1000,
+        }, async () => {
+          await sendCommandPrompt(api, name, args, ctx);
+        });
       },
     });
   }

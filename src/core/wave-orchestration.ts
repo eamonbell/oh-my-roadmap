@@ -5,6 +5,7 @@ import {
   transition,
   type OpenBlockerInput,
 } from "./store";
+import { withDiagnosticTiming } from "../diagnostics";
 import type {
   ChangeRequest,
   ImplementationProgressStep,
@@ -260,35 +261,42 @@ export async function prepareWaveDispatch(
   cwd: string,
   input: WaveOrchestrationTargetInput = {},
 ): Promise<PrepareWaveDispatchResult> {
-  await assertImplementationReady(cwd);
-  const ctx = await activePlanContext(cwd, input);
-  assertDispatchableWave(ctx);
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.prepareWaveDispatch",
+    cwd,
+    slowMs: 250,
+  }, async () => {
+    await assertImplementationReady(cwd);
+    const ctx = await activePlanContext(cwd, input);
+    assertDispatchableWave(ctx);
 
-  const incompleteTasks = ctx.activeTasks.filter((task) => task.status !== "done");
-  if (incompleteTasks.length === 0) {
-    throw new Error(`Active wave ${ctx.activeWave.id} has no incomplete tasks to dispatch`);
-  }
-  for (const task of incompleteTasks) {
-    assertTaskDispatchFields(task);
-    assertDependenciesComplete(ctx.plan, task);
-  }
+    const incompleteTasks = ctx.activeTasks.filter((task) => task.status !== "done");
+    if (incompleteTasks.length === 0) {
+      throw new Error(`Active wave ${ctx.activeWave.id} has no incomplete tasks to dispatch`);
+    }
+    for (const task of incompleteTasks) {
+      assertTaskDispatchFields(task);
+      assertDependenciesComplete(ctx.plan, task);
+    }
 
-  if (ctx.activeWave.status === "pending") {
-    await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "running" });
-  }
-  await setProgress(cwd, ctx, "dispatching", incompleteTasks.map((task) => task.id));
+    if (ctx.activeWave.status === "pending") {
+      await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "running" });
+    }
+    await setProgress(cwd, ctx, "dispatching", incompleteTasks.map((task) => task.id));
 
-  return {
-    roadmap_id: ctx.roadmapId,
-    milestone_id: ctx.milestoneId,
-    ...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
-    wave_id: ctx.activeWave.id,
-    wave_goal: ctx.activeWave.goal,
-    progress_step: "dispatching",
-    assignments: incompleteTasks.map((task) => assignment(ctx, task)),
-    instructions:
-      "Dispatch each assignment with the built-in task/subagent mechanism using the assignment's exact worker and prompt. Do not spawn workers from extension code.",
-  };
+    return {
+      roadmap_id: ctx.roadmapId,
+      milestone_id: ctx.milestoneId,
+      ...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
+      wave_id: ctx.activeWave.id,
+      wave_goal: ctx.activeWave.goal,
+      progress_step: "dispatching",
+      assignments: incompleteTasks.map((task) => assignment(ctx, task)),
+      instructions:
+        "Dispatch each assignment with the built-in task/subagent mechanism using the assignment's exact worker and prompt. Do not spawn workers from extension code.",
+    };
+  });
 }
 
 function activeIncompleteTaskIds(tasks: TaskPlan[]): string[] {
@@ -319,57 +327,65 @@ export async function recordWaveResult(
   cwd: string,
   input: RecordWaveResultInput,
 ): Promise<RecordWaveResultResult> {
-  const ctx = await activePlanContext(cwd, input);
-  const task = ctx.activeTasks.find((candidate) => candidate.id === input.taskId);
-  if (!task) throw new Error(`Task ${input.taskId} is not in active wave ${ctx.activeWave.id}`);
-  if (ctx.activeWave.status === "complete") throw new Error(`Active wave ${ctx.activeWave.id} is already complete`);
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.recordWaveResult",
+    cwd,
+    slowMs: 250,
+    metadata: { task_id: input.taskId, status: input.status },
+  }, async () => {
+    const ctx = await activePlanContext(cwd, input);
+    const task = ctx.activeTasks.find((candidate) => candidate.id === input.taskId);
+    if (!task) throw new Error(`Task ${input.taskId} is not in active wave ${ctx.activeWave.id}`);
+    if (ctx.activeWave.status === "complete") throw new Error(`Active wave ${ctx.activeWave.id} is already complete`);
 
-  if (input.status === "completed") {
-    await transition(cwd, {
-      operation: "update_task_status",
-      taskId: task.id,
-      taskStatus: "done",
-      ...(input.summary ? { summary: input.summary } : {}),
-    });
-    const updated = await activePlanContext(cwd, input);
-    const remaining = activeIncompleteTaskIds(updated.activeTasks);
-    if (remaining.length === 0) {
-      await setProgress(cwd, updated, "wave_review", []);
+    if (input.status === "completed") {
+      await transition(cwd, {
+        operation: "update_task_status",
+        taskId: task.id,
+        taskStatus: "done",
+        ...(input.summary ? { summary: input.summary } : {}),
+      });
+      const updated = await activePlanContext(cwd, input);
+      const remaining = activeIncompleteTaskIds(updated.activeTasks);
+      if (remaining.length === 0) {
+        await setProgress(cwd, updated, "wave_review", []);
+        return {
+          task_id: task.id,
+          status: "done",
+          wave_id: updated.activeWave.id,
+          wave_status: updated.activeWave.status,
+          progress_step: "wave_review",
+        };
+      }
+      await setProgress(cwd, updated, "workers_running", remaining);
       return {
         task_id: task.id,
         status: "done",
         wave_id: updated.activeWave.id,
         wave_status: updated.activeWave.status,
-        progress_step: "wave_review",
+        progress_step: "workers_running",
       };
     }
-    await setProgress(cwd, updated, "workers_running", remaining);
+
+    await transition(cwd, {
+      operation: "update_task_status",
+      taskId: task.id,
+      taskStatus: "blocked",
+      ...(input.summary ? { summary: input.summary } : {}),
+    });
+    await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "blocked" });
+    const blocker = await openBlocker(cwd, blockerInputForTask(ctx, task, input));
+    await setProgress(cwd, ctx, "resolving_blockers", [task.id], blocker.title);
     return {
       task_id: task.id,
-      status: "done",
-      wave_id: updated.activeWave.id,
-      wave_status: updated.activeWave.status,
-      progress_step: "workers_running",
+      status: "blocked",
+      wave_id: ctx.activeWave.id,
+      wave_status: "blocked",
+      progress_step: "resolving_blockers",
+      blocker,
     };
-  }
-
-  await transition(cwd, {
-    operation: "update_task_status",
-    taskId: task.id,
-    taskStatus: "blocked",
-    ...(input.summary ? { summary: input.summary } : {}),
   });
-  await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "blocked" });
-  const blocker = await openBlocker(cwd, blockerInputForTask(ctx, task, input));
-  await setProgress(cwd, ctx, "resolving_blockers", [task.id], blocker.title);
-  return {
-    task_id: task.id,
-    status: "blocked",
-    wave_id: ctx.activeWave.id,
-    wave_status: "blocked",
-    progress_step: "resolving_blockers",
-    blocker,
-  };
 }
 
 async function assertNoOpenBlockingBlockers(cwd: string, ctx: ActivePlanContext): Promise<void> {
@@ -415,38 +431,45 @@ export async function prepareWaveReview(
   cwd: string,
   input: WaveOrchestrationTargetInput = {},
 ): Promise<PrepareWaveReviewResult> {
-  await assertImplementationReady(cwd);
-  const ctx = await activePlanContext(cwd, input);
-  if (ctx.activeWave.status === "complete") throw new Error(`Active wave ${ctx.activeWave.id} is already complete`);
-  if (ctx.activeWave.status === "blocked") throw new Error(`Active wave ${ctx.activeWave.id} is blocked`);
-  await assertNoOpenBlockingBlockers(cwd, ctx);
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.prepareWaveReview",
+    cwd,
+    slowMs: 250,
+  }, async () => {
+    await assertImplementationReady(cwd);
+    const ctx = await activePlanContext(cwd, input);
+    if (ctx.activeWave.status === "complete") throw new Error(`Active wave ${ctx.activeWave.id} is already complete`);
+    if (ctx.activeWave.status === "blocked") throw new Error(`Active wave ${ctx.activeWave.id} is blocked`);
+    await assertNoOpenBlockingBlockers(cwd, ctx);
 
-  const incomplete = ctx.activeTasks.filter((task) => task.status !== "done");
-  if (incomplete.length > 0) {
-    throw new Error(`Active wave ${ctx.activeWave.id} still has incomplete tasks: ${incomplete.map((task) => task.id).join(", ")}`);
-  }
+    const incomplete = ctx.activeTasks.filter((task) => task.status !== "done");
+    if (incomplete.length > 0) {
+      throw new Error(`Active wave ${ctx.activeWave.id} still has incomplete tasks: ${incomplete.map((task) => task.id).join(", ")}`);
+    }
 
-  if (ctx.activeWave.status !== "reviewing") {
-    await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "reviewing" });
-  }
-  await setProgress(cwd, ctx, "wave_review", []);
+    if (ctx.activeWave.status !== "reviewing") {
+      await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "reviewing" });
+    }
+    await setProgress(cwd, ctx, "wave_review", []);
 
-  return {
-    roadmap_id: ctx.roadmapId,
-    milestone_id: ctx.milestoneId,
-    ...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
-    wave_id: ctx.activeWave.id,
-    reviewer: "reviewer",
-    prompt: reviewPrompt(ctx),
-    tasks: ctx.activeTasks.map((task) => ({
-      task_id: task.id,
-      title: task.title,
-      worker: task.worker,
-      owned_files: task.owned_files,
-      owned_modules: task.owned_modules,
-      shared_interfaces: task.shared_interfaces,
-    })),
-  };
+    return {
+      roadmap_id: ctx.roadmapId,
+      milestone_id: ctx.milestoneId,
+      ...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
+      wave_id: ctx.activeWave.id,
+      reviewer: "reviewer",
+      prompt: reviewPrompt(ctx),
+      tasks: ctx.activeTasks.map((task) => ({
+        task_id: task.id,
+        title: task.title,
+        worker: task.worker,
+        owned_files: task.owned_files,
+        owned_modules: task.owned_modules,
+        shared_interfaces: task.shared_interfaces,
+      })),
+    };
+  });
 }
 
 function reviewFindings(input: RecordWaveReviewInput): string[] {
@@ -457,53 +480,61 @@ export async function recordWaveReview(
   cwd: string,
   input: RecordWaveReviewInput,
 ): Promise<RecordWaveReviewResult> {
-  const ctx = await activePlanContext(cwd, input);
-  const incomplete = ctx.activeTasks.filter((task) => task.status !== "done");
-  if (incomplete.length > 0) {
-    throw new Error(`Active wave ${ctx.activeWave.id} still has incomplete tasks: ${incomplete.map((task) => task.id).join(", ")}`);
-  }
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.recordWaveReview",
+    cwd,
+    slowMs: 250,
+    metadata: { status: input.status },
+  }, async () => {
+    const ctx = await activePlanContext(cwd, input);
+    const incomplete = ctx.activeTasks.filter((task) => task.status !== "done");
+    if (incomplete.length > 0) {
+      throw new Error(`Active wave ${ctx.activeWave.id} still has incomplete tasks: ${incomplete.map((task) => task.id).join(", ")}`);
+    }
 
-  if (input.status === "passed") {
-    await assertNoOpenBlockingBlockers(cwd, ctx);
+    if (input.status === "passed") {
+      await assertNoOpenBlockingBlockers(cwd, ctx);
+      await transition(cwd, {
+        operation: "update_wave_status",
+        waveId: ctx.activeWave.id,
+        waveStatus: "complete",
+        summary: input.summary,
+      });
+      await setProgress(cwd, ctx, "ready_for_next_wave", []);
+      return {
+        wave_id: ctx.activeWave.id,
+        wave_status: "complete",
+        progress_step: "ready_for_next_wave",
+        blockers: [],
+      };
+    }
+
+    const blockers: RoadmapBlocker[] = [];
+    for (const finding of reviewFindings(input)) {
+      blockers.push(await openBlocker(cwd, {
+        roadmapId: ctx.roadmapId,
+        milestoneId: ctx.milestoneId,
+        ...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
+        waveId: ctx.activeWave.id,
+        severity: "blocking",
+        title: `Wave ${ctx.activeWave.id} review failed`,
+        description: finding,
+        createdBy: "reviewer",
+      }));
+    }
     await transition(cwd, {
       operation: "update_wave_status",
       waveId: ctx.activeWave.id,
-      waveStatus: "complete",
+      waveStatus: "blocked",
       summary: input.summary,
     });
-    await setProgress(cwd, ctx, "ready_for_next_wave", []);
+    await setProgress(cwd, ctx, "resolving_blockers", [], input.summary);
     return {
       wave_id: ctx.activeWave.id,
-      wave_status: "complete",
-      progress_step: "ready_for_next_wave",
-      blockers: [],
+      wave_status: "blocked",
+      progress_step: "resolving_blockers",
+      blockers,
     };
-  }
-
-  const blockers: RoadmapBlocker[] = [];
-  for (const finding of reviewFindings(input)) {
-    blockers.push(await openBlocker(cwd, {
-      roadmapId: ctx.roadmapId,
-      milestoneId: ctx.milestoneId,
-      ...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
-      waveId: ctx.activeWave.id,
-      severity: "blocking",
-      title: `Wave ${ctx.activeWave.id} review failed`,
-      description: finding,
-      createdBy: "reviewer",
-    }));
-  }
-  await transition(cwd, {
-    operation: "update_wave_status",
-    waveId: ctx.activeWave.id,
-    waveStatus: "blocked",
-    summary: input.summary,
   });
-  await setProgress(cwd, ctx, "resolving_blockers", [], input.summary);
-  return {
-    wave_id: ctx.activeWave.id,
-    wave_status: "blocked",
-    progress_step: "resolving_blockers",
-    blockers,
-  };
 }

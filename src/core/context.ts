@@ -1,4 +1,5 @@
 import { loadContextEntries } from "./context-loader";
+import { withDiagnosticTiming } from "../diagnostics";
 import type {
   ContextArtifact,
   ContextEntry,
@@ -155,41 +156,55 @@ function sortEntries(entries: ContextEntry[]): ContextEntry[] {
 }
 
 export async function searchContext(cwd: string, input: SearchContextInput): Promise<ContextSearchResult> {
-  const matcher = createMatcher(input);
-  const snippetChars = positiveNumber(input.snippetChars, DEFAULT_SNIPPET_CHARS);
-  const maxBodyChars = positiveNumber(input.maxBodyChars, DEFAULT_MAX_BODY_CHARS);
-  const maxResults = positiveNumber(input.maxResults, DEFAULT_MAX_RESULTS);
-  const { roadmapId, entries } = await loadContextEntries(cwd, uniqueArtifacts(input.artifacts));
-  const filtered = sortEntries(
-    entries.filter((entry) => matchesFilters(entry, input) && (!matcher || matcher.matches(entry))),
-  );
-  const returned = filtered.slice(0, maxResults);
-  return {
-    ...(roadmapId ? { roadmapId } : {}),
-    total: filtered.length,
-    returned: returned.length,
-    results: returned.map((entry) =>
-      resultFor(entry, matcher, snippetChars, input.includeBodies ?? false, maxBodyChars),
-    ),
-  };
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "context.searchContext",
+    cwd,
+    slowMs: 250,
+  }, async () => {
+    const matcher = createMatcher(input);
+    const snippetChars = positiveNumber(input.snippetChars, DEFAULT_SNIPPET_CHARS);
+    const maxBodyChars = positiveNumber(input.maxBodyChars, DEFAULT_MAX_BODY_CHARS);
+    const maxResults = positiveNumber(input.maxResults, DEFAULT_MAX_RESULTS);
+    const { roadmapId, entries } = await loadContextEntries(cwd, uniqueArtifacts(input.artifacts));
+    const filtered = sortEntries(
+      entries.filter((entry) => matchesFilters(entry, input) && (!matcher || matcher.matches(entry))),
+    );
+    const returned = filtered.slice(0, maxResults);
+    return {
+      ...(roadmapId ? { roadmapId } : {}),
+      total: filtered.length,
+      returned: returned.length,
+      results: returned.map((entry) =>
+        resultFor(entry, matcher, snippetChars, input.includeBodies ?? false, maxBodyChars),
+      ),
+    };
+  });
 }
 
 export async function readContext(cwd: string, input: ReadContextInput): Promise<ContextReadResult> {
-  const maxBodyChars = positiveNumber(input.maxBodyChars, DEFAULT_MAX_BODY_CHARS);
-  const { roadmapId, entries } = await loadContextEntries(cwd, READ_ARTIFACTS);
-  const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const results: ContextEntryResult[] = [];
-  const missingIds: string[] = [];
-  for (const id of input.ids) {
-    const entry = byId.get(id);
-    if (!entry) missingIds.push(id);
-    else results.push(resultFor(entry, undefined, DEFAULT_SNIPPET_CHARS, true, maxBodyChars));
-  }
-  return {
-    ...(roadmapId ? { roadmapId } : {}),
-    requested: input.ids.length,
-    found: results.length,
-    results,
-    missingIds,
-  };
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "context.readContext",
+    cwd,
+    slowMs: 250,
+  }, async () => {
+    const maxBodyChars = positiveNumber(input.maxBodyChars, DEFAULT_MAX_BODY_CHARS);
+    const { roadmapId, entries } = await loadContextEntries(cwd, READ_ARTIFACTS);
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const results: ContextEntryResult[] = [];
+    const missingIds: string[] = [];
+    for (const id of input.ids) {
+      const entry = byId.get(id);
+      if (!entry) missingIds.push(id);
+      else results.push(resultFor(entry, undefined, DEFAULT_SNIPPET_CHARS, true, maxBodyChars));
+    }
+    return {
+      ...(roadmapId ? { roadmapId } : {}),
+      requested: input.ids.length,
+      found: results.length,
+      results,
+      missingIds,
+    };
+  });
 }
