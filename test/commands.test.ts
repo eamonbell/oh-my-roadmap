@@ -104,4 +104,62 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("do not call reopen_roadmap");
     expect(sent.content).toContain("start_milestone_planning to advance from the completed milestone");
   });
+
+  test("roadmap:details renders local details without prompting the model", async () => {
+    const commands = new Map<string, RegisteredTestCommand>();
+    const sentMessages: Array<{ content: string; options: unknown }> = [];
+    const customMessages: Array<{ content: string | unknown[]; options: unknown }> = [];
+    const customOptions: unknown[] = [];
+    const renderedLines: string[] = [];
+    let closeCount = 0;
+    let capturedComponent: { render(width: number): readonly string[]; handleInput?(data: string): void } | undefined;
+    const api = {
+      registerCommand(name: string, command: RegisteredTestCommand) {
+        commands.set(name, command);
+      },
+      sendUserMessage(content: string, options?: unknown) {
+        sentMessages.push({ content, options });
+      },
+      sendMessage(content: string | unknown[], options?: unknown) {
+        customMessages.push({ content, options });
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapCommands(api);
+
+    const command = commands.get("roadmap:details");
+    expect(command).toBeDefined();
+
+    await command?.handler(
+      "",
+      {
+        cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)),
+        ui: {
+          custom: async (factory: (...args: unknown[]) => unknown, options?: unknown) => {
+            customOptions.push(options);
+            capturedComponent = factory(
+              { requestRender() {} },
+              {},
+              {},
+              () => {
+                closeCount += 1;
+              },
+            ) as { render(width: number): readonly string[]; handleInput?(data: string): void };
+            return new Promise(() => {});
+          },
+          notify() {},
+        },
+      } as unknown as ExtensionCommandContext,
+    );
+
+    expect(commands.has("roadmap:details")).toBe(true);
+    expect(customOptions).toEqual([undefined]);
+    expect(capturedComponent).toBeDefined();
+    renderedLines.push(...capturedComponent!.render(80));
+    expect(renderedLines.join("\n")).toContain("No active roadmap. Run /roadmap:new to start a gated roadmap workflow.");
+    capturedComponent!.handleInput?.("\x1b");
+    expect(closeCount).toBe(1);
+    expect(sentMessages).toHaveLength(0);
+    expect(customMessages).toHaveLength(0);
+  });
 });
