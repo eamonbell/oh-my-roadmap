@@ -680,8 +680,6 @@ function renderMilestone(milestone: RoadmapMilestoneOutline): string {
   return [
     `### ${milestone.id} - ${milestone.title}`,
     ``,
-    `Status: ${milestone.status}`,
-    ``,
     `Goal: ${milestone.goal}`,
     ``,
     `Scope:`,
@@ -1267,7 +1265,6 @@ export async function createMilestonePlan(
     ),
   );
 
-  roadmapMilestone.title = input.title;
   roadmapMilestone.status = "milestone_planning";
   currentRoadmap.active_milestone_id = input.milestoneId;
   currentRoadmap.phase = "milestone_planning";

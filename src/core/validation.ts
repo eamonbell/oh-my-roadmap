@@ -54,7 +54,7 @@ async function validateGeneratedRoadmapDoc(
   errors: ValidationIssue[],
 ): Promise<void> {
   if (!roadmap.roadmap_finalized) return;
-  if (roadmap.phase === "roadmap_draft" && roadmap.roadmap_content_hash !== roadmapContentHash(roadmap)) {
+  if (roadmap.roadmap_content_hash !== roadmapContentHash(roadmap)) {
     errors.push(issue("roadmap.content_hash.stale", "roadmap content hash must match the generated roadmap state"));
   }
   try {
@@ -80,10 +80,7 @@ function validateRoadmapMilestoneCheck(roadmap: RoadmapState, errors: Validation
     return;
   }
 
-  if (
-    roadmap.phase === "roadmap_draft" &&
-    (check.roadmap_revision !== roadmap.roadmap_revision || check.roadmap_content_hash !== roadmap.roadmap_content_hash)
-  ) {
+  if (check.roadmap_revision !== roadmap.roadmap_revision || check.roadmap_content_hash !== roadmap.roadmap_content_hash) {
     errors.push(issue(
       "roadmap.milestone_check.stale",
       `Roadmap milestone check is stale: checked revision ${check.roadmap_revision}, current revision ${roadmap.roadmap_revision}`,

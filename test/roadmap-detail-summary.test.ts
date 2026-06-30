@@ -183,6 +183,7 @@ describe("roadmap detail summary", () => {
     expect(summary.validation.errors.map((issue) => issue.code)).toContain("notes.blocking.open");
     expect(summary.gate.status).toBe("open");
     expect(summary.gate.warnings.map((issue) => issue.code)).toContain("bypass.active");
+    expect(summary.qualityGate.status).toBe("passed");
     expect(summary.nextAction).toBe("Resolve validation errors: Open blocking note must be resolved or explicitly deferred");
     expect(summary.waves).toMatchObject({
       total: 1,

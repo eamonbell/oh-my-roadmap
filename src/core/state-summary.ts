@@ -35,7 +35,7 @@ function sectionRefs(entries: ContextEntryResult[] | undefined): SectionReferenc
 function roadmapSummary(roadmap: RoadmapState | undefined): Record<string, unknown> | undefined {
   if (!roadmap) return undefined;
   const check = roadmap.roadmap_milestone_check;
-  const checkStatus = roadmap.phase === "roadmap_draft" && check.status !== "pending" && (
+  const checkStatus = check.status !== "pending" && (
     check.roadmap_revision !== roadmap.roadmap_revision ||
     check.roadmap_content_hash !== roadmap.roadmap_content_hash
   ) ? "stale" : check.status;

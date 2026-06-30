@@ -87,7 +87,7 @@ function hasPlannableMilestone(state: Awaited<ReturnType<typeof loadState>>): bo
 
 function roadmapMilestoneCheckLabel(roadmap: RoadmapState): string {
   const check = roadmap.roadmap_milestone_check;
-  const stale = roadmap.phase === "roadmap_draft" && check.status !== "pending" && (
+  const stale = check.status !== "pending" && (
     check.roadmap_revision !== roadmap.roadmap_revision ||
     check.roadmap_content_hash !== roadmap.roadmap_content_hash
   );
