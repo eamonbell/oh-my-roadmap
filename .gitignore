@@ -9,6 +9,7 @@
 *.dylib
 *.test
 *.out
+.omp
 
 # Go workspace and tooling
 /vendor/
