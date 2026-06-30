@@ -96,6 +96,7 @@ export interface RoadmapState {
   created_at: string;
   updated_at: string;
   roadmap_finalized: boolean;
+  roadmap_milestone_check: WaveFlowCheck;
   goal: string;
   success_criteria: string[];
   constraints: string[];

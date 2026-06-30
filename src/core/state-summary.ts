@@ -39,6 +39,7 @@ function roadmapSummary(roadmap: RoadmapState | undefined): Record<string, unkno
     title: roadmap.title,
     phase: roadmap.phase,
     roadmap_finalized: roadmap.roadmap_finalized,
+    roadmap_milestone_check: roadmap.roadmap_milestone_check,
     open_questions: roadmap.open_questions,
     active_milestone_id: roadmap.active_milestone_id,
     active_change_request_id: roadmap.active_change_request_id,

@@ -164,6 +164,7 @@ async function approvedRoadmap(): Promise<void> {
     discovery: { findings: ["Inspected local roadmap-engineer sources."] },
   });
   await updateRoadmap(cwd, roadmapInput());
+  await recordPassedRoadmapMilestoneCheck();
   await transition(cwd, {
     operation: "approve_roadmap",
     approver: "user",
@@ -177,6 +178,18 @@ async function recordPassedWaveFlowCheck(summary = "Wave flow check passed."): P
     waveFlowCheck: {
       status: "passed",
       checkedBy: "wave-flow-checker",
+      summary,
+      findings: [],
+    },
+  });
+}
+
+async function recordPassedRoadmapMilestoneCheck(summary = "Roadmap milestone check passed."): Promise<void> {
+  await transition(cwd, {
+    operation: "record_roadmap_milestone_check",
+    roadmapMilestoneCheck: {
+      status: "passed",
+      checkedBy: "roadmap-milestone-checker",
       summary,
       findings: [],
     },
@@ -224,6 +237,7 @@ describe("roadmap state lifecycle", () => {
 
     await transition(cwd, { operation: "record_discovery" });
     await updateRoadmap(cwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheck();
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
     await expect(
@@ -247,6 +261,7 @@ describe("roadmap state lifecycle", () => {
       discovery: { external_research_recorded: true },
     });
     await updateRoadmap(cwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheck();
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
     const validation = await validateRoadmapState(cwd);
@@ -277,8 +292,66 @@ describe("roadmap state lifecycle", () => {
       renderRoadmapMarkdown(state),
     );
 
+    await recordPassedRoadmapMilestoneCheck();
+
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
     expect((await validateRoadmapState(cwd)).valid).toBe(true);
+  });
+
+  test("requires a passed roadmap-milestone check before roadmap approval", async () => {
+    await initRoadmap(cwd, { roadmapId: "checker-roadmap", title: "Checker Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput());
+
+    let validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.not_passed");
+    await expect(
+      transition(cwd, { operation: "approve_roadmap", approver: "user" }),
+    ).rejects.toThrow("passed roadmap-milestone check");
+
+    await transition(cwd, {
+      operation: "record_roadmap_milestone_check",
+      roadmapMilestoneCheck: {
+        status: "failed",
+        checkedBy: "roadmap-milestone-checker",
+        summary: "Milestones conflict.",
+        findings: ["m01-core relies on later migration work."],
+      },
+    });
+    await expect(
+      transition(cwd, { operation: "approve_roadmap", approver: "user" }),
+    ).rejects.toThrow("passed roadmap-milestone check");
+
+    await recordPassedRoadmapMilestoneCheck();
+    validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(true);
+    await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+  });
+
+  test("draft roadmap updates reset roadmap-milestone check state", async () => {
+    await initRoadmap(cwd, { roadmapId: "reset-check-roadmap", title: "Reset Check Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheck();
+
+    await updateRoadmap(cwd, roadmapInput({
+      goal: "Refactor roadmap-engineer state safely after checker rerun.",
+    }));
+
+    const state = await loadState(cwd);
+    expect(state.roadmap?.roadmap_milestone_check.status).toBe("pending");
+    await expect(
+      transition(cwd, { operation: "approve_roadmap", approver: "user" }),
+    ).rejects.toThrow("passed roadmap-milestone check");
+
+    await recordPassedRoadmapMilestoneCheck("Rerun roadmap milestone check passed.");
+    await transition(cwd, { operation: "approve_roadmap", approver: "user" });
   });
 
   test("reopens an approved roadmap and requires regenerated approval", async () => {
@@ -313,6 +386,7 @@ describe("roadmap state lifecycle", () => {
     await updateRoadmap(cwd, roadmapInput({
       goal: "Refactor roadmap-engineer state safely after reopening.",
     }));
+    await recordPassedRoadmapMilestoneCheck("Reopened roadmap milestone check passed.");
     await transition(cwd, {
       operation: "approve_roadmap",
       approver: "user",
@@ -334,6 +408,7 @@ describe("roadmap state lifecycle", () => {
 
     await transition(cwd, { operation: "record_discovery" });
     await updateRoadmap(cwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheck();
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
     await expect(
@@ -767,6 +842,7 @@ describe("roadmap state lifecycle", () => {
         additionalMilestone("m02-runtime", "Runtime prompts"),
       ],
     }));
+    await recordPassedRoadmapMilestoneCheck();
     await transition(cwd, {
       operation: "approve_roadmap",
       approver: "user",

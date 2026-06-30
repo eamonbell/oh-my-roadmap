@@ -62,6 +62,7 @@ describe("project init scaffold", () => {
         "worker-heavy": {},
         reviewer: {},
         "wave-flow-checker": {},
+        "roadmap-milestone-checker": {},
       },
     });
 
@@ -106,6 +107,13 @@ describe("project init scaffold", () => {
     expect(checker.body).toContain("Do not request user input directly");
     expect(checker.body).toContain("report `failed` with concrete findings");
     expectNoAskToolDirective(checker.body);
+
+    const roadmapChecker = parseMarkdownDocument(await readFile(".omp/agents/roadmap-milestone-checker.md"));
+    expect(roadmapChecker.data.name).toBe("roadmap-milestone-checker");
+    expect(roadmapChecker.body).toContain("# Roadmap Milestone Checker");
+    expect(roadmapChecker.body).toContain("Do not request user input directly");
+    expect(roadmapChecker.body).toContain("Report either passed");
+    expectNoAskToolDirective(roadmapChecker.body);
     expect(await pathExists(".roadmaps/config.yml")).toBe(true);
   });
 
@@ -127,6 +135,7 @@ describe("project init scaffold", () => {
         "worker-heavy": {},
         reviewer: {},
         "wave-flow-checker": {},
+        "roadmap-milestone-checker": {},
       },
     });
 
@@ -146,6 +155,10 @@ describe("project init scaffold", () => {
     const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
     expect(checker.body).toContain("flow contradictions");
     expectNoAskToolDirective(checker.body);
+
+    const roadmapChecker = parseMarkdownDocument(await readFile(".omp/agents/roadmap-milestone-checker.md"));
+    expect(roadmapChecker.body).toContain("milestone flow");
+    expectNoAskToolDirective(roadmapChecker.body);
   });
 
   test("renders configured model and thinking for all generated agents", async () => {
@@ -167,6 +180,9 @@ describe("project init scaffold", () => {
         "    thinking: high",
         "  wave-flow-checker:",
         "    model: pi/checker",
+        "    thinking: medium",
+        "  roadmap-milestone-checker:",
+        "    model: pi/roadmap-checker",
         "    thinking: medium",
         "",
       ].join("\n"),
@@ -193,6 +209,10 @@ describe("project init scaffold", () => {
     const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
     expect(checker.data.model).toBe("pi/checker");
     expect(checker.data["thinking-level"]).toBe("medium");
+
+    const roadmapChecker = parseMarkdownDocument(await readFile(".omp/agents/roadmap-milestone-checker.md"));
+    expect(roadmapChecker.data.model).toBe("pi/roadmap-checker");
+    expect(roadmapChecker.data["thinking-level"]).toBe("medium");
   });
 
   test("ignores legacy .roadmap config", async () => {
@@ -211,6 +231,7 @@ describe("project init scaffold", () => {
         "worker-heavy": {},
         reviewer: {},
         "wave-flow-checker": {},
+        "roadmap-milestone-checker": {},
       },
     });
 

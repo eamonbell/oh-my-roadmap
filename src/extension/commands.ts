@@ -26,6 +26,14 @@ const DETAILS_COMMAND = "roadmap:details";
 
 
 function commandSpecificInstructions(name: string): string {
+  if (name === "roadmap:new") {
+    return `
+Command-specific workflow for /roadmap:new:
+- After roadmap_engineer_update_roadmap writes the finalized roadmap, dispatch roadmap-milestone-checker before asking for roadmap approval.
+- Record the checker result with roadmap_engineer_transition operation record_roadmap_milestone_check.
+- If the checker fails, revise the roadmap with roadmap_engineer_update_roadmap, rerun roadmap-milestone-checker, and record the new result.
+- Only call roadmap_engineer_validate and ask for roadmap approval after the recorded roadmap-milestone check has passed.`;
+  }
   if (name === "milestone:plan") {
     return `
 Command-specific workflow for /milestone:plan:
@@ -53,6 +61,10 @@ Command-specific workflow for /roadmap:reopen:
 - Use the built-in ask tool until the requested roadmap delta and required reopen reason are explicit.
 - Call roadmap_engineer_transition with operation reopen_roadmap and a non-empty reason.
 - Call roadmap_engineer_update_roadmap with the full revised structured roadmap.
+- After roadmap_engineer_update_roadmap writes the finalized roadmap, dispatch roadmap-milestone-checker before asking for roadmap approval.
+- Record the checker result with roadmap_engineer_transition operation record_roadmap_milestone_check.
+- If the checker fails, revise the roadmap with roadmap_engineer_update_roadmap, rerun roadmap-milestone-checker, and record the new result.
+- Only call roadmap_engineer_validate and ask for roadmap approval after the recorded roadmap-milestone check has passed.
 - Call roadmap_engineer_validate, ask for explicit roadmap reapproval, then call roadmap_engineer_transition with operation approve_roadmap.
 - Do not create milestone plans, tasks, waves, workers, ownership, change requests, or implementation work during reopening.`;
 }
@@ -112,7 +124,7 @@ async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
 
 export function registerRoadmapCommands(api: ExtensionAPI): void {
   api.registerCommand(INIT_COMMAND, {
-    description: "Scaffold roadmap-engineer project config and local worker/reviewer agents",
+    description: "Scaffold roadmap-engineer project config and local generated agents",
     handler: async (_args, ctx) => {
       try {
         const result = await initProject(ctx.cwd);
