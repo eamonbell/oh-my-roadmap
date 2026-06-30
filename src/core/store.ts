@@ -13,6 +13,7 @@ import {
   roadmapStatePath,
   risksPath,
 } from "./paths";
+import { loadUsageSummary } from "./usage";
 import { withStoreWriteLock } from "./lock";
 import { serializeMarkdownDocument, serializeYaml } from "./frontmatter";
 import {
@@ -615,6 +616,7 @@ export async function loadState(cwd: string): Promise<LoadedState> {
   if (milestone) loaded.milestone = milestone;
   if (changeRequest) loaded.changeRequest = changeRequest;
   if (closeout) loaded.closeout = closeout;
+  loaded.usage = await loadUsageSummary(cwd, active.roadmap_id);
   return loaded;
 }
 
@@ -779,6 +781,10 @@ function setMilestoneStatus(roadmap: RoadmapState, milestoneId: string, status: 
   if (milestone) milestone.status = status;
 }
 
+function hasPlannableMilestone(roadmap: RoadmapState): boolean {
+  return roadmap.milestones.some((milestone) => ["planned", "blocked"].includes(milestone.status));
+}
+
 function requirePhase(actual: Phase, expected: Phase, operation: string): void {
   if (actual !== expected) {
     throw new Error(`${operation} requires phase ${expected}; current phase is ${actual}`);
@@ -892,7 +898,19 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       break;
     }
     case "start_milestone_planning":
-      requirePhase(roadmap.phase, "roadmap_approved", input.operation);
+      if (!["roadmap_approved", "complete"].includes(roadmap.phase)) {
+        throw new Error(`start_milestone_planning requires phase roadmap_approved or complete; current phase is ${roadmap.phase}`);
+      }
+      if (roadmap.phase === "complete") {
+        if (loaded.active.change_request_id || roadmap.active_change_request_id) {
+          throw new Error("start_milestone_planning requires no active change request");
+        }
+        if (!hasPlannableMilestone(roadmap)) {
+          throw new Error("start_milestone_planning requires a planned or blocked milestone");
+        }
+        delete roadmap.active_milestone_id;
+        await writeActivePointer(cwd, roadmap.roadmap_id, undefined);
+      }
       roadmap.phase = "milestone_planning";
       break;
     case "create_milestone_plan":

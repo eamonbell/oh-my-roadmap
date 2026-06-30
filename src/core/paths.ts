@@ -21,6 +21,10 @@ export function roadmapStatePath(cwd: string, roadmapId: string): string {
   return path.join(roadmapDir(cwd, roadmapId), "state.yml");
 }
 
+export function roadmapUsagePath(cwd: string, roadmapId: string): string {
+  return path.join(roadmapDir(cwd, roadmapId), "usage.yml");
+}
+
 export function roadmapDocPath(cwd: string, roadmapId: string): string {
   return path.join(roadmapDir(cwd, roadmapId), "roadmap.md");
 }

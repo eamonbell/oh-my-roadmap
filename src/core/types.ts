@@ -216,4 +216,5 @@ export interface LoadedState {
   milestone?: MilestonePlan;
   changeRequest?: ChangeRequest;
   closeout?: CloseoutEvidence;
+  usage?: import("./usage").RoadmapUsageSummary;
 }
