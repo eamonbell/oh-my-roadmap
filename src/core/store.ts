@@ -5,11 +5,13 @@ import * as path from "node:path";
 import {
   activePointerPath,
   changeRequestPath,
+  changeRequestRuntimePath,
   decisionsPath,
   milestoneCloseoutPath,
   milestoneDir,
   milestoneNotesPath,
   milestonePlanPath,
+  milestoneRuntimePath,
   roadmapDir,
   roadmapDocPath,
   roadmapsDir,
@@ -40,11 +42,14 @@ import type {
   ActivePointer,
   Approval,
   ChangeRequest,
+  ChangeRequestRuntime,
   CloseoutEvidence,
   ImplementationProgress,
   ImplementationProgressStep,
   LoadedState,
   MilestonePlan,
+  MilestoneRuntime,
+  PlanRuntime,
   Phase,
   RoadmapEvent,
   RoadmapMilestoneCheck,
@@ -582,6 +587,7 @@ function normalizeTask(task: TaskPlan): TaskPlan {
   const raw = task as unknown as Record<string, unknown>;
   return {
     ...task,
+    status: (raw.status as TaskPlan["status"]) ?? "assigned",
     objective: valueString(raw.objective),
     implementation_notes: valueList(raw.implementation_notes),
     done_criteria: valueList(raw.done_criteria),
@@ -597,6 +603,7 @@ function normalizeWave(wave: WavePlan): WavePlan {
   const raw = wave as unknown as Record<string, unknown>;
   return {
     ...wave,
+    status: (raw.status as WavePlan["status"]) ?? "pending",
     goal: valueString(raw.goal),
     exit_criteria: valueList(raw.exit_criteria),
     review_checkpoint: valueString(raw.review_checkpoint),
@@ -659,6 +666,64 @@ function normalizeChangeRequest(change: ChangeRequest): ChangeRequest {
     waves,
     progress: normalizeProgress(raw.progress, waves),
     wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
+  };
+}
+
+function normalizePlanRuntime(value: unknown, plan: MilestonePlan | ChangeRequest): PlanRuntime {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<PlanRuntime>
+    : {};
+  const rawTasks = Array.isArray(raw.tasks) ? raw.tasks : [];
+  const rawWaves = Array.isArray(raw.waves) ? raw.waves : [];
+  const taskStatuses = new Map(rawTasks.map((task) => [task.id, task.status]));
+  const waveStatuses = new Map(rawWaves.map((wave) => [wave.id, wave.status]));
+  return {
+    tasks: plan.tasks.map((task) => ({
+      id: task.id,
+      status: taskStatuses.get(task.id) ?? task.status,
+    })),
+    waves: plan.waves.map((wave) => ({
+      id: wave.id,
+      status: waveStatuses.get(wave.id) ?? wave.status,
+    })),
+    progress: normalizeProgress(raw.progress, plan.waves),
+    wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
+  };
+}
+
+function runtimeFromPlan(plan: MilestonePlan | ChangeRequest): PlanRuntime {
+  return {
+    tasks: plan.tasks.map((task) => ({ id: task.id, status: task.status })),
+    waves: plan.waves.map((wave) => ({ id: wave.id, status: wave.status })),
+    progress: plan.progress,
+    wave_flow_check: plan.wave_flow_check,
+  };
+}
+
+function applyRuntime<T extends MilestonePlan | ChangeRequest>(plan: T, runtime: PlanRuntime): T {
+  const taskStatuses = new Map(runtime.tasks.map((task) => [task.id, task.status]));
+  const waveStatuses = new Map(runtime.waves.map((wave) => [wave.id, wave.status]));
+  return {
+    ...plan,
+    tasks: plan.tasks.map((task) => ({
+      ...task,
+      status: taskStatuses.get(task.id) ?? task.status,
+    })),
+    waves: plan.waves.map((wave) => ({
+      ...wave,
+      status: waveStatuses.get(wave.id) ?? wave.status,
+    })),
+    progress: runtime.progress,
+    wave_flow_check: runtime.wave_flow_check,
+  };
+}
+
+function planDefinitionData(plan: MilestonePlan | ChangeRequest): Record<string, unknown> {
+  const { progress, wave_flow_check, tasks, waves, ...definition } = plan;
+  return {
+    ...definition,
+    tasks: tasks.map(({ status, ...task }) => task),
+    waves: waves.map(({ status, ...wave }) => wave),
   };
 }
 
@@ -768,11 +833,6 @@ function renderPlanSummary(plan: MilestonePlan | ChangeRequest): string {
     label,
     `Title: ${plan.title}`,
     `Status: ${plan.status}`,
-    `Active wave: ${plan.progress.active_wave_id ?? "(none)"}`,
-    `Progress step: ${plan.progress.step}`,
-    `Active tasks: ${plan.progress.active_task_ids.join(", ") || "(none)"}`,
-    `Blocked reason: ${plan.progress.blocked_reason ?? "(none)"}`,
-    `Wave flow check: ${plan.wave_flow_check.status}`,
   ].join("\n");
 }
 
@@ -781,7 +841,6 @@ function renderTask(task: TaskPlan): string {
     `### ${task.id} - ${task.title}`,
     ``,
     `Worker: ${task.worker}`,
-    `Status: ${task.status}`,
     `Objective: ${task.objective || "(not recorded)"}`,
     ``,
     `Implementation Notes:`,
@@ -811,7 +870,6 @@ function renderWave(wave: WavePlan): string {
   return [
     `### ${wave.id}`,
     ``,
-    `Status: ${wave.status}`,
     `Goal: ${wave.goal || "(not recorded)"}`,
     `Review Checkpoint: ${wave.review_checkpoint || "(not recorded)"}`,
     ``,
@@ -861,23 +919,6 @@ function renderImplementationPlanBody(plan: MilestonePlan | ChangeRequest): stri
     `## Execution Waves`,
     ``,
     plan.waves.length > 0 ? plan.waves.map(renderWave).join("\n\n") : "- (none)",
-    ``,
-    `## Progress`,
-    ``,
-    `- Active wave: ${plan.progress.active_wave_id ?? "(none)"}`,
-    `- Step: ${plan.progress.step}`,
-    `- Active tasks: ${plan.progress.active_task_ids.join(", ") || "(none)"}`,
-    `- Blocked reason: ${plan.progress.blocked_reason ?? "(none)"}`,
-    `- Updated at: ${plan.progress.updated_at}`,
-    ``,
-    `## Wave Flow Check`,
-    ``,
-    `- Status: ${plan.wave_flow_check.status}`,
-    `- Checked by: ${plan.wave_flow_check.checked_by || "(none)"}`,
-    `- Checked at: ${plan.wave_flow_check.checked_at || "(none)"}`,
-    `- Summary: ${plan.wave_flow_check.summary || "(none)"}`,
-    `- Findings:`,
-    list(plan.wave_flow_check.findings),
     ``,
     `## Verification`,
     ``,
@@ -1004,9 +1045,12 @@ export async function loadMilestonePlan(
   roadmapId: string,
   milestoneId: string,
 ): Promise<MilestonePlan> {
-  return normalizeMilestonePlan(await readMarkdownData<MilestonePlan>(
+  const plan = normalizeMilestonePlan(await readMarkdownData<MilestonePlan>(
     milestonePlanPath(cwd, roadmapId, milestoneId),
   ));
+  const runtimePath = milestoneRuntimePath(cwd, roadmapId, milestoneId);
+  if (!(await fileExists(runtimePath))) return plan;
+  return applyRuntime(plan, await loadMilestoneRuntime(cwd, roadmapId, milestoneId));
 }
 
 export async function writeMilestonePlan(
@@ -1018,10 +1062,34 @@ export async function writeMilestonePlan(
     const normalized = normalizeMilestonePlan(plan);
     await writeMarkdownData(
       milestonePlanPath(cwd, normalized.roadmap_id, normalized.milestone_id),
-      { ...normalized } as unknown as Record<string, unknown>,
+      planDefinitionData(normalized),
       body ?? renderImplementationPlanBody(normalized),
     );
   });
+}
+
+export async function loadMilestoneRuntime(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+): Promise<MilestoneRuntime> {
+  const plan = normalizeMilestonePlan(await readMarkdownData<MilestonePlan>(
+    milestonePlanPath(cwd, roadmapId, milestoneId),
+  ));
+  return normalizePlanRuntime(await readYamlFile<MilestoneRuntime>(
+    milestoneRuntimePath(cwd, roadmapId, milestoneId),
+  ), plan);
+}
+
+export async function writeMilestoneRuntime(
+  cwd: string,
+  plan: MilestonePlan,
+): Promise<void> {
+  const normalized = normalizeMilestonePlan(plan);
+  await writeYamlFile(
+    milestoneRuntimePath(cwd, normalized.roadmap_id, normalized.milestone_id),
+    runtimeFromPlan(normalized),
+  );
 }
 
 export async function loadChangeRequest(
@@ -1030,9 +1098,37 @@ export async function loadChangeRequest(
   milestoneId: string,
   changeRequestId: string,
 ): Promise<ChangeRequest> {
-  return normalizeChangeRequest(await readMarkdownData<ChangeRequest>(
+  const change = normalizeChangeRequest(await readMarkdownData<ChangeRequest>(
     changeRequestPath(cwd, roadmapId, milestoneId, changeRequestId),
   ));
+  const runtimePath = changeRequestRuntimePath(cwd, roadmapId, milestoneId, changeRequestId);
+  if (!(await fileExists(runtimePath))) return change;
+  return applyRuntime(change, await loadChangeRequestRuntime(cwd, roadmapId, milestoneId, changeRequestId));
+}
+
+export async function loadChangeRequestRuntime(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+  changeRequestId: string,
+): Promise<ChangeRequestRuntime> {
+  const change = normalizeChangeRequest(await readMarkdownData<ChangeRequest>(
+    changeRequestPath(cwd, roadmapId, milestoneId, changeRequestId),
+  ));
+  return normalizePlanRuntime(await readYamlFile<ChangeRequestRuntime>(
+    changeRequestRuntimePath(cwd, roadmapId, milestoneId, changeRequestId),
+  ), change);
+}
+
+export async function writeChangeRequestRuntime(
+  cwd: string,
+  change: ChangeRequest,
+): Promise<void> {
+  const normalized = normalizeChangeRequest(change);
+  await writeYamlFile(
+    changeRequestRuntimePath(cwd, normalized.roadmap_id, normalized.milestone_id, normalized.change_request_id),
+    runtimeFromPlan(normalized),
+  );
 }
 
 export async function loadState(cwd: string): Promise<LoadedState> {
@@ -1261,6 +1357,7 @@ export async function createMilestonePlan(
 
   await fs.mkdir(milestoneDir(cwd, currentRoadmap.roadmap_id, input.milestoneId), { recursive: true });
   await writeMilestonePlan(cwd, plan);
+  await writeMilestoneRuntime(cwd, plan);
   await writeText(milestoneNotesPath(cwd, currentRoadmap.roadmap_id, input.milestoneId), "# Milestone Notes\n");
   await writeText(
     milestoneCloseoutPath(cwd, currentRoadmap.roadmap_id, input.milestoneId),
@@ -1330,6 +1427,7 @@ async function updateMilestonePlanDraft(
   };
   return await withStoreMutationRollback(cwd, updated.roadmap_id, async () => {
   await writeMilestonePlan(cwd, updated);
+  await writeMilestoneRuntime(cwd, updated);
   await appendRoadmapEvent(cwd, {
     actor: "user",
     type: "milestone.plan_updated",
@@ -1411,7 +1509,7 @@ async function writeChangeRequest(
   const normalized = normalizeChangeRequest(change);
   await writeMarkdownData(
     changeRequestPath(cwd, normalized.roadmap_id, normalized.milestone_id, normalized.change_request_id),
-    { ...normalized } as unknown as Record<string, unknown>,
+    planDefinitionData(normalized),
     body ?? renderImplementationPlanBody(normalized),
   );
 }
@@ -1444,6 +1542,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   const roadmap = loadedRoadmap;
   const activeMilestoneId = active.milestone_id ?? roadmap.active_milestone_id;
   let transitionEventId: string | undefined;
+  let writeRoadmap = true;
 
   switch (input.operation) {
     case "record_discovery": {
@@ -1636,6 +1735,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         approvals: [...loaded.changeRequest.approvals, approval(input.approver, input.summary)],
       };
       await writeChangeRequest(cwd, change);
+      await writeChangeRequestRuntime(cwd, change);
       break;
     }
     case "update_change_request_plan": {
@@ -1666,6 +1766,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         wave_flow_check: pendingWaveFlowCheck(),
       };
       await writeChangeRequest(cwd, change);
+      await writeChangeRequestRuntime(cwd, change);
       break;
     }
     case "close_change": {
@@ -1687,24 +1788,28 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       if (!input.taskId || !input.taskStatus) throw new Error("update_task_status requires taskId and taskStatus");
       if (loaded.changeRequest) {
         const tasks = updateTaskStatus(loaded.changeRequest.tasks, input.taskId, input.taskStatus);
-        await writeChangeRequest(cwd, { ...loaded.changeRequest, tasks });
+        await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, tasks });
+        writeRoadmap = false;
         break;
       }
       requireActiveMilestone(activeMilestoneId, loaded.milestone);
       const tasks = updateTaskStatus(loaded.milestone.tasks, input.taskId, input.taskStatus);
-      await writeMilestonePlan(cwd, { ...loaded.milestone, tasks });
+      await writeMilestoneRuntime(cwd, { ...loaded.milestone, tasks });
+      writeRoadmap = false;
       break;
     }
     case "update_wave_status": {
       if (!input.waveId || !input.waveStatus) throw new Error("update_wave_status requires waveId and waveStatus");
       if (loaded.changeRequest) {
         const waves = updateWaveStatus(loaded.changeRequest.waves, input.waveId, input.waveStatus);
-        await writeChangeRequest(cwd, { ...loaded.changeRequest, waves });
+        await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, waves });
+        writeRoadmap = false;
         break;
       }
       requireActiveMilestone(activeMilestoneId, loaded.milestone);
       const waves = updateWaveStatus(loaded.milestone.waves, input.waveId, input.waveStatus);
-      await writeMilestonePlan(cwd, { ...loaded.milestone, waves });
+      await writeMilestoneRuntime(cwd, { ...loaded.milestone, waves });
+      writeRoadmap = false;
       break;
     }
     case "update_implementation_progress": {
@@ -1717,11 +1822,13 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         updated_at: nowIso(),
       } satisfies ImplementationProgress;
       if (loaded.changeRequest) {
-        await writeChangeRequest(cwd, { ...loaded.changeRequest, progress });
+        await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, progress });
+        writeRoadmap = false;
         break;
       }
       requireActiveMilestone(activeMilestoneId, loaded.milestone);
-      await writeMilestonePlan(cwd, { ...loaded.milestone, progress });
+      await writeMilestoneRuntime(cwd, { ...loaded.milestone, progress });
+      writeRoadmap = false;
       break;
     }
     case "record_closeout": {
@@ -1754,21 +1861,23 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       const waveFlowCheck = recordedWaveFlowCheck(input.waveFlowCheck);
       if (loaded.changeRequest) {
         if (loaded.changeRequest.status !== "draft") throw new Error("record_wave_flow_check requires a draft change request");
-        await writeChangeRequest(cwd, { ...loaded.changeRequest, wave_flow_check: waveFlowCheck });
+        await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, wave_flow_check: waveFlowCheck });
+        writeRoadmap = false;
         break;
       }
       requireActiveMilestone(activeMilestoneId, loaded.milestone);
       if (loaded.milestone.status !== "milestone_planning") {
         throw new Error("record_wave_flow_check requires a draft milestone plan");
       }
-      await writeMilestonePlan(cwd, { ...loaded.milestone, wave_flow_check: waveFlowCheck });
+      await writeMilestoneRuntime(cwd, { ...loaded.milestone, wave_flow_check: waveFlowCheck });
+      writeRoadmap = false;
       break;
     }
     default:
       input.operation satisfies never;
   }
 
-  await writeRoadmapState(cwd, roadmap);
+  if (writeRoadmap) await writeRoadmapState(cwd, roadmap);
   const after = await loadState(cwd);
   await appendTransitionEvent(cwd, input, beforeEvent, after, transitionEventId);
   return after;
@@ -1959,6 +2068,7 @@ export async function createChangeRequest(
   };
 
   await writeChangeRequest(cwd, change);
+  await writeChangeRequestRuntime(cwd, change);
   roadmap.active_change_request_id = change.change_request_id;
   await writeRoadmapState(cwd, roadmap);
   await writeActive(cwd, {

@@ -49,6 +49,10 @@ export function milestonePlanPath(cwd: string, roadmapId: string, milestoneId: s
   return path.join(milestoneDir(cwd, roadmapId, milestoneId), "plan.md");
 }
 
+export function milestoneRuntimePath(cwd: string, roadmapId: string, milestoneId: string): string {
+  return path.join(milestoneDir(cwd, roadmapId, milestoneId), "runtime.yml");
+}
+
 export function milestoneNotesPath(cwd: string, roadmapId: string, milestoneId: string): string {
   return path.join(milestoneDir(cwd, roadmapId, milestoneId), "notes.md");
 }
@@ -64,4 +68,13 @@ export function changeRequestPath(
   changeRequestId: string,
 ): string {
   return path.join(milestoneDir(cwd, roadmapId, milestoneId), "changes", `${changeRequestId}.md`);
+}
+
+export function changeRequestRuntimePath(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string,
+  changeRequestId: string,
+): string {
+  return path.join(milestoneDir(cwd, roadmapId, milestoneId), "changes", `${changeRequestId}.runtime.yml`);
 }
