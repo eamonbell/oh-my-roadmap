@@ -545,6 +545,14 @@ describe("roadmap state lifecycle", () => {
     expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.stale");
     expect((summarizeState(await loadState(cwd), "roadmap").roadmap as Record<string, unknown>).roadmap_milestone_check_status).toBe("stale");
     expect(await renderReport(cwd)).toContain("Roadmap milestone check: stale");
+    const action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Rerun roadmap milestone checker",
+      status: "stale",
+      safe_to_apply: false,
+    });
+    expect(action.description).toContain("checked revision");
+    await expect(applyNextAction(cwd, action.id)).rejects.toThrow("action status is stale");
   });
 
   test("reopens an approved roadmap and requires regenerated approval", async () => {
@@ -895,6 +903,62 @@ describe("roadmap state lifecycle", () => {
     expect((await loadState(cwd)).milestone?.progress).toMatchObject({
       step: "closeout_ready",
       active_task_ids: [],
+    });
+  });
+
+  test("advances to the immediate next pending wave in a three-wave plan", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    input.tasks = [
+      ...input.tasks,
+      {
+        id: "t03-docs",
+        title: "Docs task",
+        objective: "Document the workflow.",
+        implementation_notes: ["Update the relevant roadmap docs."],
+        done_criteria: ["Docs explain the workflow."],
+        verification_commands: ["bun test"],
+        worker: "worker",
+        status: "assigned",
+        depends_on: ["t02-report"],
+        owned_files: ["README.md"],
+        owned_modules: [],
+        shared_interfaces: [],
+      },
+    ];
+    input.waves = [
+      testWave("w01", ["t01-state"]),
+      testWave("w02", ["t02-report"]),
+      testWave("w03", ["t03-docs"]),
+    ];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    await transition(cwd, { operation: "start_implementation" });
+    await transition(cwd, { operation: "update_wave_status", waveId: "w01", waveStatus: "complete" });
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: { activeWaveId: "w01", step: "ready_for_next_wave", activeTaskIds: [] },
+    });
+
+    const action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Advance to next wave",
+      status: "ready",
+      safe_to_apply: true,
+      scope: { wave_id: "w02" },
+      tool: {
+        input: {
+          operation: "update_implementation_progress",
+          progress: { activeWaveId: "w02", step: "not_started", activeTaskIds: [] },
+        },
+      },
+    });
+    await applyNextAction(cwd, action.id);
+    expect((await loadState(cwd)).milestone?.progress).toMatchObject({
+      active_wave_id: "w02",
+      step: "not_started",
     });
   });
 
