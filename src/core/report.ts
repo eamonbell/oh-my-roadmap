@@ -166,22 +166,23 @@ function roadmapCheckNextAction(state: LoadedState): NextActionPlan | undefined 
   if (!state.roadmap) return undefined;
   const roadmap = state.roadmap;
   const check = roadmap.roadmap_milestone_check;
-  if (!roadmap.roadmap_finalized || roadmap.phase !== "roadmap_draft") return undefined;
-  if (check.status === "pending") {
-    return plan({
-      id: `roadmap:${roadmap.roadmap_id}:milestone-check:pending`,
-      label: "Run roadmap milestone checker",
-      description: `Dispatch roadmap-milestone checker for revision ${roadmap.roadmap_revision}.`,
-      status: "agent_required",
-      scope: scopeFromState(state),
-    });
-  }
+  if (!roadmap.roadmap_finalized) return undefined;
   if (check.roadmap_revision !== roadmap.roadmap_revision || check.roadmap_content_hash !== roadmap.roadmap_content_hash) {
     return plan({
       id: `roadmap:${roadmap.roadmap_id}:milestone-check:stale`,
       label: "Rerun roadmap milestone checker",
       description: `Rerun roadmap-milestone checker: checked revision ${check.roadmap_revision}, current revision ${roadmap.roadmap_revision}.`,
       status: "stale",
+      scope: scopeFromState(state),
+    });
+  }
+  if (roadmap.phase !== "roadmap_draft") return undefined;
+  if (check.status === "pending") {
+    return plan({
+      id: `roadmap:${roadmap.roadmap_id}:milestone-check:pending`,
+      label: "Run roadmap milestone checker",
+      description: `Dispatch roadmap-milestone checker for revision ${roadmap.roadmap_revision}.`,
+      status: "agent_required",
       scope: scopeFromState(state),
     });
   }
@@ -521,9 +522,12 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
           scope: { ...baseScope, wave_id: activeWave.id },
         });
       }
-      const remaining = waves.slice(activeWaveIndex + 1).filter((candidate) => candidate.status !== "complete");
-      if (remaining.length === 1 && remaining[0]?.status === "pending") {
-        const nextWave = remaining[0];
+      const previousWavesComplete = activeWaveIndex >= 0 &&
+        waves.slice(0, activeWaveIndex + 1).every((candidate) => candidate.status === "complete");
+      const nextWave = previousWavesComplete
+        ? waves.slice(activeWaveIndex + 1).find((candidate) => candidate.status !== "complete")
+        : undefined;
+      if (nextWave?.status === "pending") {
         return plan({
           id: `progress:${nextWave.id}:activate`,
           label: "Advance to next wave",
@@ -537,7 +541,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
           }),
         });
       }
-      if (waves.every((candidate) => candidate.status === "complete")) {
+      if (previousWavesComplete && !nextWave) {
         return plan({
           id: `progress:${baseScope.milestone_id ?? baseScope.change_request_id ?? "active"}:closeout-ready`,
           label: "Mark closeout ready",
