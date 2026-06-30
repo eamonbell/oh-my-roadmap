@@ -32,6 +32,7 @@ import {
   validateCloseoutEvidence,
   writeMilestoneCloseout,
 } from "./closeout";
+import { appendRoadmapEvent } from "./events";
 import type {
   ActivePointer,
   Approval,
@@ -43,6 +44,7 @@ import type {
   MilestonePlan,
   Phase,
   RoadmapMilestoneOutline,
+  RoadmapEventScope,
   RoadmapState,
   TaskPlan,
   WaveFlowCheck,
@@ -182,6 +184,213 @@ export function assertSlug(slug: string, field: string): void {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
     throw new Error(`${field} must be a lower-case slug using letters, numbers, and hyphens`);
   }
+}
+
+function scopeFromLoaded(loaded: LoadedState): RoadmapEventScope {
+  const roadmapId = loaded.active?.roadmap_id ?? loaded.roadmap?.roadmap_id;
+  if (!roadmapId) throw new Error("Cannot record event without a roadmap id");
+  const scope: RoadmapEventScope = { roadmap_id: roadmapId };
+  const milestoneId = loaded.active?.milestone_id ?? loaded.roadmap?.active_milestone_id ?? loaded.milestone?.milestone_id;
+  if (milestoneId) scope.milestone_id = milestoneId;
+  const changeRequestId =
+    loaded.active?.change_request_id ?? loaded.roadmap?.active_change_request_id ?? loaded.changeRequest?.change_request_id;
+  if (changeRequestId) scope.change_request_id = changeRequestId;
+  return scope;
+}
+
+function loadedSnapshot(loaded: LoadedState): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {};
+  if (loaded.roadmap) {
+    snapshot.phase = loaded.roadmap.phase;
+    snapshot.roadmap_finalized = loaded.roadmap.roadmap_finalized;
+    snapshot.active_milestone_id = loaded.roadmap.active_milestone_id ?? null;
+    snapshot.active_change_request_id = loaded.roadmap.active_change_request_id ?? null;
+  }
+  if (loaded.milestone) snapshot.milestone_status = loaded.milestone.status;
+  if (loaded.changeRequest) snapshot.change_request_status = loaded.changeRequest.status;
+  return snapshot;
+}
+
+function taskStatusSnapshot(loaded: LoadedState, taskId: string | undefined): Record<string, unknown> {
+  if (!taskId) return loadedSnapshot(loaded);
+  const task = (loaded.changeRequest?.tasks ?? loaded.milestone?.tasks ?? []).find((candidate) => candidate.id === taskId);
+  return { task_id: taskId, status: task?.status ?? null };
+}
+
+function waveStatusSnapshot(loaded: LoadedState, waveId: string | undefined): Record<string, unknown> {
+  if (!waveId) return loadedSnapshot(loaded);
+  const wave = (loaded.changeRequest?.waves ?? loaded.milestone?.waves ?? []).find((candidate) => candidate.id === waveId);
+  return { wave_id: waveId, status: wave?.status ?? null };
+}
+
+function progressSnapshot(loaded: LoadedState): Record<string, unknown> {
+  const progress = loaded.changeRequest?.progress ?? loaded.milestone?.progress;
+  return {
+    active_wave_id: progress?.active_wave_id ?? null,
+    step: progress?.step ?? null,
+    active_task_ids: progress?.active_task_ids ?? [],
+    blocked_reason: progress?.blocked_reason ?? null,
+  };
+}
+
+function waveFlowCheckSnapshot(loaded: LoadedState): Record<string, unknown> {
+  const check = loaded.changeRequest?.wave_flow_check ?? loaded.milestone?.wave_flow_check;
+  return {
+    status: check?.status ?? null,
+    checked_by: check?.checked_by ?? "",
+    checked_at: check?.checked_at ?? "",
+  };
+}
+
+function roadmapMilestoneCheckSnapshot(loaded: LoadedState): Record<string, unknown> {
+  const check = loaded.roadmap?.roadmap_milestone_check;
+  return {
+    status: check?.status ?? null,
+    checked_by: check?.checked_by ?? "",
+    checked_at: check?.checked_at ?? "",
+  };
+}
+
+function closeoutSnapshot(loaded: LoadedState): Record<string, unknown> {
+  const closeout = loaded.changeRequest?.closeout ?? loaded.closeout;
+  return { status: closeout?.status ?? null, closed_by: closeout?.closed_by ?? null };
+}
+
+function eventSnapshot(loaded: LoadedState, input: TransitionInput): Record<string, unknown> {
+  switch (input.operation) {
+    case "update_task_status":
+      return taskStatusSnapshot(loaded, input.taskId);
+    case "update_wave_status":
+      return waveStatusSnapshot(loaded, input.waveId);
+    case "update_implementation_progress":
+      return progressSnapshot(loaded);
+    case "record_wave_flow_check":
+      return waveFlowCheckSnapshot(loaded);
+    case "record_roadmap_milestone_check":
+      return roadmapMilestoneCheckSnapshot(loaded);
+    case "record_closeout":
+      return closeoutSnapshot(loaded);
+    default:
+      return loadedSnapshot(loaded);
+  }
+}
+
+function transitionEventScope(loaded: LoadedState, input: TransitionInput): RoadmapEventScope {
+  const scope = scopeFromLoaded(loaded);
+  if (input.taskId) scope.task_id = input.taskId;
+  if (input.waveId) scope.wave_id = input.waveId;
+  if (input.operation === "record_wave_flow_check") scope.gate = "wave_flow_check";
+  if (input.operation === "record_roadmap_milestone_check") scope.gate = "roadmap_milestone_check";
+  return scope;
+}
+
+function transitionActor(input: TransitionInput): string {
+  if (input.operation === "record_wave_flow_check") {
+    return input.waveFlowCheck?.checkedBy?.trim() || "wave-flow-checker";
+  }
+  if (input.operation === "record_roadmap_milestone_check") {
+    return input.roadmapMilestoneCheck?.checkedBy?.trim() || "roadmap-milestone-checker";
+  }
+  return input.approver?.trim() || "user";
+}
+
+function transitionEventType(operation: TransitionInput["operation"]): string {
+  switch (operation) {
+    case "record_discovery":
+      return "roadmap.discovery_recorded";
+    case "approve_roadmap":
+      return "roadmap.approved";
+    case "reopen_roadmap":
+      return "roadmap.reopened";
+    case "record_roadmap_milestone_check":
+    case "record_wave_flow_check":
+      return "quality_gate.recorded";
+    case "start_milestone_planning":
+      return "milestone.planning_started";
+    case "create_milestone_plan":
+      return "milestone.plan_created";
+    case "approve_milestone":
+      return "milestone.approved";
+    case "update_milestone_plan":
+      return "milestone.plan_updated";
+    case "start_implementation":
+      return "implementation.started";
+    case "start_reviewing":
+      return "review.started";
+    case "start_closeout":
+      return "closeout.started";
+    case "complete_milestone":
+      return "milestone.completed";
+    case "request_bypass":
+      return "bypass.requested";
+    case "clear_bypass":
+      return "bypass.cleared";
+    case "approve_change":
+      return "change.approved";
+    case "update_change_request_plan":
+      return "change.plan_updated";
+    case "close_change":
+      return "change.closed";
+    case "update_task_status":
+      return "task.status_changed";
+    case "update_wave_status":
+      return "wave.status_changed";
+    case "update_implementation_progress":
+      return "progress.updated";
+    case "record_closeout":
+      return "closeout.recorded";
+  }
+}
+
+function transitionDetails(input: TransitionInput): Record<string, unknown> | undefined {
+  const details: Record<string, unknown> = {};
+  if (input.summary) details.summary = input.summary;
+  if (input.reason) details.reason = input.reason;
+  if (input.taskStatus) details.task_status = input.taskStatus;
+  if (input.waveStatus) details.wave_status = input.waveStatus;
+  if (input.progress) details.progress_step = input.progress.step;
+  if (input.closeout) details.closeout_status = input.closeout.status;
+  if (input.waveFlowCheck) details.gate_status = input.waveFlowCheck.status;
+  if (input.roadmapMilestoneCheck) details.gate_status = input.roadmapMilestoneCheck.status;
+  return Object.keys(details).length > 0 ? details : undefined;
+}
+
+function transitionSummary(input: TransitionInput): string {
+  switch (input.operation) {
+    case "update_task_status":
+      return `Task ${input.taskId} status changed to ${input.taskStatus}.`;
+    case "update_wave_status":
+      return `Wave ${input.waveId} status changed to ${input.waveStatus}.`;
+    case "update_implementation_progress":
+      return `Implementation progress changed to ${input.progress?.step}.`;
+    case "record_wave_flow_check":
+      return `Wave-flow check recorded as ${input.waveFlowCheck?.status}.`;
+    case "record_roadmap_milestone_check":
+      return `Roadmap milestone check recorded as ${input.roadmapMilestoneCheck?.status}.`;
+    case "record_closeout":
+      return `Closeout evidence recorded as ${input.closeout?.status}.`;
+    default:
+      return `Applied ${input.operation}.`;
+  }
+}
+
+async function appendTransitionEvent(
+  cwd: string,
+  input: TransitionInput,
+  before: LoadedState,
+  after: LoadedState,
+): Promise<void> {
+  const details = transitionDetails(input);
+  await appendRoadmapEvent(cwd, {
+    actor: transitionActor(input),
+    type: transitionEventType(input.operation),
+    operation: input.operation,
+    scope: transitionEventScope(before, input),
+    summary: transitionSummary(input),
+    before: eventSnapshot(before, input),
+    after: eventSnapshot(after, input),
+    ...(details ? { details } : {}),
+  });
 }
 
 function list(items: string[]): string {
@@ -754,6 +963,16 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
   );
   await writeText(decisionsPath(cwd, input.roadmapId), "# Decision Register\n");
   await writeText(risksPath(cwd, input.roadmapId), "# Risk Register\n");
+  await appendRoadmapEvent(cwd, {
+    actor: "user",
+    type: "roadmap.initialized",
+    scope: { roadmap_id: state.roadmap_id },
+    summary: `Initialized roadmap ${state.roadmap_id}.`,
+    after: {
+      phase: state.phase,
+      roadmap_finalized: state.roadmap_finalized,
+    },
+  });
   return state;
   });
 }
@@ -794,6 +1013,17 @@ export async function updateRoadmap(
 
   await writeRoadmapState(cwd, state);
   await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
+  await appendRoadmapEvent(cwd, {
+    actor: "user",
+    type: "roadmap.updated",
+    scope: { roadmap_id: state.roadmap_id },
+    summary: `Updated roadmap ${state.roadmap_id}.`,
+    after: {
+      phase: state.phase,
+      roadmap_finalized: state.roadmap_finalized,
+      milestone_count: state.milestones.length,
+    },
+  });
   return await loadRoadmapState(cwd, state.roadmap_id);
   });
 }
@@ -813,6 +1043,10 @@ export async function createMilestonePlan(
   if (roadmapMilestone.status !== "planned" && roadmapMilestone.status !== "blocked") {
     throw new Error(`Milestone already has a plan: ${input.milestoneId}`);
   }
+  const before = {
+    phase: currentRoadmap.phase,
+    milestone_status: roadmapMilestone.status,
+  };
 
   const plan: MilestonePlan = {
     roadmap_id: currentRoadmap.roadmap_id,
@@ -856,6 +1090,21 @@ export async function createMilestonePlan(
     milestone_id: input.milestoneId,
     updated_at: nowIso(),
   });
+  await appendRoadmapEvent(cwd, {
+    actor: "user",
+    type: "milestone.plan_created",
+    operation: "create_milestone_plan",
+    scope: {
+      roadmap_id: currentRoadmap.roadmap_id,
+      milestone_id: input.milestoneId,
+    },
+    summary: `Created milestone plan ${input.milestoneId}.`,
+    before,
+    after: {
+      phase: currentRoadmap.phase,
+      milestone_status: roadmapMilestone.status,
+    },
+  });
 
   return plan;
   });
@@ -890,6 +1139,28 @@ async function updateMilestonePlanDraft(
     wave_flow_check: pendingWaveFlowCheck(),
   };
   await writeMilestonePlan(cwd, updated);
+  await appendRoadmapEvent(cwd, {
+    actor: "user",
+    type: "milestone.plan_updated",
+    operation: "update_milestone_plan",
+    scope: {
+      roadmap_id: updated.roadmap_id,
+      milestone_id: updated.milestone_id,
+    },
+    summary: `Updated milestone plan ${updated.milestone_id}.`,
+    before: {
+      title: plan.title,
+      task_count: plan.tasks.length,
+      wave_count: plan.waves.length,
+      wave_flow_check: plan.wave_flow_check.status,
+    },
+    after: {
+      title: updated.title,
+      task_count: updated.tasks.length,
+      wave_count: updated.waves.length,
+      wave_flow_check: updated.wave_flow_check.status,
+    },
+  });
   return updated;
 }
 
@@ -974,6 +1245,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
     throw new Error("No active roadmap. Run /roadmap:new first.");
   }
 
+  const beforeEvent = structuredClone(loaded) as LoadedState;
   const roadmap = loaded.roadmap;
   const activeMilestoneId = loaded.active.milestone_id ?? roadmap.active_milestone_id;
 
@@ -1282,7 +1554,9 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   }
 
   await writeRoadmapState(cwd, roadmap);
-  return await loadState(cwd);
+  const after = await loadState(cwd);
+  await appendTransitionEvent(cwd, input, beforeEvent, after);
+  return after;
   });
 }
 
@@ -1316,8 +1590,7 @@ function updateWaveStatus(
   return updated;
 }
 
-export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
-  return await withStoreWriteLock(cwd, async () => {
+async function appendNoteEntry(cwd: string, input: AppendNoteInput): Promise<{ filePath: string; scope: RoadmapEventScope }> {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
   const milestoneId = input.milestoneId ?? loaded.active?.milestone_id;
@@ -1339,6 +1612,26 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
   const entry = `\n---\n${serializeYaml(metadata).trimEnd()}\n---\n\n## ${input.title}\n\n${input.body.trimEnd()}\n`;
   const filePath = milestoneNotesPath(cwd, roadmapId, milestoneId);
   await appendText(filePath, entry);
+  const scope: RoadmapEventScope = { roadmap_id: roadmapId, milestone_id: milestoneId };
+  if (input.waveId) scope.wave_id = input.waveId;
+  if (input.taskId) scope.task_id = input.taskId;
+  return { filePath, scope };
+}
+
+export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
+  return await withStoreWriteLock(cwd, async () => {
+  const { filePath, scope } = await appendNoteEntry(cwd, input);
+  await appendRoadmapEvent(cwd, {
+    actor: input.workerId?.trim() || input.kind,
+    type: "note.appended",
+    scope,
+    summary: `Appended ${input.kind} note: ${input.title}.`,
+    details: {
+      kind: input.kind,
+      blocking: input.blocking ?? false,
+      status: input.status ?? "open",
+    },
+  });
   return filePath;
   });
 }
@@ -1358,12 +1651,22 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
 
   if (input.scope === "roadmap") {
     await appendText(decisionsPath(cwd, loaded.active.roadmap_id), entry);
+    await appendRoadmapEvent(cwd, {
+      actor: input.approvedBy?.trim() || "user",
+      type: "amendment.recorded",
+      scope: { roadmap_id: loaded.active.roadmap_id },
+      summary: `Recorded ${input.scope} amendment: ${input.title}.`,
+      details: {
+        scope: input.scope,
+        material: input.material,
+      },
+    });
     return decisionsPath(cwd, loaded.active.roadmap_id);
   }
 
   const milestoneId = loaded.active.milestone_id;
   if (!milestoneId) throw new Error("Milestone amendment requires an active milestone");
-  await appendNote(cwd, {
+  const { filePath, scope } = await appendNoteEntry(cwd, {
     kind: "decision",
     roadmapId: loaded.active.roadmap_id,
     milestoneId,
@@ -1372,7 +1675,17 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
     blocking: false,
     status: "resolved",
   });
-  return milestoneNotesPath(cwd, loaded.active.roadmap_id, milestoneId);
+  await appendRoadmapEvent(cwd, {
+    actor: input.approvedBy?.trim() || "user",
+    type: "amendment.recorded",
+    scope,
+    summary: `Recorded ${input.scope} amendment: ${input.title}.`,
+    details: {
+      scope: input.scope,
+      material: input.material,
+    },
+  });
+  return filePath;
   });
 }
 
@@ -1423,6 +1736,21 @@ export async function createChangeRequest(
     milestone_id: change.milestone_id,
     change_request_id: change.change_request_id,
     updated_at: nowIso(),
+  });
+  await appendRoadmapEvent(cwd, {
+    actor: "user",
+    type: "change.created",
+    scope: {
+      roadmap_id: change.roadmap_id,
+      milestone_id: change.milestone_id,
+      change_request_id: change.change_request_id,
+    },
+    summary: `Created change request ${change.change_request_id}.`,
+    after: {
+      status: change.status,
+      task_count: change.tasks.length,
+      wave_count: change.waves.length,
+    },
   });
   return change;
   });
