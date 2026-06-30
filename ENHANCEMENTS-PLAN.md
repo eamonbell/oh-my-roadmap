@@ -113,6 +113,7 @@ For each worker task:
 - Main agent may inspect the worker’s diff and summary but must not edit files or run tests.
 - If verification fails or scope is incomplete, main agent re-dispatches the same enhancement to a worker with the failure details.
 - No later enhancement starts until the current enhancement is implemented, verified by its worker, and reviewed for scope.
+- after work is complete and verified, commit the changes made for the task
 
 ## Acceptance Criteria
 
