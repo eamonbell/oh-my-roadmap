@@ -98,6 +98,7 @@ export async function renderReport(cwd: string): Promise<string> {
     ``,
     `Roadmap: ${state.roadmap.roadmap_id} (${state.roadmap.title})`,
     `Phase: ${state.roadmap.phase}`,
+    `Roadmap milestone check: ${state.roadmap.roadmap_milestone_check.status}`,
     `Active milestone: ${state.active.milestone_id ?? "none"}`,
     `Active change request: ${state.active.change_request_id ?? "none"}`,
     `Bypass: ${state.roadmap.bypass?.active ? state.roadmap.bypass.reason : "inactive"}`,

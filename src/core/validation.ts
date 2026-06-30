@@ -65,6 +65,26 @@ async function validateGeneratedRoadmapDoc(
   }
 }
 
+function validateRoadmapMilestoneCheck(roadmap: RoadmapState, errors: ValidationIssue[]): void {
+  if (!roadmap.roadmap_finalized) return;
+
+  const check = roadmap.roadmap_milestone_check;
+  if (!check || check.status !== "passed") {
+    errors.push(issue("roadmap.milestone_check.not_passed", "Roadmap requires a passed roadmap-milestone check before approval"));
+    return;
+  }
+
+  if (!check.checked_by || check.checked_by.trim() === "") {
+    errors.push(issue("roadmap.milestone_check.checked_by.missing", "Passed roadmap-milestone check must record who checked it"));
+  }
+  if (!check.checked_at || check.checked_at.trim() === "") {
+    errors.push(issue("roadmap.milestone_check.checked_at.missing", "Passed roadmap-milestone check must record when it ran"));
+  }
+  if (!check.summary || check.summary.trim() === "") {
+    errors.push(issue("roadmap.milestone_check.summary.missing", "Passed roadmap-milestone check must include a summary"));
+  }
+}
+
 function validateMilestoneOutline(
   milestone: RoadmapMilestoneOutline,
   milestoneIds: Set<string>,
@@ -113,6 +133,7 @@ async function validateRoadmapOutline(cwd: string, roadmap: RoadmapState, errors
   }
   for (const milestone of roadmap.milestones ?? []) validateMilestoneOutline(milestone, milestoneIds, errors);
   await validateGeneratedRoadmapDoc(cwd, roadmap, errors);
+  validateRoadmapMilestoneCheck(roadmap, errors);
 }
 
 async function findOpenBlockingNotes(

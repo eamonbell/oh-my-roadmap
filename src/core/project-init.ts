@@ -8,7 +8,7 @@ import { roadmapsDir } from "./paths";
 
 const CONFIG_FILE = "config.yml";
 const OMP_AGENTS_DIR = path.join(".omp", "agents");
-const ROLE_NAMES = ["worker-light", "worker", "worker-heavy", "reviewer", "wave-flow-checker"] as const;
+const ROLE_NAMES = ["worker-light", "worker", "worker-heavy", "reviewer", "wave-flow-checker", "roadmap-milestone-checker"] as const;
 const THINKING_LEVELS = new Set(["inherit", "off", "minimal", "low", "medium", "high", "xhigh"]);
 
 type AgentRole = (typeof ROLE_NAMES)[number];

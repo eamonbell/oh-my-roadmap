@@ -130,6 +130,7 @@ export interface TransitionInput {
     | "record_discovery"
     | "approve_roadmap"
     | "reopen_roadmap"
+    | "record_roadmap_milestone_check"
     | "start_milestone_planning"
     | "create_milestone_plan"
     | "approve_milestone"
@@ -161,6 +162,7 @@ export interface TransitionInput {
   progress?: UpdateImplementationProgressInput;
   closeout?: CloseoutEvidence;
   waveFlowCheck?: WaveFlowCheckInput;
+  roadmapMilestoneCheck?: WaveFlowCheckInput;
 }
 
 export interface AmendmentInput {
@@ -213,14 +215,22 @@ function pendingWaveFlowCheck(): WaveFlowCheck {
   };
 }
 
-function recordedWaveFlowCheck(input: WaveFlowCheckInput): WaveFlowCheck {
+function recordedCheck(input: WaveFlowCheckInput, fallbackCheckedBy: string): WaveFlowCheck {
   return {
     status: input.status,
-    checked_by: input.checkedBy?.trim() || "wave-flow-checker",
+    checked_by: input.checkedBy?.trim() || fallbackCheckedBy,
     checked_at: nowIso(),
     summary: input.summary?.trim() ?? "",
     findings: input.findings ?? [],
   };
+}
+
+function recordedWaveFlowCheck(input: WaveFlowCheckInput): WaveFlowCheck {
+  return recordedCheck(input, "wave-flow-checker");
+}
+
+function recordedRoadmapMilestoneCheck(input: WaveFlowCheckInput): WaveFlowCheck {
+  return recordedCheck(input, "roadmap-milestone-checker");
 }
 
 function normalizeWaveFlowCheck(value: unknown): WaveFlowCheck {
@@ -317,6 +327,15 @@ function normalizeChangeRequest(change: ChangeRequest): ChangeRequest {
     waves,
     progress: normalizeProgress(raw.progress, waves),
     wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
+  };
+}
+
+function normalizeRoadmapState(state: RoadmapState): RoadmapState {
+  return {
+    ...state,
+    roadmap_milestone_check: normalizeWaveFlowCheck(
+      (state as unknown as Record<string, unknown>).roadmap_milestone_check,
+    ),
   };
 }
 
@@ -590,6 +609,18 @@ async function assertRoadmapReadyForApproval(cwd: string, roadmap: RoadmapState)
   const expected = renderRoadmapMarkdown(roadmap);
   const actual = await readText(roadmapDocPath(cwd, roadmap.roadmap_id));
   if (actual !== expected) throw new Error("Roadmap approval requires generated roadmap.md to match state");
+  if (roadmap.roadmap_milestone_check.status !== "passed") {
+    throw new Error("Roadmap approval requires a passed roadmap-milestone check");
+  }
+  if (roadmap.roadmap_milestone_check.checked_by.trim() === "") {
+    throw new Error("Passed roadmap-milestone check must record who checked it");
+  }
+  if (roadmap.roadmap_milestone_check.checked_at.trim() === "") {
+    throw new Error("Passed roadmap-milestone check must record when it ran");
+  }
+  if (roadmap.roadmap_milestone_check.summary.trim() === "") {
+    throw new Error("Passed roadmap-milestone check must include a summary");
+  }
 }
 
 export async function loadActive(cwd: string): Promise<ActivePointer | undefined> {
@@ -605,7 +636,7 @@ export async function writeActive(cwd: string, active: ActivePointer): Promise<v
 }
 
 export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<RoadmapState> {
-  return await readYamlFile<RoadmapState>(roadmapStatePath(cwd, roadmapId));
+  return normalizeRoadmapState(await readYamlFile<RoadmapState>(roadmapStatePath(cwd, roadmapId)));
 }
 
 export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
@@ -695,6 +726,7 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
     created_at: createdAt,
     updated_at: createdAt,
     roadmap_finalized: false,
+    roadmap_milestone_check: pendingWaveFlowCheck(),
     goal: input.summary ?? "",
     success_criteria: [],
     constraints: [],
@@ -746,6 +778,7 @@ export async function updateRoadmap(
   const state: RoadmapState = {
     ...loaded.roadmap,
     roadmap_finalized: true,
+    roadmap_milestone_check: pendingWaveFlowCheck(),
     goal: input.goal,
     success_criteria: input.successCriteria,
     constraints: input.constraints,
@@ -972,6 +1005,16 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       roadmap.phase = "roadmap_approved";
       roadmap.approvals.push(approval(input.approver, input.summary));
       break;
+    case "record_roadmap_milestone_check":
+      requirePhase(roadmap.phase, "roadmap_draft", input.operation);
+      if (!roadmap.roadmap_finalized) {
+        throw new Error("record_roadmap_milestone_check requires a finalized roadmap");
+      }
+      if (!input.roadmapMilestoneCheck) {
+        throw new Error("record_roadmap_milestone_check requires checker input");
+      }
+      roadmap.roadmap_milestone_check = recordedRoadmapMilestoneCheck(input.roadmapMilestoneCheck);
+      break;
     case "reopen_roadmap": {
       requirePhase(roadmap.phase, "roadmap_approved", input.operation);
       const reason = input.reason?.trim();
@@ -983,6 +1026,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
 
       roadmap.phase = "roadmap_draft";
       roadmap.roadmap_finalized = false;
+      roadmap.roadmap_milestone_check = pendingWaveFlowCheck();
       await appendText(
         decisionsPath(cwd, roadmap.roadmap_id),
         `\n## Roadmap Reopened\n\n- Reason: ${reason}\n- At: ${nowIso()}\n\nRoadmap reopened for pre-milestone changes. Regenerate the structured roadmap and require reapproval before milestone planning.\n`,

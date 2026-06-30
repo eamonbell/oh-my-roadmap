@@ -39,6 +39,11 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("No active roadmap. Run /roadmap:new to start a gated roadmap workflow.");
     expect(sent.content).toContain("multiple meaningful deliverables or workstreams");
     expect(sent.content).toContain("do not create a separate milestone for one small edit");
+    expect(sent.content).toContain("roadmap-milestone-checker");
+    expect(sent.content).toContain("record_roadmap_milestone_check");
+    expect(sent.content).toContain(
+      "Only call roadmap_engineer_validate and ask for roadmap approval after the recorded roadmap-milestone check has passed",
+    );
   });
 
   test("roadmap:reopen sends command-specific reopen instructions", async () => {
@@ -72,6 +77,11 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("roadmap_engineer_update_roadmap");
     expect(sent.content).toContain("roadmap_engineer_validate");
     expect(sent.content).toContain("explicit roadmap reapproval");
+    expect(sent.content).toContain("roadmap-milestone-checker");
+    expect(sent.content).toContain("record_roadmap_milestone_check");
+    expect(sent.content).toContain(
+      "Only call roadmap_engineer_validate and ask for roadmap approval after the recorded roadmap-milestone check has passed",
+    );
   });
 
   test("milestone:plan prompts for detailed test coverage decisions", async () => {

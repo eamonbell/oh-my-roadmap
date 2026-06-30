@@ -88,6 +88,15 @@ async function approvedMilestone(): Promise<void> {
       },
     ],
   });
+  await transition(cwd, {
+    operation: "record_roadmap_milestone_check",
+    roadmapMilestoneCheck: {
+      status: "passed",
+      checkedBy: "roadmap-milestone-checker",
+      summary: "Roadmap milestone check passed.",
+      findings: [],
+    },
+  });
   await transition(cwd, { operation: "approve_roadmap", approver: "user" });
   await transition(cwd, { operation: "start_milestone_planning" });
   await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });

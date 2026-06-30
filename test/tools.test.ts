@@ -6,7 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { registerRoadmapTools } from "../src/tools/register";
-import { initRoadmap } from "../src/core/store";
+import { initRoadmap, transition, updateRoadmap, type UpdateRoadmapInput } from "../src/core/store";
 import { decisionsPath } from "../src/core/paths";
 
 interface RegisteredTool extends ToolDefinition {
@@ -21,6 +21,33 @@ interface RegisteredTool extends ToolDefinition {
   ) => Promise<AgentToolResult<unknown>>;
 }
 
+
+function roadmapInput(): UpdateRoadmapInput {
+  return {
+    goal: "Check transition tool roadmap milestone flow.",
+    successCriteria: ["The transition tool records checker results."],
+    constraints: ["Keep tool behavior aligned with core state."],
+    nonGoals: ["Do not approve the roadmap from this tool test."],
+    context: ["The transition tool wraps core transition input."],
+    evidence: ["registerRoadmapTools exposes roadmap_engineer_transition."],
+    risks: ["Schema drift could hide checker results from tool callers."],
+    milestones: [
+      {
+        id: "m01-core",
+        title: "Core milestone",
+        status: "planned",
+        goal: "Record the roadmap milestone check through the tool.",
+        scope: ["Pass roadmapMilestoneCheck through roadmap_engineer_transition."],
+        non_goals: ["Do not run implementation."],
+        evidence: ["src/tools/register.ts owns the tool schema."],
+        dependencies: [],
+        risks: ["Tool callers may be blocked from approval if recording fails."],
+        acceptance_intent: ["Tool result exposes the passed check in state details."],
+        verification_intent: ["Run bun test test/tools.test.ts."],
+      },
+    ],
+  };
+}
 describe("roadmap context tools", () => {
   test("registers search and read context tools as read-only tools", async () => {
     const tools = new Map<string, RegisteredTool>();
@@ -99,6 +126,57 @@ describe("roadmap context tools", () => {
       expect(roadmapSearch?.details).toMatchObject({
         total: 1,
         returned: 1,
+      });
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("records roadmap milestone check through the transition tool", async () => {
+    const tools = new Map<string, RegisteredTool>();
+    const api = {
+      zod: { z },
+      registerTool(tool: RegisteredTool) {
+        tools.set(tool.name, tool);
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapTools(api);
+    const transitionTool = tools.get("roadmap_engineer_transition");
+    expect(transitionTool?.approval).toBe("write");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-transition-tool-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "tool-transition-roadmap", title: "Tool Transition Roadmap" });
+      await transition(cwd, {
+        operation: "record_discovery",
+        discovery: { findings: ["Inspected transition tool wiring."] },
+      });
+      await updateRoadmap(cwd, roadmapInput());
+
+      const result = await transitionTool?.execute(
+        "transition",
+        {
+          operation: "record_roadmap_milestone_check",
+          roadmapMilestoneCheck: {
+            status: "passed",
+            checkedBy: "roadmap-milestone-checker",
+            summary: "Milestone flow is coherent and buildable.",
+            findings: [],
+          },
+        },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+
+      expect(result?.details).toMatchObject({
+        roadmap: {
+          roadmap_milestone_check: {
+            status: "passed",
+            checked_by: "roadmap-milestone-checker",
+          },
+        },
       });
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });

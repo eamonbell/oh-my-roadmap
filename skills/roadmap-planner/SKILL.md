@@ -19,6 +19,10 @@ Required process:
 - Each roadmap milestone must contain multiple meaningful deliverables or workstreams that belong together. If a candidate milestone is only one small edit, isolated cleanup, or one narrow task, fold it into another milestone instead of preserving it as a separate milestone.
 - Treat reopened roadmaps as roadmap planning: confirm the reopen reason, update the full structured roadmap, and require explicit reapproval before milestone planning resumes.
 - Use `roadmap_engineer_update_roadmap` to generate the final `roadmap.md` before asking for roadmap approval.
+- Dispatch roadmap-milestone-checker after roadmap_engineer_update_roadmap writes the finalized roadmap and before asking for roadmap approval.
+- Record the checker result with roadmap_engineer_transition operation record_roadmap_milestone_check.
+- If the checker fails, revise the roadmap with roadmap_engineer_update_roadmap, rerun roadmap-milestone-checker, and record the new result.
+- Use roadmap_engineer_validate only after the recorded roadmap-milestone check has passed, then ask for roadmap approval.
 - Do not create milestone plans, tasks, waves, workers, or ownership during roadmap planning. Those belong to `milestone-planner`.
 - Use `.roadmaps` state through `roadmap_engineer_init`, `roadmap_engineer_update_roadmap`, `roadmap_engineer_amend`, and `roadmap_engineer_validate`.
 - Do not approve a roadmap while discovery is missing, research is required but missing, or material questions remain.

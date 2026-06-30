@@ -44,6 +44,7 @@ Config and state are stored under `.roadmaps`:
 - Planning agents must use the built-in `ask` tool to interview the user until material decisions, tradeoffs, approvals, gaps, and open questions are closed.
 - Roadmap, milestone, change, review, and closeout artifacts should reference relevant existing code and documentation paths when those references help future agents understand the plan.
 - Roadmap approval requires a finalized generated `roadmap.md` from structured state.
+- Roadmap approval also requires a passed roadmap-milestone-checker result recorded after the latest generated roadmap; failed checks require roadmap revision and rerun before approval.
 - Roadmaps define concrete milestone outlines, not full implementation plans.
 - Each roadmap milestone outline must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
 - Each roadmap milestone must contain multiple meaningful deliverables or workstreams that belong together; do not create a milestone for a single small edit, isolated cleanup, or one narrow task that should be folded into another milestone.

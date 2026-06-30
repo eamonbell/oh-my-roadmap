@@ -303,6 +303,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
         "update_implementation_progress",
         "record_closeout",
         "record_wave_flow_check",
+        "record_roadmap_milestone_check",
       ]),
       ...approvalSchema.shape,
       reason: z.string().optional(),
@@ -323,6 +324,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
       progress: implementationProgressInputSchema.optional(),
       closeout: closeoutSchema.optional(),
       waveFlowCheck: waveFlowCheckInputSchema.optional(),
+      roadmapMilestoneCheck: waveFlowCheckInputSchema.optional(),
     }),
     async execute(_id, params, _signal, _update, ctx) {
       const input = params as TransitionInput;
