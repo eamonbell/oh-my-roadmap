@@ -434,7 +434,9 @@ describe("roadmap state lifecycle", () => {
     await approvedRoadmap();
     const approved = await loadState(cwd);
     if (!approved.roadmap) throw new Error("Expected roadmap state");
-    const originalRoadmapText = await fs.readFile(roadmapDocPath(cwd, approved.roadmap.roadmap_id), "utf8");
+    const approvedRevision = approved.roadmap.roadmap_revision;
+    const approvedHash = approved.roadmap.roadmap_content_hash;
+    const approvedCheckEventId = approved.roadmap.roadmap_milestone_check.event_id;
 
     await transition(cwd, {
       operation: "reopen_roadmap",
@@ -446,7 +448,18 @@ describe("roadmap state lifecycle", () => {
     expect(reopened.roadmap.phase).toBe("roadmap_draft");
     expect(reopened.roadmap.roadmap_finalized).toBe(false);
     expect(reopened.roadmap.approvals).toHaveLength(1);
-    expect(await fs.readFile(roadmapDocPath(cwd, reopened.roadmap.roadmap_id), "utf8")).toBe(originalRoadmapText);
+    expect(reopened.roadmap.roadmap_revision).toBe(approvedRevision + 1);
+    expect(reopened.roadmap.roadmap_content_hash).not.toBe(approvedHash);
+    expect(reopened.roadmap.roadmap_milestone_check).toMatchObject({
+      status: "pending",
+      roadmap_revision: reopened.roadmap.roadmap_revision,
+      roadmap_content_hash: reopened.roadmap.roadmap_content_hash,
+      event_id: "",
+    });
+    expect(reopened.roadmap.roadmap_milestone_check.event_id).not.toBe(approvedCheckEventId);
+    expect(await fs.readFile(roadmapDocPath(cwd, reopened.roadmap.roadmap_id), "utf8")).toBe(
+      renderRoadmapMarkdown(reopened.roadmap),
+    );
 
     const decisions = await fs.readFile(decisionsPath(cwd, reopened.roadmap.roadmap_id), "utf8");
     expect(decisions).toContain("## Roadmap Reopened");
