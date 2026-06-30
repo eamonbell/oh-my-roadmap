@@ -63,9 +63,11 @@ describe("roadmap context tools", () => {
     const readStateTool = tools.get("roadmap_engineer_read_state");
     const searchTool = tools.get("roadmap_engineer_search_context");
     const readTool = tools.get("roadmap_engineer_read_context");
+    const readEventsTool = tools.get("roadmap_engineer_read_events");
     expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
+    expect(readEventsTool?.approval).toBe("read");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -115,6 +117,19 @@ describe("roadmap context tools", () => {
         found: 1,
       });
       expect(JSON.stringify(read?.details)).toContain('"body":"## Compa"');
+
+      const events = await readEventsTool?.execute(
+        "events",
+        { type: ["roadmap.initialized"] },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(events?.details).toMatchObject({
+        total: 1,
+        returned: 1,
+        events: [{ type: "roadmap.initialized" }],
+      });
 
       const roadmapSearch = await searchTool?.execute(
         "search-roadmap",

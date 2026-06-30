@@ -237,3 +237,27 @@ export interface LoadedState {
   closeout?: CloseoutEvidence;
   usage?: import("./usage").RoadmapUsageSummary;
 }
+
+export interface RoadmapEventScope {
+  roadmap_id: string;
+  milestone_id?: string;
+  change_request_id?: string;
+  wave_id?: string;
+  task_id?: string;
+  blocker_id?: string;
+  gate?: string;
+}
+
+export interface RoadmapEvent {
+  id: string;
+  schema_version: 1;
+  at: string;
+  actor: string;
+  type: string;
+  operation?: string;
+  scope: RoadmapEventScope;
+  summary: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  details?: Record<string, unknown>;
+}

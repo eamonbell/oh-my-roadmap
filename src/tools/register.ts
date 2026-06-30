@@ -15,6 +15,7 @@ import {
   type TransitionInput,
   type UpdateRoadmapInput,
 } from "../core/store";
+import { readRoadmapEvents, type ReadRoadmapEventsInput } from "../core/events";
 import {
   readContext,
   searchContext,
@@ -271,6 +272,28 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     }),
     async execute(_id, params, _signal, _update, ctx) {
       const result = await readContext(ctx.cwd, params as ReadContextInput);
+      return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_read_events",
+    label: "Read Roadmap Events",
+    description: "Read capped append-only workflow events for the active or selected roadmap.",
+    approval: "read",
+    parameters: z.object({
+      roadmapId: z.string().optional(),
+      milestoneId: z.string().optional(),
+      changeRequestId: z.string().optional(),
+      taskId: z.string().optional(),
+      waveId: z.string().optional(),
+      blockerId: z.string().optional(),
+      type: z.array(z.string()).optional(),
+      since: z.string().optional(),
+      limit: z.number().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await readRoadmapEvents(ctx.cwd, params as ReadRoadmapEventsInput);
       return textResult(JSON.stringify(result, null, 2), result);
     },
   } as ToolDefinition);

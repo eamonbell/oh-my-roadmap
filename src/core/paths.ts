@@ -29,6 +29,10 @@ export function roadmapDocPath(cwd: string, roadmapId: string): string {
   return path.join(roadmapDir(cwd, roadmapId), "roadmap.md");
 }
 
+export function roadmapEventsPath(cwd: string, roadmapId: string): string {
+  return path.join(roadmapDir(cwd, roadmapId), "events.ndjson");
+}
+
 export function decisionsPath(cwd: string, roadmapId: string): string {
   return path.join(roadmapDir(cwd, roadmapId), "decisions.md");
 }
