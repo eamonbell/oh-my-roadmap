@@ -1,4 +1,6 @@
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   activePointerPath,
   changeRequestPath,
@@ -422,6 +424,69 @@ function pendingWaveFlowCheck(): WaveFlowCheck {
     summary: "",
     findings: [],
   };
+}
+
+interface StoreMutationSnapshot {
+  roadmapId: string;
+  tempDir: string;
+  roadmapExisted: boolean;
+  activeExisted: boolean;
+  roadmapBackupPath: string;
+  activeBackupPath: string;
+}
+
+async function createStoreMutationSnapshot(cwd: string, roadmapId: string): Promise<StoreMutationSnapshot> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-store-rollback-"));
+  const snapshot: StoreMutationSnapshot = {
+    roadmapId,
+    tempDir,
+    roadmapExisted: await fileExists(roadmapDir(cwd, roadmapId)),
+    activeExisted: await fileExists(activePointerPath(cwd)),
+    roadmapBackupPath: path.join(tempDir, "roadmap"),
+    activeBackupPath: path.join(tempDir, "active.yml"),
+  };
+
+  if (snapshot.roadmapExisted) {
+    await fs.cp(roadmapDir(cwd, roadmapId), snapshot.roadmapBackupPath, { recursive: true });
+  }
+  if (snapshot.activeExisted) {
+    await fs.copyFile(activePointerPath(cwd), snapshot.activeBackupPath);
+  }
+
+  return snapshot;
+}
+
+async function restoreStoreMutationSnapshot(cwd: string, snapshot: StoreMutationSnapshot): Promise<void> {
+  await fs.rm(roadmapDir(cwd, snapshot.roadmapId), { recursive: true, force: true });
+  if (snapshot.roadmapExisted) {
+    await fs.cp(snapshot.roadmapBackupPath, roadmapDir(cwd, snapshot.roadmapId), { recursive: true });
+  }
+
+  await fs.rm(activePointerPath(cwd), { force: true });
+  if (snapshot.activeExisted) {
+    await fs.mkdir(path.dirname(activePointerPath(cwd)), { recursive: true });
+    await fs.copyFile(snapshot.activeBackupPath, activePointerPath(cwd));
+  }
+}
+
+async function withStoreMutationRollback<T>(
+  cwd: string,
+  roadmapId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const snapshot = await createStoreMutationSnapshot(cwd, roadmapId);
+  try {
+    const result = await fn();
+    await fs.rm(snapshot.tempDir, { recursive: true, force: true }).catch(() => undefined);
+    return result;
+  } catch (error) {
+    try {
+      await restoreStoreMutationSnapshot(cwd, snapshot);
+    } finally {
+      await fs.rm(snapshot.tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 function recordedCheck(input: WaveFlowCheckInput, fallbackCheckedBy: string): WaveFlowCheck {
@@ -927,6 +992,7 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
     throw new Error(`Cannot create roadmap: ${existingActive.roadmap_id} is already active`);
   }
 
+  return await withStoreMutationRollback(cwd, input.roadmapId, async () => {
   const createdAt = nowIso();
   const state: RoadmapState = {
     roadmap_id: input.roadmapId,
@@ -975,6 +1041,7 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
   });
   return state;
   });
+  });
 }
 
 export async function updateRoadmap(
@@ -986,16 +1053,18 @@ export async function updateRoadmap(
   if (!loaded.active || !loaded.roadmap) {
     throw new Error("No active roadmap. Run /roadmap:new first.");
   }
-  if (!["discovery", "roadmap_draft"].includes(loaded.roadmap.phase)) {
-    throw new Error(`update_roadmap requires phase discovery or roadmap_draft; current phase is ${loaded.roadmap.phase}`);
+  const roadmap = loaded.roadmap;
+  if (!["discovery", "roadmap_draft"].includes(roadmap.phase)) {
+    throw new Error(`update_roadmap requires phase discovery or roadmap_draft; current phase is ${roadmap.phase}`);
   }
 
   for (const milestone of input.milestones) {
     assertSlug(milestone.id, "milestone.id");
   }
 
+  return await withStoreMutationRollback(cwd, roadmap.roadmap_id, async () => {
   const state: RoadmapState = {
-    ...loaded.roadmap,
+    ...roadmap,
     roadmap_finalized: true,
     roadmap_milestone_check: pendingWaveFlowCheck(),
     goal: input.goal,
@@ -1026,6 +1095,7 @@ export async function updateRoadmap(
   });
   return await loadRoadmapState(cwd, state.roadmap_id);
   });
+  });
 }
 
 export async function createMilestonePlan(
@@ -1043,6 +1113,8 @@ export async function createMilestonePlan(
   if (roadmapMilestone.status !== "planned" && roadmapMilestone.status !== "blocked") {
     throw new Error(`Milestone already has a plan: ${input.milestoneId}`);
   }
+
+  return await withStoreMutationRollback(cwd, currentRoadmap.roadmap_id, async () => {
   const before = {
     phase: currentRoadmap.phase,
     milestone_status: roadmapMilestone.status,
@@ -1108,6 +1180,7 @@ export async function createMilestonePlan(
 
   return plan;
   });
+  });
 }
 
 async function updateMilestonePlanDraft(
@@ -1138,6 +1211,7 @@ async function updateMilestonePlanDraft(
     progress: initialProgress(input.waves),
     wave_flow_check: pendingWaveFlowCheck(),
   };
+  return await withStoreMutationRollback(cwd, updated.roadmap_id, async () => {
   await writeMilestonePlan(cwd, updated);
   await appendRoadmapEvent(cwd, {
     actor: "user",
@@ -1162,6 +1236,7 @@ async function updateMilestonePlanDraft(
     },
   });
   return updated;
+  });
 }
 
 function approval(approver: string | undefined, summary: string | undefined): Approval {
@@ -1244,10 +1319,13 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   if (!loaded.active || !loaded.roadmap) {
     throw new Error("No active roadmap. Run /roadmap:new first.");
   }
+  const active = loaded.active;
+  const loadedRoadmap = loaded.roadmap;
 
+  return await withStoreMutationRollback(cwd, active.roadmap_id, async () => {
   const beforeEvent = structuredClone(loaded) as LoadedState;
-  const roadmap = loaded.roadmap;
-  const activeMilestoneId = loaded.active.milestone_id ?? roadmap.active_milestone_id;
+  const roadmap = loadedRoadmap;
+  const activeMilestoneId = active.milestone_id ?? roadmap.active_milestone_id;
 
   switch (input.operation) {
     case "record_discovery":
@@ -1292,7 +1370,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       const reason = input.reason?.trim();
       if (!reason) throw new Error("reopen_roadmap requires a reason");
       if (activeMilestoneId) throw new Error("reopen_roadmap requires no active milestone");
-      if (loaded.active.change_request_id || roadmap.active_change_request_id) {
+      if (active.change_request_id || roadmap.active_change_request_id) {
         throw new Error("reopen_roadmap requires no active change request");
       }
 
@@ -1310,7 +1388,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         throw new Error(`start_milestone_planning requires phase roadmap_approved or complete; current phase is ${roadmap.phase}`);
       }
       if (roadmap.phase === "complete") {
-        if (loaded.active.change_request_id || roadmap.active_change_request_id) {
+        if (active.change_request_id || roadmap.active_change_request_id) {
           throw new Error("start_milestone_planning requires no active change request");
         }
         if (!hasPlannableMilestone(roadmap)) {
@@ -1558,6 +1636,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   await appendTransitionEvent(cwd, input, beforeEvent, after);
   return after;
   });
+  });
 }
 
 function updateTaskStatus(
@@ -1620,6 +1699,11 @@ async function appendNoteEntry(cwd: string, input: AppendNoteInput): Promise<{ f
 
 export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
   return await withStoreWriteLock(cwd, async () => {
+  const loaded = await loadState(cwd);
+  const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
+  if (!roadmapId) throw new Error("append_note requires an active roadmap and milestone");
+
+  return await withStoreMutationRollback(cwd, roadmapId, async () => {
   const { filePath, scope } = await appendNoteEntry(cwd, input);
   await appendRoadmapEvent(cwd, {
     actor: input.workerId?.trim() || input.kind,
@@ -1634,12 +1718,14 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
   });
   return filePath;
   });
+  });
 }
 
 export async function amend(cwd: string, input: AmendmentInput): Promise<string> {
   return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   if (!loaded.active?.roadmap_id || !loaded.roadmap) throw new Error("No active roadmap");
+  const active = loaded.active;
   if (input.material && !input.approvedBy) {
     throw new Error("Material amendments require approval");
   }
@@ -1649,26 +1735,27 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
     : "Clerical amendment; approval not required.";
   const entry = `\n## ${input.title}\n\n- Scope: ${input.scope}\n- Material: ${input.material ? "yes" : "no"}\n- ${approvedLine}\n- At: ${nowIso()}\n\n${input.body.trimEnd()}\n`;
 
+  return await withStoreMutationRollback(cwd, active.roadmap_id, async () => {
   if (input.scope === "roadmap") {
-    await appendText(decisionsPath(cwd, loaded.active.roadmap_id), entry);
+    await appendText(decisionsPath(cwd, active.roadmap_id), entry);
     await appendRoadmapEvent(cwd, {
       actor: input.approvedBy?.trim() || "user",
       type: "amendment.recorded",
-      scope: { roadmap_id: loaded.active.roadmap_id },
+      scope: { roadmap_id: active.roadmap_id },
       summary: `Recorded ${input.scope} amendment: ${input.title}.`,
       details: {
         scope: input.scope,
         material: input.material,
       },
     });
-    return decisionsPath(cwd, loaded.active.roadmap_id);
+    return decisionsPath(cwd, active.roadmap_id);
   }
 
-  const milestoneId = loaded.active.milestone_id;
+  const milestoneId = active.milestone_id;
   if (!milestoneId) throw new Error("Milestone amendment requires an active milestone");
   const { filePath, scope } = await appendNoteEntry(cwd, {
     kind: "decision",
-    roadmapId: loaded.active.roadmap_id,
+    roadmapId: active.roadmap_id,
     milestoneId,
     title: input.title,
     body: entry,
@@ -1687,6 +1774,7 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
   });
   return filePath;
   });
+  });
 }
 
 export async function createChangeRequest(
@@ -1699,16 +1787,21 @@ export async function createChangeRequest(
   if (!loaded.active?.roadmap_id || !loaded.active.milestone_id || !loaded.roadmap) {
     throw new Error("Change requests require an active roadmap and milestone");
   }
-  if (loaded.active.change_request_id || loaded.roadmap.active_change_request_id) {
+  const active = loaded.active;
+  const milestoneId = active.milestone_id;
+  if (!milestoneId) throw new Error("Change requests require an active roadmap and milestone");
+  const roadmap = loaded.roadmap;
+  if (active.change_request_id || roadmap.active_change_request_id) {
     throw new Error("Only one active change request is allowed");
   }
-  if (!["reviewing", "closeout", "complete"].includes(loaded.roadmap.phase)) {
+  if (!["reviewing", "closeout", "complete"].includes(roadmap.phase)) {
     throw new Error("Change requests are allowed only after implementation has produced changes");
   }
 
+  return await withStoreMutationRollback(cwd, active.roadmap_id, async () => {
   const change: ChangeRequest = {
-    roadmap_id: loaded.active.roadmap_id,
-    milestone_id: loaded.active.milestone_id,
+    roadmap_id: active.roadmap_id,
+    milestone_id: milestoneId,
     change_request_id: input.changeRequestId,
     title: input.title,
     status: "draft",
@@ -1729,8 +1822,8 @@ export async function createChangeRequest(
   };
 
   await writeChangeRequest(cwd, change);
-  loaded.roadmap.active_change_request_id = change.change_request_id;
-  await writeRoadmapState(cwd, loaded.roadmap);
+  roadmap.active_change_request_id = change.change_request_id;
+  await writeRoadmapState(cwd, roadmap);
   await writeActive(cwd, {
     roadmap_id: change.roadmap_id,
     milestone_id: change.milestone_id,
@@ -1753,6 +1846,7 @@ export async function createChangeRequest(
     },
   });
   return change;
+  });
   });
 }
 
