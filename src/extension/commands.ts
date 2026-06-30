@@ -48,9 +48,12 @@ Command-specific workflow for /milestone:plan:
 Command-specific workflow for /milestone:implement:
 - Use the built-in \`ask\` tool from the orchestrator/main-agent role if implementation uncovers missing decisions, ownership gaps, unplanned files, acceptance ambiguity, cleanup scope questions, or approval needs.
 - Do not write or modify code yourself.
-- Dispatch only tasks in the active wave with non-overlapping ownership, using the exact agent named by each task's worker field.
-- If workers or reviewers append blocking notes, update task/progress state to blocked or resolving, ask the user from the orchestrator/main-agent role when needed, then redispatch or replan after resolution.
-- Require worker notes whose workerId matches each task's assigned worker before dispatching reviewer for per-wave review.
+- Call roadmap_engineer_prepare_wave_dispatch before dispatching implementation work. Dispatch only the returned active-wave assignments with the built-in task/subagent mechanism, using each assignment's exact worker and prompt.
+- After each worker returns, call roadmap_engineer_record_wave_result with completed, failed, or blocked status before taking any next orchestration step.
+- When all active-wave workers are completed, call roadmap_engineer_prepare_wave_review and dispatch the returned reviewer package with the built-in task/subagent mechanism.
+- After the reviewer returns, call roadmap_engineer_record_wave_review with passed or failed status.
+- If workers or reviewers report blockers, rely on the record tools to update task/wave/progress state and open canonical blockers, then ask the user from the orchestrator/main-agent role when needed before redispatching or replanning.
+- Require worker results whose worker role matches each returned assignment before preparing review.
 - Never perform wave reviews yourself and never perform wave-flow checks during implementation.`;
   }
   if (name !== "roadmap:reopen") return "";
@@ -94,10 +97,10 @@ Follow the roadmap-engineer workflow strictly:
 - For milestone and change planning, assign each task to exactly one of worker-light, worker, or worker-heavy based on risk and blast radius.
 - Before milestone or change approval, dispatch wave-flow-checker, record its result with record_wave_flow_check, and revise draft plans with update_milestone_plan or update_change_request_plan until the check passes.
 - For milestone planning, explicitly ask the user what test coverage they want based on the implementation tasks: which areas should create tests, which should run existing tests, what detail those tests should cover, and what coverage is intentionally deferred or not required.
-- For implementation progress, update task, wave, and cursor state with update_task_status, update_wave_status, and update_implementation_progress.
+- For implementation progress, prefer roadmap_engineer_prepare_wave_dispatch, roadmap_engineer_record_wave_result, roadmap_engineer_prepare_wave_review, and roadmap_engineer_record_wave_review; use update_task_status, update_wave_status, and update_implementation_progress only for manual recovery.
 - For implementation resume, treat the persisted progress cursor as authoritative for active wave, orchestration step, active tasks, and blocker reason.
 - Before closing milestones or changes, record structured closeout evidence with record_closeout.
-- For milestone and change implementation, do not edit files yourself; dispatch each implementation task to the exact agent named by task.worker, require matching worker notes, dispatch reviewer for wave reviews, and collect evidence closeout.
+- For milestone and change implementation, do not edit files yourself; call the wave orchestration tools, dispatch each returned task to the exact agent named by assignment.worker, dispatch reviewer for wave reviews, and collect evidence closeout.
 - If implementation is not legally open, do not edit files.
 ${commandSpecificInstructions(name)}`;
 }

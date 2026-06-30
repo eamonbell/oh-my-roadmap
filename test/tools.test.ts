@@ -69,6 +69,10 @@ describe("roadmap context tools", () => {
     const resolveBlockerTool = tools.get("roadmap_engineer_resolve_blocker");
     const deferBlockerTool = tools.get("roadmap_engineer_defer_blocker");
     const listBlockersTool = tools.get("roadmap_engineer_list_blockers");
+    const prepareWaveDispatchTool = tools.get("roadmap_engineer_prepare_wave_dispatch");
+    const recordWaveResultTool = tools.get("roadmap_engineer_record_wave_result");
+    const prepareWaveReviewTool = tools.get("roadmap_engineer_prepare_wave_review");
+    const recordWaveReviewTool = tools.get("roadmap_engineer_record_wave_review");
     const nextActionTool = tools.get("roadmap_engineer_next_action");
     const applyNextActionTool = tools.get("roadmap_engineer_apply_next_action");
     expect(readStateTool?.approval).toBe("read");
@@ -80,6 +84,10 @@ describe("roadmap context tools", () => {
     expect(resolveBlockerTool?.approval).toBe("write");
     expect(deferBlockerTool?.approval).toBe("write");
     expect(listBlockersTool?.approval).toBe("read");
+    expect(prepareWaveDispatchTool?.approval).toBe("write");
+    expect(recordWaveResultTool?.approval).toBe("write");
+    expect(prepareWaveReviewTool?.approval).toBe("write");
+    expect(recordWaveReviewTool?.approval).toBe("write");
     expect(nextActionTool?.approval).toBe("read");
     expect(applyNextActionTool?.approval).toBe("write");
 
