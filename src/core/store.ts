@@ -1320,8 +1320,9 @@ function activeBlockerScope(
 ): Pick<RoadmapBlocker, "roadmap_id" | "milestone_id" | "change_request_id" | "task_id" | "wave_id"> {
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
   if (!roadmapId) throw new Error("open_blocker requires an active roadmap or roadmapId");
-  const milestoneId = input.milestoneId ?? loaded.active?.milestone_id;
-  const changeRequestId = input.changeRequestId ?? loaded.active?.change_request_id;
+  const canUseActiveScope = input.roadmapId === undefined || input.roadmapId === loaded.active?.roadmap_id;
+  const milestoneId = input.milestoneId ?? (canUseActiveScope ? loaded.active?.milestone_id : undefined);
+  const changeRequestId = input.changeRequestId ?? (canUseActiveScope ? loaded.active?.change_request_id : undefined);
   return {
     roadmap_id: roadmapId,
     ...(milestoneId ? { milestone_id: milestoneId } : {}),
