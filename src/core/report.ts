@@ -1,5 +1,6 @@
 import { loadState } from "./store";
 import type { ImplementationProgress, TaskPlan, WavePlan } from "./types";
+import type { RoadmapUsageSummary, UsageScopeSummary, UsageTotals } from "./usage";
 import { validateImplementationGate, validateRoadmapState } from "./validation";
 
 function progressLines(label: string, progress: ImplementationProgress, waves: WavePlan[], tasks: TaskPlan[]): string[] {
@@ -16,6 +17,72 @@ function progressLines(label: string, progress: ImplementationProgress, waves: W
     `${label} active tasks: ${activeTasks || "none"}`,
     `${label} blocker: ${progress.blocked_reason ?? "none"}`,
   ];
+}
+
+function totalTokens(usage: UsageTotals): number {
+  return usage.input_tokens + usage.output_tokens + usage.cache_read_tokens + usage.cache_write_tokens;
+}
+
+function formatUsd(usage: UsageTotals): string {
+  const value = `$${usage.estimated_usd.toFixed(4)}`;
+  return usage.usd_unavailable ? `${value} + unknown` : value;
+}
+
+function formatUsage(usage: UsageTotals): string {
+  return [
+    formatUsd(usage),
+    `${usage.requests} req`,
+    `${totalTokens(usage)} tok`,
+    `in ${usage.input_tokens}`,
+    `out ${usage.output_tokens}`,
+    `cache ${usage.cache_read_tokens}/${usage.cache_write_tokens}`,
+    `reasoning ${usage.reasoning_tokens}`,
+  ].join(", ");
+}
+
+function topAgents(scope: UsageScopeSummary): string {
+  const agents = Object.entries(scope.by_agent)
+    .sort(([, left], [, right]) =>
+      right.estimated_usd - left.estimated_usd ||
+      totalTokens(right) - totalTokens(left),
+    )
+    .slice(0, 3)
+    .map(([agent, usage]) => `${agent}: ${formatUsage(usage)}`);
+  return agents.length > 0 ? agents.join(" | ") : "none";
+}
+
+function usageLines(stateUsage: RoadmapUsageSummary | undefined, milestoneId?: string, changeRequestId?: string): string[] {
+  if (!stateUsage) return [];
+  const lines = [
+    `Usage roadmap: ${formatUsage(stateUsage.total)}`,
+    `Usage top agents: ${topAgents(stateUsage)}`,
+  ];
+  if (milestoneId) {
+    const milestone = stateUsage.milestones[milestoneId];
+    lines.push(
+      `Usage milestone ${milestoneId}: ${milestone ? formatUsage(milestone.total) : formatUsage({
+        estimated_usd: 0,
+        usd_unavailable: false,
+        requests: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        reasoning_tokens: 0,
+      })}`,
+    );
+    if (milestone) lines.push(`Usage milestone top agents: ${topAgents(milestone)}`);
+    if (changeRequestId) {
+      const change = milestone?.change_requests[changeRequestId];
+      lines.push(`Usage change ${changeRequestId}: ${change ? formatUsage(change.total) : "none"}`);
+      if (change) lines.push(`Usage change top agents: ${topAgents(change)}`);
+    }
+  }
+  return lines;
+}
+
+function hasPlannableMilestone(state: Awaited<ReturnType<typeof loadState>>): boolean {
+  return state.roadmap?.milestones.some((milestone) => ["planned", "blocked"].includes(milestone.status)) ?? false;
 }
 
 export async function renderReport(cwd: string): Promise<string> {
@@ -52,6 +119,7 @@ export async function renderReport(cwd: string): Promise<string> {
     );
   }
   if (state.closeout) lines.push(`Milestone closeout: ${state.closeout.status}`);
+  lines.push(...usageLines(state.usage, state.active.milestone_id, state.active.change_request_id));
 
   lines.push(``, `Validation: ${validation.valid ? "valid" : "invalid"}`);
 
@@ -104,7 +172,10 @@ export async function nextAction(cwd: string): Promise<string> {
     case "closeout":
       return "Record structured closeout evidence, then close the milestone with /milestone:close.";
     case "complete":
-      return "Start the next milestone or create a post-implementation change request.";
+      if (hasPlannableMilestone(state)) {
+        return "Start the next planned milestone with /milestone:plan or create a post-implementation change request.";
+      }
+      return "Create a post-implementation change request or start a new roadmap.";
   }
 }
 

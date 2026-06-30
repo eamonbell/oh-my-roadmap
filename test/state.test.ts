@@ -98,6 +98,18 @@ function testWave(id: string, tasks: string[]): CreateMilestonePlanInput["waves"
   };
 }
 
+function additionalMilestone(id: string, title: string): UpdateRoadmapInput["milestones"][number] {
+  const base = roadmapInput().milestones[0]!;
+  return {
+    ...base,
+    id,
+    title,
+    status: "planned",
+    goal: `Complete ${title}.`,
+    dependencies: ["m01-core"],
+  };
+}
+
 function closedEvidence(overrides: Partial<CloseoutEvidence> = {}): CloseoutEvidence {
   return {
     roadmap_id: "complex-refactor",
@@ -581,6 +593,32 @@ describe("roadmap state lifecycle", () => {
     expect(validation.errors.map((error) => error.code)).toContain("notes.blocking.open");
   });
 
+  test("bypass opens implementation gate when only blocking notes are open", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await appendNote(cwd, {
+      kind: "worker",
+      title: "Stale worker blocker",
+      body: "Worker PATH did not include go; main reran verification with the assigned absolute Go binary.",
+      blocking: true,
+      status: "open",
+    });
+    await transition(cwd, {
+      operation: "request_bypass",
+      reason: "Historical worker blocker was resolved by main verification.",
+      approver: "user",
+    });
+
+    const stateValidation = await validateRoadmapState(cwd);
+    expect(stateValidation.valid).toBe(false);
+    expect(stateValidation.errors.map((error) => error.code)).toContain("notes.blocking.open");
+
+    const gate = await validateImplementationGate(cwd);
+    expect(gate.valid).toBe(true);
+    expect(gate.errors).toEqual([]);
+    expect(gate.warnings.map((warning) => warning.code)).toContain("bypass.active");
+  });
+
   test("requires structured closeout evidence before completing a milestone", async () => {
     await closeoutPhase();
 
@@ -620,6 +658,70 @@ describe("roadmap state lifecycle", () => {
     const state = await loadState(cwd);
     expect(state.roadmap?.phase).toBe("complete");
     expect(state.active?.milestone_id).toBe("m01-core");
+  });
+
+  test("starts planning the next roadmap milestone after a completed milestone", async () => {
+    await initRoadmap(cwd, { roadmapId: "complex-refactor", title: "Complex Refactor" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local roadmap-engineer sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput({
+      milestones: [
+        roadmapInput().milestones[0]!,
+        additionalMilestone("m02-runtime", "Runtime prompts"),
+      ],
+    }));
+    await transition(cwd, {
+      operation: "approve_roadmap",
+      approver: "user",
+      summary: "Roadmap approved",
+    });
+    await transition(cwd, { operation: "start_milestone_planning" });
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+    await transition(cwd, {
+      operation: "approve_milestone",
+      approver: "user",
+      summary: "Milestone approved",
+    });
+    await transition(cwd, { operation: "start_implementation" });
+    await transition(cwd, { operation: "start_reviewing" });
+    await transition(cwd, { operation: "start_closeout" });
+    await transition(cwd, { operation: "record_closeout", closeout: closedEvidence() });
+    await transition(cwd, { operation: "complete_milestone" });
+
+    expect(await renderReport(cwd)).toContain("Start the next planned milestone with /milestone:plan");
+
+    await transition(cwd, { operation: "start_milestone_planning" });
+    let state = await loadState(cwd);
+    expect(state.roadmap?.phase).toBe("milestone_planning");
+    expect(state.active?.milestone_id).toBeUndefined();
+    expect(state.roadmap?.active_milestone_id).toBeUndefined();
+    expect(state.roadmap?.milestones.find((milestone) => milestone.id === "m01-core")?.status).toBe("complete");
+    expect(state.roadmap?.milestones.find((milestone) => milestone.id === "m02-runtime")?.status).toBe("planned");
+
+    await transition(cwd, {
+      operation: "create_milestone_plan",
+      milestone: {
+        ...milestoneInput(),
+        milestoneId: "m02-runtime",
+        title: "Runtime prompts",
+      },
+    });
+    state = await loadState(cwd);
+    expect(state.roadmap?.phase).toBe("milestone_planning");
+    expect(state.active?.milestone_id).toBe("m02-runtime");
+    expect(state.roadmap?.active_milestone_id).toBe("m02-runtime");
+  });
+
+  test("rejects next milestone planning after complete when no roadmap milestones remain", async () => {
+    await closeoutPhase();
+    await transition(cwd, { operation: "record_closeout", closeout: closedEvidence() });
+    await transition(cwd, { operation: "complete_milestone" });
+
+    await expect(transition(cwd, { operation: "start_milestone_planning" })).rejects.toThrow(
+      "start_milestone_planning requires a planned or blocked milestone",
+    );
   });
 
   test("requires reviewed worker notes and review summary in closeout evidence", async () => {

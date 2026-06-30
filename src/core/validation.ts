@@ -10,6 +10,7 @@ import { PHASES, type LoadedState, type RoadmapMilestoneOutline, type RoadmapSta
 
 const ROADMAP_APPROVED_INDEX = PHASES.indexOf("roadmap_approved");
 const MILESTONE_APPROVED_INDEX = PHASES.indexOf("milestone_approved");
+const BYPASSABLE_GATE_ERROR_CODES = new Set(["notes.blocking.open"]);
 
 function phaseIndex(phase: string): number {
   return PHASES.indexOf(phase as never);
@@ -232,10 +233,13 @@ export async function validateRoadmapState(cwd: string): Promise<ValidationResul
 
 export async function validateImplementationGate(cwd: string): Promise<ValidationResult> {
   const result = await validateRoadmapState(cwd);
-  if (!result.valid) return result;
   const state = await loadState(cwd);
   if (!state.active || !state.roadmap) return result;
-  if (state.roadmap.bypass?.active) return result;
+  if (state.roadmap.bypass?.active) {
+    const errors = result.errors.filter((error) => !BYPASSABLE_GATE_ERROR_CODES.has(error.code));
+    return { valid: errors.length === 0, errors, warnings: result.warnings };
+  }
+  if (!result.valid) return result;
 
   const errors: ValidationIssue[] = [...result.errors];
   const activeChangeApproved =

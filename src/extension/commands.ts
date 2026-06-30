@@ -22,6 +22,14 @@ const COMMANDS = [
 const INIT_COMMAND = "roadmap:init";
 
 function commandSpecificInstructions(name: string): string {
+  if (name === "milestone:plan") {
+    return `
+Command-specific workflow for /milestone:plan:
+- If the roadmap phase is roadmap_approved, call roadmap_engineer_transition with operation start_milestone_planning before creating the milestone plan.
+- If the roadmap phase is complete and the roadmap has remaining planned or blocked milestone outlines, do not call reopen_roadmap. Call roadmap_engineer_transition with operation start_milestone_planning to advance from the completed milestone into planning for the next milestone.
+- If the roadmap phase is complete and there are no remaining planned or blocked milestone outlines, stop and ask whether the user wants a post-implementation change request or a new roadmap.
+- After milestone planning is open, use roadmap_engineer_transition with operation create_milestone_plan for the selected roadmap milestone, then validate before asking for approval.`;
+  }
   if (name !== "roadmap:reopen") return "";
   return `
 Command-specific workflow for /roadmap:reopen:
