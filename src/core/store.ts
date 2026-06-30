@@ -1440,10 +1440,11 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   const activeMilestoneId = active.milestone_id ?? roadmap.active_milestone_id;
 
   switch (input.operation) {
-    case "record_discovery":
+    case "record_discovery": {
       if (!["discovery", "roadmap_draft"].includes(roadmap.phase)) {
         throw new Error(`record_discovery requires phase discovery or roadmap_draft; current phase is ${roadmap.phase}`);
       }
+      const discoveryContentHash = roadmapContentHash(roadmap);
       roadmap.discovery = {
         recorded: input.discovery?.recorded ?? true,
         external_research_required:
@@ -1453,7 +1454,16 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         findings: input.discovery?.findings ?? roadmap.discovery.findings,
       };
       roadmap.phase = "roadmap_draft";
+      roadmap.roadmap_content_hash = roadmapContentHash(roadmap);
+      if (roadmap.roadmap_content_hash !== discoveryContentHash) {
+        roadmap.roadmap_revision += 1;
+        roadmap.roadmap_milestone_check = pendingRoadmapMilestoneCheck(
+          roadmap.roadmap_revision,
+          roadmap.roadmap_content_hash,
+        );
+      }
       break;
+    }
     case "approve_roadmap":
       requirePhase(roadmap.phase, "roadmap_draft", input.operation);
       if (!roadmap.discovery.recorded) throw new Error("Roadmap approval requires recorded repo discovery");

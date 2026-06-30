@@ -366,6 +366,37 @@ describe("roadmap state lifecycle", () => {
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
   });
 
+  test("draft discovery updates revision and resets the roadmap-milestone check", async () => {
+    await initRoadmap(cwd, { roadmapId: "discovery-update-roadmap", title: "Discovery Update Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheck();
+    const checked = await loadState(cwd);
+    if (!checked.roadmap) throw new Error("Expected roadmap state");
+
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources.", "Found an extra roadmap input."] },
+    });
+
+    const updated = await loadState(cwd);
+    if (!updated.roadmap) throw new Error("Expected updated roadmap state");
+    expect(updated.roadmap.roadmap_revision).toBe(checked.roadmap.roadmap_revision + 1);
+    expect(updated.roadmap.roadmap_content_hash).not.toBe(checked.roadmap.roadmap_content_hash);
+    expect(updated.roadmap.roadmap_milestone_check).toMatchObject({
+      status: "pending",
+      roadmap_revision: updated.roadmap.roadmap_revision,
+      roadmap_content_hash: updated.roadmap.roadmap_content_hash,
+      event_id: "",
+    });
+    expect(await fs.readFile(roadmapDocPath(cwd, updated.roadmap.roadmap_id), "utf8")).toBe(
+      renderRoadmapMarkdown(updated.roadmap),
+    );
+  });
+
   test("preserves failed roadmap-milestone check findings in quality gate history", async () => {
     await initRoadmap(cwd, { roadmapId: "failed-history-roadmap", title: "Failed History Roadmap" });
     await transition(cwd, {

@@ -193,7 +193,7 @@ describe("roadmap context tools", () => {
           roadmap_milestone_check: {
             status: "passed",
             checked_by: "roadmap-milestone-checker",
-            roadmap_revision: 1,
+            roadmap_revision: 2,
           },
         },
       });
@@ -209,7 +209,7 @@ describe("roadmap context tools", () => {
       expect(gates?.details).toMatchObject({
         current: {
           status: "passed",
-          roadmap_revision: 1,
+          roadmap_revision: 2,
         },
         history: [
           {
@@ -217,7 +217,7 @@ describe("roadmap context tools", () => {
             scope: { gate: "roadmap_milestone_check" },
             details: {
               gate_status: "passed",
-              roadmap_revision: 1,
+              roadmap_revision: 2,
             },
           },
         ],
