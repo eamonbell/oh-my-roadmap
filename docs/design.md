@@ -48,7 +48,7 @@ Config and state are stored under `.roadmaps`:
 - Each roadmap milestone outline must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
 - An approved roadmap can be reopened only from `roadmap_approved`, before any milestone or change request is active. Reopening records a required reason, returns to `roadmap_draft`, marks the roadmap not finalized, preserves approval history, and requires regeneration plus explicit reapproval.
 - Milestone plans must be decision-complete before implementation starts.
-- Milestone plans must include exact verification commands, acceptance criteria, dependency analysis, execution waves, worker assignments, and exclusive file/module ownership.
+- Milestone plans must include exact verification commands, acceptance criteria, concrete executable tasks, dependency analysis, execution waves, worker assignments, task-level verification, and exclusive file/module ownership.
 - Cleanup is approval-gated.
 
 ## Orchestration Rules
@@ -63,7 +63,11 @@ Config and state are stored under `.roadmaps`:
 - Review runs after every wave and at closeout.
 - Blocking review findings stop later waves until resolved or explicitly deferred.
 
-Task and wave progress is recorded with `roadmap_engineer_transition` operations `update_task_status` and `update_wave_status`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
+Task, wave, and cursor progress is recorded with `roadmap_engineer_transition` operations `update_task_status`, `update_wave_status`, and `update_implementation_progress`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
+
+Implementation resume is driven by a persisted progress cursor on milestone and change plans. The cursor records the active wave, orchestration step, active task IDs, blocker reason, and timestamp. Status and resume commands treat this structured cursor as authoritative; notes provide context and evidence.
+
+Mutating store operations use `.roadmaps/store.lock` to serialize concurrent writers and write YAML/Markdown state files through atomic replacement. Append-only notes are routed through the same lock so note ordering stays consistent with task, wave, and progress updates.
 
 Large roadmap registers are reviewed through read-only context tools. `roadmap_engineer_search_context` searches active-roadmap notes across all milestones plus roadmap-level decisions and risks, returning snippets and metadata by default. `roadmap_engineer_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
 

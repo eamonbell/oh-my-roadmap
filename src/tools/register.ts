@@ -39,6 +39,10 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   const taskSchema = z.object({
     id: z.string(),
     title: z.string(),
+    objective: z.string(),
+    implementation_notes: z.array(z.string()).default([]),
+    done_criteria: z.array(z.string()),
+    verification_commands: z.array(z.string()).default([]),
     worker: z.string(),
     status: z.enum(["assigned", "started", "done", "blocked"]).default("assigned"),
     depends_on: z.array(z.string()).default([]),
@@ -48,6 +52,9 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   });
   const waveSchema = z.object({
     id: z.string(),
+    goal: z.string(),
+    exit_criteria: z.array(z.string()),
+    review_checkpoint: z.string(),
     status: z.enum(["pending", "running", "reviewing", "blocked", "complete"]).default("pending"),
     tasks: z.array(z.string()),
   });
@@ -79,9 +86,29 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     title: z.string(),
     verificationCommands: z.array(z.string()),
     acceptanceCriteria: z.array(z.string()),
+    userInterview: z.array(z.string()).default([]),
+    relevantExistingCode: z.array(z.string()).default([]),
+    relevantDocumentation: z.array(z.string()).default([]),
+    decisions: z.array(z.string()).default([]),
+    dependencyAnalysis: z.array(z.string()).default([]),
     tasks: z.array(taskSchema),
     waves: z.array(waveSchema),
     openQuestions: z.array(z.string()).optional(),
+  });
+  const implementationProgressStepSchema = z.enum([
+    "not_started",
+    "dispatching",
+    "workers_running",
+    "wave_review",
+    "resolving_blockers",
+    "ready_for_next_wave",
+    "closeout_ready",
+  ]);
+  const implementationProgressInputSchema = z.object({
+    activeWaveId: z.string().optional(),
+    step: implementationProgressStepSchema,
+    activeTaskIds: z.array(z.string()).default([]),
+    blockedReason: z.string().optional(),
   });
   const contextArtifactSchema = z.enum(["notes", "decisions", "risks"]);
   const contextNoteKindSchema = z.enum(["worker", "review", "orchestrator", "decision", "issue"]);
@@ -237,6 +264,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
         "close_change",
         "update_task_status",
         "update_wave_status",
+        "update_implementation_progress",
         "record_closeout",
       ]),
       ...approvalSchema.shape,
@@ -254,6 +282,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
       taskStatus: z.enum(["assigned", "started", "done", "blocked"]).optional(),
       waveId: z.string().optional(),
       waveStatus: z.enum(["pending", "running", "reviewing", "blocked", "complete"]).optional(),
+      progress: implementationProgressInputSchema.optional(),
       closeout: closeoutSchema.optional(),
     }),
     async execute(_id, params, _signal, _update, ctx) {
@@ -340,6 +369,11 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
       request: z.string(),
       verificationCommands: z.array(z.string()),
       acceptanceCriteria: z.array(z.string()),
+      userInterview: z.array(z.string()).default([]),
+      relevantExistingCode: z.array(z.string()).default([]),
+      relevantDocumentation: z.array(z.string()).default([]),
+      decisions: z.array(z.string()).default([]),
+      dependencyAnalysis: z.array(z.string()).default([]),
       tasks: z.array(taskSchema),
       waves: z.array(waveSchema),
     }),

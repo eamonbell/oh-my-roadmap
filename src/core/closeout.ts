@@ -1,5 +1,6 @@
 import { milestoneCloseoutPath } from "./paths";
 import { readMarkdownData, writeMarkdownData } from "./files";
+import { withStoreWriteLock } from "./lock";
 import type {
   CloseoutEvidence,
   EvidenceResult,
@@ -40,11 +41,13 @@ export async function writeMilestoneCloseout(
   cwd: string,
   evidence: CloseoutEvidence,
 ): Promise<void> {
-  await writeMarkdownData(
-    milestoneCloseoutPath(cwd, evidence.roadmap_id, evidence.milestone_id),
-    { ...evidence } as unknown as Record<string, unknown>,
-    renderCloseoutBody(evidence),
-  );
+  await withStoreWriteLock(cwd, async () => {
+    await writeMarkdownData(
+      milestoneCloseoutPath(cwd, evidence.roadmap_id, evidence.milestone_id),
+      { ...evidence } as unknown as Record<string, unknown>,
+      renderCloseoutBody(evidence),
+    );
+  });
 }
 
 export function closeoutBodySummary(evidence: CloseoutEvidence): string {

@@ -16,7 +16,7 @@ import {
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
 } from "../src/core/store";
-import { decisionsPath, roadmapDocPath } from "../src/core/paths";
+import { decisionsPath, milestoneNotesPath, milestonePlanPath, roadmapDocPath, storeLockPath } from "../src/core/paths";
 import type { CloseoutEvidence } from "../src/core/types";
 import { validateImplementationGate, validateRoadmapState } from "../src/core/validation";
 
@@ -40,6 +40,10 @@ function milestoneInput(): CreateMilestonePlanInput {
       {
         id: "t01-state",
         title: "State engine",
+        objective: "Persist roadmap state changes safely.",
+        implementation_notes: ["Update state storage and lifecycle transitions."],
+        done_criteria: ["State lifecycle operations remain valid."],
+        verification_commands: ["bun test"],
         worker: "worker-a",
         status: "assigned",
         depends_on: [],
@@ -50,6 +54,10 @@ function milestoneInput(): CreateMilestonePlanInput {
       {
         id: "t02-report",
         title: "Report engine",
+        objective: "Render roadmap state and next actions.",
+        implementation_notes: ["Update report output from loaded state."],
+        done_criteria: ["Reports show current milestone status."],
+        verification_commands: ["bun test"],
         worker: "worker-b",
         status: "assigned",
         depends_on: ["t01-state"],
@@ -59,9 +67,34 @@ function milestoneInput(): CreateMilestonePlanInput {
       },
     ],
     waves: [
-      { id: "w01", status: "pending", tasks: ["t01-state"] },
-      { id: "w02", status: "pending", tasks: ["t02-report"] },
+      {
+        id: "w01",
+        goal: "Implement state storage.",
+        exit_criteria: ["State task is complete."],
+        review_checkpoint: "Review state ownership and verification.",
+        status: "pending",
+        tasks: ["t01-state"],
+      },
+      {
+        id: "w02",
+        goal: "Implement reporting.",
+        exit_criteria: ["Report task is complete."],
+        review_checkpoint: "Review report output and next action.",
+        status: "pending",
+        tasks: ["t02-report"],
+      },
     ],
+  };
+}
+
+function testWave(id: string, tasks: string[]): CreateMilestonePlanInput["waves"][number] {
+  return {
+    id,
+    goal: `Complete ${id}.`,
+    exit_criteria: [`${id} tasks are complete.`],
+    review_checkpoint: `Review ${id} outputs.`,
+    status: "pending",
+    tasks,
   };
 }
 
@@ -347,6 +380,86 @@ describe("roadmap state lifecycle", () => {
     expect(gate.valid).toBe(true);
   });
 
+  test("rejects incomplete task, wave, and progress detail", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    input.tasks[0] = {
+      ...input.tasks[0]!,
+      objective: "",
+      implementation_notes: [],
+      done_criteria: [],
+      verification_commands: [],
+    };
+    input.waves[0] = {
+      ...input.waves[0]!,
+      goal: "",
+      exit_criteria: [],
+      review_checkpoint: "",
+    };
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+
+    let validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("task.objective.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("task.implementation.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("task.done.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("task.verify.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("wave.goal.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("wave.exit.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("wave.review.missing");
+
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: {
+        activeWaveId: "missing-wave",
+        step: "resolving_blockers",
+        activeTaskIds: ["missing-task"],
+      },
+    });
+    validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("progress.wave.unknown");
+    expect(validation.errors.map((error) => error.code)).toContain("progress.task.unknown");
+    expect(validation.errors.map((error) => error.code)).toContain("progress.blocked_reason.missing");
+  });
+
+  test("renders generated milestone markdown and updates implementation progress", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+
+    let state = await loadState(cwd);
+    expect(state.milestone?.progress).toMatchObject({
+      active_wave_id: "w01",
+      step: "not_started",
+      active_task_ids: [],
+    });
+    if (!state.milestone) throw new Error("Expected milestone");
+    let planMarkdown = await fs.readFile(milestonePlanPath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id), "utf8");
+    expect(planMarkdown).toContain("## Required Work");
+    expect(planMarkdown).toContain("### t01-state - State engine");
+    expect(planMarkdown).toContain("## Execution Waves");
+    expect(planMarkdown).toContain("## Progress");
+
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: {
+        activeWaveId: "w01",
+        step: "workers_running",
+        activeTaskIds: ["t01-state"],
+      },
+    });
+    state = await loadState(cwd);
+    expect(state.milestone?.progress).toMatchObject({
+      active_wave_id: "w01",
+      step: "workers_running",
+      active_task_ids: ["t01-state"],
+    });
+    if (!state.milestone) throw new Error("Expected milestone");
+    planMarkdown = await fs.readFile(milestonePlanPath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id), "utf8");
+    expect(planMarkdown).toContain("- Step: workers_running");
+    expect(planMarkdown).toContain("- Active tasks: t01-state");
+  });
+
   test("rejects illegal phase skips", async () => {
     await approvedRoadmap();
 
@@ -373,6 +486,46 @@ describe("roadmap state lifecycle", () => {
     expect(validation.errors.map((error) => error.code)).toContain("wave.order.blocked");
   });
 
+  test("preserves concurrent store updates and recovers stale write locks", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await fs.writeFile(
+      storeLockPath(cwd),
+      JSON.stringify({ pid: 999999, created_at: new Date(Date.now() - 120_000).toISOString() }),
+      "utf8",
+    );
+
+    await Promise.all([
+      transition(cwd, { operation: "update_task_status", taskId: "t01-state", taskStatus: "started" }),
+      transition(cwd, {
+        operation: "update_implementation_progress",
+        progress: {
+          activeWaveId: "w01",
+          step: "workers_running",
+          activeTaskIds: ["t01-state"],
+        },
+      }),
+      appendNote(cwd, {
+        kind: "worker",
+        taskId: "t01-state",
+        workerId: "worker-a",
+        title: "Concurrent note",
+        body: "Recorded while another store mutation was in flight.",
+        status: "resolved",
+      }),
+    ]);
+
+    const state = await loadState(cwd);
+    expect(state.milestone?.tasks.find((task) => task.id === "t01-state")?.status).toBe("started");
+    expect(state.milestone?.progress).toMatchObject({
+      active_wave_id: "w01",
+      step: "workers_running",
+      active_task_ids: ["t01-state"],
+    });
+    const notes = await fs.readFile(milestoneNotesPath(cwd, "complex-refactor", "m01-core"), "utf8");
+    expect(notes).toContain("## Concurrent note");
+  });
+
   test("rejects duplicate wave membership, unknown dependencies, and dependency cycles", async () => {
     await approvedRoadmap();
     await transition(cwd, { operation: "start_milestone_planning" });
@@ -385,8 +538,8 @@ describe("roadmap state lifecycle", () => {
       { ...secondTask, depends_on: ["t01-state"] },
     ];
     input.waves = [
-      { id: "w01", status: "pending", tasks: ["t01-state", "t02-report"] },
-      { id: "w02", status: "pending", tasks: ["t01-state"] },
+      testWave("w01", ["t01-state", "t02-report"]),
+      testWave("w02", ["t01-state"]),
     ];
     await transition(cwd, { operation: "create_milestone_plan", milestone: input });
 
@@ -404,7 +557,7 @@ describe("roadmap state lifecycle", () => {
     const reportTask = input.tasks[1];
     if (!reportTask) throw new Error("test fixture missing report task");
     input.tasks[1] = { ...reportTask, owned_files: ["src/core/store.ts"] };
-    input.waves = [{ id: "w01", status: "pending", tasks: ["t01-state", "t02-report"] }];
+    input.waves = [testWave("w01", ["t01-state", "t02-report"])];
     await transition(cwd, { operation: "create_milestone_plan", milestone: input });
 
     const validation = await validateRoadmapState(cwd);
@@ -498,7 +651,7 @@ describe("roadmap state lifecycle", () => {
           depends_on: [],
         },
       ],
-      waves: [{ id: "w01", status: "pending", tasks: ["t01-change"] }],
+      waves: [testWave("w01", ["t01-change"])],
     });
 
     expect((await validateImplementationGate(cwd)).valid).toBe(false);
@@ -551,7 +704,7 @@ describe("roadmap state lifecycle", () => {
         verificationCommands: ["bun test"],
         acceptanceCriteria: ["Change works"],
         tasks: [{ ...milestoneInput().tasks[0]!, id: `t-${phase}`, depends_on: [] }],
-        waves: [{ id: "w01", status: "pending", tasks: [`t-${phase}`] }],
+        waves: [testWave("w01", [`t-${phase}`])],
       });
       expect(change.status).toBe("draft");
     }
@@ -564,7 +717,7 @@ describe("roadmap state lifecycle", () => {
 
     await transition(cwd, { operation: "start_milestone_planning" });
     const input = milestoneInput();
-    input.waves = [{ id: "w01", status: "pending", tasks: ["missing-task"] }];
+    input.waves = [testWave("w01", ["missing-task"])];
     await transition(cwd, { operation: "create_milestone_plan", milestone: input });
 
     const validation = await validateImplementationGate(cwd);

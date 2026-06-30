@@ -70,4 +70,34 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("roadmap_engineer_validate");
     expect(sent.content).toContain("explicit roadmap reapproval");
   });
+
+  test("milestone:plan prompts for detailed test coverage decisions", async () => {
+    const commands = new Map<string, RegisteredTestCommand>();
+    const sentMessages: Array<{ content: string; options: unknown }> = [];
+    const api = {
+      registerCommand(name: string, command: RegisteredTestCommand) {
+        commands.set(name, command);
+      },
+      sendUserMessage(content: string, options?: unknown) {
+        sentMessages.push({ content, options });
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapCommands(api);
+
+    const command = commands.get("milestone:plan");
+    expect(command).toBeDefined();
+
+    await command?.handler(
+      "",
+      { cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)) } as unknown as ExtensionCommandContext,
+    );
+
+    expect(sentMessages).toHaveLength(1);
+    const sent = sentMessages[0];
+    if (!sent) throw new Error("Expected a sent message");
+    expect(sent.content).toContain("what test coverage they want");
+    expect(sent.content).toContain("which areas should create tests");
+    expect(sent.content).toContain("what coverage is intentionally deferred or not required");
+  });
 });

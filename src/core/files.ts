@@ -22,7 +22,17 @@ export async function readText(filePath: string): Promise<string> {
 
 export async function writeText(filePath: string, text: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, text, "utf8");
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+  );
+  try {
+    await fs.writeFile(tempPath, text, "utf8");
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function appendText(filePath: string, text: string): Promise<void> {
