@@ -12,6 +12,7 @@ import {
   milestoneNotesPath,
   milestonePlanPath,
   milestoneRuntimePath,
+  roadmapBlockersPath,
   roadmapDir,
   roadmapDocPath,
   roadmapsDir,
@@ -52,6 +53,9 @@ import type {
   PlanRuntime,
   Phase,
   RoadmapEvent,
+  RoadmapBlocker,
+  RoadmapBlockerSeverity,
+  RoadmapBlockerStatus,
   RoadmapMilestoneCheck,
   RoadmapMilestoneOutline,
   RoadmapEventScope,
@@ -149,6 +153,51 @@ export interface ListQualityGatesResult {
   history: RoadmapEvent[];
 }
 
+export interface OpenBlockerInput {
+  roadmapId?: string;
+  milestoneId?: string;
+  changeRequestId?: string;
+  taskId?: string;
+  waveId?: string;
+  severity?: RoadmapBlockerSeverity;
+  title: string;
+  description: string;
+  createdBy?: string;
+  notePath?: string;
+}
+
+export interface ResolveBlockerInput {
+  roadmapId?: string;
+  blockerId: string;
+  resolvedBy?: string;
+  resolution: string;
+}
+
+export interface DeferBlockerInput {
+  roadmapId?: string;
+  blockerId: string;
+  deferredBy?: string;
+  deferReason: string;
+}
+
+export interface ListBlockersInput {
+  roadmapId?: string;
+  milestoneId?: string;
+  changeRequestId?: string;
+  taskId?: string;
+  waveId?: string;
+  status?: RoadmapBlockerStatus;
+  severity?: RoadmapBlockerSeverity;
+  limit?: number;
+}
+
+export interface ListBlockersResult {
+  roadmapId?: string;
+  total: number;
+  returned: number;
+  blockers: RoadmapBlocker[];
+}
+
 export interface TransitionInput {
   operation:
     | "record_discovery"
@@ -206,6 +255,10 @@ export function assertSlug(slug: string, field: string): void {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
     throw new Error(`${field} must be a lower-case slug using letters, numbers, and hyphens`);
   }
+}
+
+export function roadmapBlockerId(): string {
+  return `blk_${crypto.randomUUID()}`;
 }
 
 function scopeFromLoaded(loaded: LoadedState): RoadmapEventScope {
@@ -532,6 +585,63 @@ async function withStoreMutationRollback<T>(
     }
     throw error;
   }
+}
+
+function blockerScope(blocker: RoadmapBlocker): RoadmapEventScope {
+  const scope: RoadmapEventScope = {
+    roadmap_id: blocker.roadmap_id,
+    blocker_id: blocker.id,
+  };
+  if (blocker.milestone_id) scope.milestone_id = blocker.milestone_id;
+  if (blocker.change_request_id) scope.change_request_id = blocker.change_request_id;
+  if (blocker.task_id) scope.task_id = blocker.task_id;
+  if (blocker.wave_id) scope.wave_id = blocker.wave_id;
+  return scope;
+}
+
+function blockerSnapshot(blocker: RoadmapBlocker): Record<string, unknown> {
+  return {
+    id: blocker.id,
+    severity: blocker.severity,
+    status: blocker.status,
+    title: blocker.title,
+  };
+}
+
+async function appendBlockerEvent(
+  cwd: string,
+  type: "blocker.opened" | "blocker.resolved" | "blocker.deferred",
+  actor: string,
+  blocker: RoadmapBlocker,
+  before: RoadmapBlocker | undefined,
+  details?: Record<string, unknown>,
+): Promise<RoadmapEvent> {
+  const action = type.slice("blocker.".length);
+  return await appendRoadmapEvent(cwd, {
+    actor,
+    type,
+    scope: blockerScope(blocker),
+    summary: `Blocker ${blocker.id} ${action}: ${blocker.title}.`,
+    ...(before ? { before: blockerSnapshot(before) } : {}),
+    after: blockerSnapshot(blocker),
+    details: {
+      severity: blocker.severity,
+      status: blocker.status,
+      title: blocker.title,
+      ...(blocker.note_path ? { note_path: blocker.note_path } : {}),
+      ...(details ?? {}),
+    },
+  });
+}
+
+function blockerYaml(blockers: RoadmapBlocker[]): { blockers: RoadmapBlocker[] } {
+  return { blockers };
+}
+
+function normalizeBlockers(value: unknown): RoadmapBlocker[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const raw = value as { blockers?: unknown };
+  return Array.isArray(raw.blockers) ? raw.blockers as RoadmapBlocker[] : [];
 }
 
 function recordedCheck(input: WaveFlowCheckInput, fallbackCheckedBy: string): WaveFlowCheck {
@@ -1029,6 +1139,20 @@ export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<
   return normalizeRoadmapState(await readYamlFile<RoadmapState>(roadmapStatePath(cwd, roadmapId)));
 }
 
+export async function loadRoadmapBlockers(cwd: string, roadmapId: string): Promise<RoadmapBlocker[]> {
+  const filePath = roadmapBlockersPath(cwd, roadmapId);
+  if (!(await fileExists(filePath))) return [];
+  return normalizeBlockers(await readYamlFile<unknown>(filePath));
+}
+
+export async function writeRoadmapBlockers(
+  cwd: string,
+  roadmapId: string,
+  blockers: RoadmapBlocker[],
+): Promise<void> {
+  await writeYamlFile(roadmapBlockersPath(cwd, roadmapId), blockerYaml(blockers));
+}
+
 export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
   await withStoreWriteLock(cwd, async () => {
     state.updated_at = nowIso();
@@ -1190,6 +1314,147 @@ export async function listQualityGates(cwd: string, input: ListQualityGatesInput
   };
 }
 
+function activeBlockerScope(
+  loaded: LoadedState,
+  input: OpenBlockerInput,
+): Pick<RoadmapBlocker, "roadmap_id" | "milestone_id" | "change_request_id" | "task_id" | "wave_id"> {
+  const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
+  if (!roadmapId) throw new Error("open_blocker requires an active roadmap or roadmapId");
+  const milestoneId = input.milestoneId ?? loaded.active?.milestone_id;
+  const changeRequestId = input.changeRequestId ?? loaded.active?.change_request_id;
+  return {
+    roadmap_id: roadmapId,
+    ...(milestoneId ? { milestone_id: milestoneId } : {}),
+    ...(changeRequestId ? { change_request_id: changeRequestId } : {}),
+    ...(input.taskId ? { task_id: input.taskId } : {}),
+    ...(input.waveId ? { wave_id: input.waveId } : {}),
+  };
+}
+
+function matchesBlockerFilters(blocker: RoadmapBlocker, input: ListBlockersInput): boolean {
+  return (
+    (input.milestoneId === undefined || blocker.milestone_id === input.milestoneId) &&
+    (input.changeRequestId === undefined || blocker.change_request_id === input.changeRequestId) &&
+    (input.taskId === undefined || blocker.task_id === input.taskId) &&
+    (input.waveId === undefined || blocker.wave_id === input.waveId) &&
+    (input.status === undefined || blocker.status === input.status) &&
+    (input.severity === undefined || blocker.severity === input.severity)
+  );
+}
+
+function resultLimit(limit: number | undefined, total: number): number {
+  if (limit === undefined) return total;
+  if (!Number.isFinite(limit) || limit < 0) return total;
+  return Math.floor(limit);
+}
+
+export async function listBlockers(cwd: string, input: ListBlockersInput = {}): Promise<ListBlockersResult> {
+  const loaded = await loadState(cwd);
+  const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
+  if (!roadmapId) return { total: 0, returned: 0, blockers: [] };
+  const filtered = (await loadRoadmapBlockers(cwd, roadmapId)).filter((blocker) => matchesBlockerFilters(blocker, input));
+  const limit = resultLimit(input.limit, filtered.length);
+  const blockers = filtered.slice(0, limit);
+  return {
+    roadmapId,
+    total: filtered.length,
+    returned: blockers.length,
+    blockers,
+  };
+}
+
+export async function openBlocker(cwd: string, input: OpenBlockerInput): Promise<RoadmapBlocker> {
+  return await withStoreWriteLock(cwd, async () => {
+  const loaded = await loadState(cwd);
+  const scope = activeBlockerScope(loaded, input);
+  const actor = input.createdBy?.trim() || "user";
+
+  return await withStoreMutationRollback(cwd, scope.roadmap_id, async () => {
+  const blocker: RoadmapBlocker = {
+    id: roadmapBlockerId(),
+    ...scope,
+    severity: input.severity ?? "blocking",
+    status: "open",
+    title: input.title,
+    description: input.description,
+    created_by: actor,
+    created_at: nowIso(),
+    ...(input.notePath ? { note_path: input.notePath } : {}),
+  };
+  const blockers = await loadRoadmapBlockers(cwd, blocker.roadmap_id);
+  await writeRoadmapBlockers(cwd, blocker.roadmap_id, [...blockers, blocker]);
+  await appendBlockerEvent(cwd, "blocker.opened", actor, blocker, undefined, {
+    description: blocker.description,
+  });
+  return blocker;
+  });
+  });
+}
+
+function findBlocker(blockers: RoadmapBlocker[], blockerId: string): { blocker: RoadmapBlocker; index: number } {
+  const index = blockers.findIndex((candidate) => candidate.id === blockerId);
+  if (index === -1) throw new Error(`Unknown blocker: ${blockerId}`);
+  const blocker = blockers[index];
+  if (!blocker) throw new Error(`Unknown blocker: ${blockerId}`);
+  return { blocker, index };
+}
+
+export async function resolveBlocker(cwd: string, input: ResolveBlockerInput): Promise<RoadmapBlocker> {
+  return await withStoreWriteLock(cwd, async () => {
+  const loaded = await loadState(cwd);
+  const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
+  if (!roadmapId) throw new Error("resolve_blocker requires an active roadmap or roadmapId");
+  const actor = input.resolvedBy?.trim() || "user";
+
+  return await withStoreMutationRollback(cwd, roadmapId, async () => {
+  const blockers = await loadRoadmapBlockers(cwd, roadmapId);
+  const { blocker, index } = findBlocker(blockers, input.blockerId);
+  if (blocker.status !== "open") throw new Error(`Blocker is not open: ${input.blockerId}`);
+  const updated: RoadmapBlocker = {
+    ...blocker,
+    status: "resolved",
+    resolved_by: actor,
+    resolved_at: nowIso(),
+    resolution: input.resolution,
+  };
+  blockers[index] = updated;
+  await writeRoadmapBlockers(cwd, roadmapId, blockers);
+  await appendBlockerEvent(cwd, "blocker.resolved", actor, updated, blocker, {
+    resolution: input.resolution,
+  });
+  return updated;
+  });
+  });
+}
+
+export async function deferBlocker(cwd: string, input: DeferBlockerInput): Promise<RoadmapBlocker> {
+  return await withStoreWriteLock(cwd, async () => {
+  const loaded = await loadState(cwd);
+  const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
+  if (!roadmapId) throw new Error("defer_blocker requires an active roadmap or roadmapId");
+  const actor = input.deferredBy?.trim() || "user";
+
+  return await withStoreMutationRollback(cwd, roadmapId, async () => {
+  const blockers = await loadRoadmapBlockers(cwd, roadmapId);
+  const { blocker, index } = findBlocker(blockers, input.blockerId);
+  if (blocker.status !== "open") throw new Error(`Blocker is not open: ${input.blockerId}`);
+  const updated: RoadmapBlocker = {
+    ...blocker,
+    status: "deferred",
+    deferred_by: actor,
+    deferred_at: nowIso(),
+    defer_reason: input.deferReason,
+  };
+  blockers[index] = updated;
+  await writeRoadmapBlockers(cwd, roadmapId, blockers);
+  await appendBlockerEvent(cwd, "blocker.deferred", actor, updated, blocker, {
+    defer_reason: input.deferReason,
+  });
+  return updated;
+  });
+  });
+}
+
 export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
   return await withStoreWriteLock(cwd, async () => {
   assertSlug(input.roadmapId, "roadmapId");
@@ -1232,6 +1497,7 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
 
   await fs.mkdir(roadmapDir(cwd, input.roadmapId), { recursive: true });
   await writeRoadmapState(cwd, state);
+  await writeRoadmapBlockers(cwd, state.roadmap_id, []);
   await writeActive(cwd, { roadmap_id: input.roadmapId, updated_at: createdAt });
   await writeText(
     roadmapDocPath(cwd, input.roadmapId),
@@ -1915,22 +2181,32 @@ function updateWaveStatus(
   return updated;
 }
 
-async function appendNoteEntry(cwd: string, input: AppendNoteInput): Promise<{ filePath: string; scope: RoadmapEventScope }> {
+async function appendNoteEntry(
+  cwd: string,
+  input: AppendNoteInput,
+  blockerId?: string,
+): Promise<{ filePath: string; scope: RoadmapEventScope }> {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
   const milestoneId = input.milestoneId ?? loaded.active?.milestone_id;
   if (!roadmapId || !milestoneId) {
     throw new Error("append_note requires an active roadmap and milestone");
   }
+  const changeRequestId =
+    roadmapId === loaded.active?.roadmap_id && milestoneId === loaded.active?.milestone_id
+      ? loaded.active.change_request_id
+      : undefined;
 
   const metadata = {
     kind: input.kind,
     roadmap_id: roadmapId,
     milestone_id: milestoneId,
+    change_request_id: changeRequestId,
     wave_id: input.waveId,
     task_id: input.taskId,
     worker_id: input.workerId,
     blocking: input.blocking ?? false,
+    ...(blockerId ? { blocker_id: blockerId } : {}),
     status: input.status ?? "open",
     at: nowIso(),
   };
@@ -1938,8 +2214,10 @@ async function appendNoteEntry(cwd: string, input: AppendNoteInput): Promise<{ f
   const filePath = milestoneNotesPath(cwd, roadmapId, milestoneId);
   await appendText(filePath, entry);
   const scope: RoadmapEventScope = { roadmap_id: roadmapId, milestone_id: milestoneId };
+  if (changeRequestId) scope.change_request_id = changeRequestId;
   if (input.waveId) scope.wave_id = input.waveId;
   if (input.taskId) scope.task_id = input.taskId;
+  if (blockerId) scope.blocker_id = blockerId;
   return { filePath, scope };
 }
 
@@ -1950,7 +2228,34 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
   if (!roadmapId) throw new Error("append_note requires an active roadmap and milestone");
 
   return await withStoreMutationRollback(cwd, roadmapId, async () => {
-  const { filePath, scope } = await appendNoteEntry(cwd, input);
+  const blockerId = input.blocking ? roadmapBlockerId() : undefined;
+  const { filePath, scope } = await appendNoteEntry(cwd, input, blockerId);
+  if (blockerId) {
+    const actor = input.workerId?.trim() || input.kind;
+    const status = input.status ?? "open";
+    const blocker: RoadmapBlocker = {
+      id: blockerId,
+      roadmap_id: scope.roadmap_id,
+      ...(scope.milestone_id ? { milestone_id: scope.milestone_id } : {}),
+      ...(scope.change_request_id ? { change_request_id: scope.change_request_id } : {}),
+      ...(scope.task_id ? { task_id: scope.task_id } : {}),
+      ...(scope.wave_id ? { wave_id: scope.wave_id } : {}),
+      severity: "blocking",
+      status,
+      title: input.title,
+      description: input.body,
+      created_by: actor,
+      created_at: nowIso(),
+      note_path: filePath,
+      ...(status === "resolved" ? { resolved_by: actor, resolved_at: nowIso(), resolution: "Recorded as resolved." } : {}),
+      ...(status === "deferred" ? { deferred_by: actor, deferred_at: nowIso(), defer_reason: "Recorded as deferred." } : {}),
+    };
+    const blockers = await loadRoadmapBlockers(cwd, roadmapId);
+    await writeRoadmapBlockers(cwd, roadmapId, [...blockers, blocker]);
+    await appendBlockerEvent(cwd, "blocker.opened", actor, blocker, undefined, {
+      description: blocker.description,
+    });
+  }
   await appendRoadmapEvent(cwd, {
     actor: input.workerId?.trim() || input.kind,
     type: "note.appended",
@@ -1960,6 +2265,7 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
       kind: input.kind,
       blocking: input.blocking ?? false,
       status: input.status ?? "open",
+      ...(blockerId ? { blocker_id: blockerId } : {}),
     },
   });
   return filePath;

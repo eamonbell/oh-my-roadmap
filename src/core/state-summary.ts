@@ -3,6 +3,7 @@ import type {
   CloseoutEvidence,
   LoadedState,
   MilestonePlan,
+  RoadmapBlocker,
   RoadmapState,
   TaskPlan,
   WavePlan,
@@ -21,6 +22,7 @@ interface SectionReference {
 interface StateSummaryContext {
   roadmapSections?: ContextEntryResult[];
   planSections?: ContextEntryResult[];
+  blockers?: RoadmapBlocker[];
 }
 
 function sectionRefs(entries: ContextEntryResult[] | undefined): SectionReference[] {
@@ -128,6 +130,20 @@ function closeoutSummary(closeout: CloseoutEvidence | undefined): Record<string,
   };
 }
 
+function blockerSummary(blockers: RoadmapBlocker[] | undefined): Record<string, unknown>[] {
+  return (blockers ?? []).map((blocker) => ({
+    id: blocker.id,
+    status: blocker.status,
+    severity: blocker.severity,
+    title: blocker.title,
+    milestone_id: blocker.milestone_id,
+    change_request_id: blocker.change_request_id,
+    task_id: blocker.task_id,
+    wave_id: blocker.wave_id,
+    note_path: blocker.note_path,
+  }));
+}
+
 export function summarizeState(
   state: LoadedState,
   scope: StateReadScope,
@@ -139,6 +155,7 @@ export function summarizeState(
     milestone: planSummary(state.milestone),
     change_request: planSummary(state.changeRequest),
     closeout: closeoutSummary(state.closeout),
+    blockers: blockerSummary(context.blockers),
     context_sections: {
       roadmap: sectionRefs(context.roadmapSections),
       plan: sectionRefs(context.planSections),
@@ -152,6 +169,7 @@ export function summarizeState(
       return {
         active: state.active,
         roadmap: roadmapSummary(state.roadmap),
+        blockers: blockerSummary(context.blockers),
         context_sections: { roadmap: sectionRefs(context.roadmapSections) },
       };
     case "active_milestone":

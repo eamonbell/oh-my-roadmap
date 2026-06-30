@@ -115,6 +115,31 @@ export interface RoadmapState {
   bypass?: BypassState;
 }
 
+export type RoadmapBlockerSeverity = "blocking" | "non_blocking";
+export type RoadmapBlockerStatus = "open" | "resolved" | "deferred";
+
+export interface RoadmapBlocker {
+  id: string;
+  roadmap_id: string;
+  milestone_id?: string;
+  change_request_id?: string;
+  task_id?: string;
+  wave_id?: string;
+  severity: RoadmapBlockerSeverity;
+  status: RoadmapBlockerStatus;
+  title: string;
+  description: string;
+  created_by: string;
+  created_at: string;
+  resolved_by?: string;
+  resolved_at?: string;
+  resolution?: string;
+  deferred_by?: string;
+  deferred_at?: string;
+  defer_reason?: string;
+  note_path?: string;
+}
+
 export const IMPLEMENTATION_WORKER_NAMES = ["worker-light", "worker", "worker-heavy"] as const;
 
 export type ImplementationWorkerName = (typeof IMPLEMENTATION_WORKER_NAMES)[number];

@@ -4,16 +4,25 @@ import {
   amend,
   appendNote,
   createChangeRequest,
+  deferBlocker,
   initRoadmap,
+  listBlockers,
   listQualityGates,
+  loadRoadmapBlockers,
   loadState,
+  openBlocker,
+  resolveBlocker,
   transition,
   updateRoadmap,
   type AmendmentInput,
   type AppendNoteInput,
   type CreateChangeRequestInput,
+  type DeferBlockerInput,
   type InitRoadmapInput,
+  type ListBlockersInput,
   type ListQualityGatesInput,
+  type OpenBlockerInput,
+  type ResolveBlockerInput,
   type TransitionInput,
   type UpdateRoadmapInput,
 } from "../core/store";
@@ -137,6 +146,8 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   const contextArtifactSchema = z.enum(["notes", "decisions", "risks", "roadmap", "plan"]);
   const contextNoteKindSchema = z.enum(["worker", "review", "orchestrator", "decision", "issue"]);
   const contextNoteStatusSchema = z.enum(["open", "resolved", "deferred"]);
+  const blockerSeveritySchema = z.enum(["blocking", "non_blocking"]);
+  const blockerStatusSchema = z.enum(["open", "resolved", "deferred"]);
   const roadmapMilestoneSchema = z.object({
     id: z.string(),
     title: z.string(),
@@ -221,6 +232,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     async execute(_id, params, _signal, _update, ctx) {
       const scope = ((params as { scope?: StateReadScope }).scope ?? "compact") as StateReadScope;
       const state = await loadState(ctx.cwd);
+      const blockers = state.roadmap ? await loadRoadmapBlockers(ctx.cwd, state.roadmap.roadmap_id) : [];
       const roadmapSections = ["compact", "roadmap"].includes(scope)
         ? (await searchContext(ctx.cwd, { artifacts: ["roadmap"], maxResults: 50, snippetChars: 80 })).results
         : undefined;
@@ -230,6 +242,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
       const summary = summarizeState(state, scope, {
         ...(roadmapSections !== undefined ? { roadmapSections } : {}),
         ...(planSections !== undefined ? { planSections } : {}),
+        blockers,
       });
       return textResult(JSON.stringify(summary, null, 2), summary);
     },
@@ -395,6 +408,84 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     async execute(_id, params, _signal, _update, ctx) {
       const filePath = await appendNote(ctx.cwd, params as AppendNoteInput);
       return textResult(`Appended note to ${filePath}.`, { filePath });
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_open_blocker",
+    label: "Open Blocker",
+    description: "Open a canonical scoped roadmap blocker.",
+    approval: "write",
+    parameters: z.object({
+      roadmapId: z.string().optional(),
+      milestoneId: z.string().optional(),
+      changeRequestId: z.string().optional(),
+      taskId: z.string().optional(),
+      waveId: z.string().optional(),
+      severity: blockerSeveritySchema.default("blocking"),
+      title: z.string(),
+      description: z.string(),
+      createdBy: z.string().optional(),
+      notePath: z.string().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const blocker = await openBlocker(ctx.cwd, params as OpenBlockerInput);
+      return textResult(`Opened blocker ${blocker.id}.`, blocker);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_resolve_blocker",
+    label: "Resolve Blocker",
+    description: "Resolve an open canonical roadmap blocker.",
+    approval: "write",
+    parameters: z.object({
+      roadmapId: z.string().optional(),
+      blockerId: z.string(),
+      resolvedBy: z.string().optional(),
+      resolution: z.string(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const blocker = await resolveBlocker(ctx.cwd, params as ResolveBlockerInput);
+      return textResult(`Resolved blocker ${blocker.id}.`, blocker);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_defer_blocker",
+    label: "Defer Blocker",
+    description: "Defer an open canonical roadmap blocker.",
+    approval: "write",
+    parameters: z.object({
+      roadmapId: z.string().optional(),
+      blockerId: z.string(),
+      deferredBy: z.string().optional(),
+      deferReason: z.string(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const blocker = await deferBlocker(ctx.cwd, params as DeferBlockerInput);
+      return textResult(`Deferred blocker ${blocker.id}.`, blocker);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_list_blockers",
+    label: "List Blockers",
+    description: "List canonical roadmap blockers by scope, status, and severity.",
+    approval: "read",
+    parameters: z.object({
+      roadmapId: z.string().optional(),
+      milestoneId: z.string().optional(),
+      changeRequestId: z.string().optional(),
+      taskId: z.string().optional(),
+      waveId: z.string().optional(),
+      status: blockerStatusSchema.optional(),
+      severity: blockerSeveritySchema.optional(),
+      limit: z.number().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await listBlockers(ctx.cwd, params as ListBlockersInput);
+      return textResult(JSON.stringify(result, null, 2), result);
     },
   } as ToolDefinition);
 

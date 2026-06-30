@@ -65,11 +65,19 @@ describe("roadmap context tools", () => {
     const readTool = tools.get("roadmap_engineer_read_context");
     const readEventsTool = tools.get("roadmap_engineer_read_events");
     const listQualityGatesTool = tools.get("roadmap_engineer_list_quality_gates");
+    const openBlockerTool = tools.get("roadmap_engineer_open_blocker");
+    const resolveBlockerTool = tools.get("roadmap_engineer_resolve_blocker");
+    const deferBlockerTool = tools.get("roadmap_engineer_defer_blocker");
+    const listBlockersTool = tools.get("roadmap_engineer_list_blockers");
     expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
     expect(readEventsTool?.approval).toBe("read");
     expect(listQualityGatesTool?.approval).toBe("read");
+    expect(openBlockerTool?.approval).toBe("write");
+    expect(resolveBlockerTool?.approval).toBe("write");
+    expect(deferBlockerTool?.approval).toBe("write");
+    expect(listBlockersTool?.approval).toBe("read");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -143,6 +151,76 @@ describe("roadmap context tools", () => {
       expect(roadmapSearch?.details).toMatchObject({
         total: 1,
         returned: 1,
+      });
+
+      const opened = await openBlockerTool?.execute(
+        "open-blocker",
+        {
+          title: "Tool blocker",
+          description: "Tool callers need a canonical blocker.",
+          taskId: "t-tool",
+          createdBy: "tool-test",
+        },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      const openedId = (opened?.details as { id?: string } | undefined)?.id;
+      expect(opened?.details).toMatchObject({
+        severity: "blocking",
+        status: "open",
+        task_id: "t-tool",
+      });
+      expect(openedId).toMatch(/^blk_/);
+
+      const listed = await listBlockersTool?.execute(
+        "list-blockers",
+        { status: "open", severity: "blocking", taskId: "t-tool" },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(listed?.details).toMatchObject({
+        total: 1,
+        returned: 1,
+        blockers: [{ id: openedId }],
+      });
+
+      const resolved = await resolveBlockerTool?.execute(
+        "resolve-blocker",
+        { blockerId: openedId, resolution: "The tool blocker was resolved." },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(resolved?.details).toMatchObject({
+        id: openedId,
+        status: "resolved",
+        resolution: "The tool blocker was resolved.",
+      });
+
+      const deferred = await openBlockerTool?.execute(
+        "open-deferred-blocker",
+        {
+          title: "Deferred tool blocker",
+          description: "This blocker can wait.",
+        },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      const deferredId = (deferred?.details as { id?: string } | undefined)?.id;
+      const deferredResult = await deferBlockerTool?.execute(
+        "defer-blocker",
+        { blockerId: deferredId, deferReason: "Accepted follow-up risk." },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(deferredResult?.details).toMatchObject({
+        id: deferredId,
+        status: "deferred",
+        defer_reason: "Accepted follow-up risk.",
       });
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
