@@ -34,6 +34,22 @@ async function pathExists(relativePath: string): Promise<boolean> {
   }
 }
 
+function expectNoAskToolDirective(body: string): void {
+  expect(body).not.toContain("built-in `ask`");
+  expect(body).not.toContain("ask tool");
+  expect(body).not.toContain("use the built-in `ask`");
+}
+
+function expectWorkerDirectives(body: string): void {
+  expect(body).toContain("full access to the tools");
+  expect(body).toContain("Maintain hyperfocus on the assigned task");
+  expect(body).toContain("Prefer narrow lookups before reading files");
+  expect(body).toContain("Do not create documentation files unless the assignment explicitly asks for them");
+  expect(body).toContain("append a blocking note");
+  expect(body).toContain("yield/report blocked status to the orchestrator");
+  expectNoAskToolDirective(body);
+}
+
 describe("project init scaffold", () => {
   test("creates default config and local generated agents", async () => {
     const result = await initProject(cwd);
@@ -55,6 +71,7 @@ describe("project init scaffold", () => {
       description: "Use for scoped roadmap-engineer implementation tasks assigned by an implementation orchestrator.",
     });
     expect(workerLight.body).toContain("# Worker");
+    expectWorkerDirectives(workerLight.body);
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
     expect(worker.data).toMatchObject({
@@ -64,10 +81,12 @@ describe("project init scaffold", () => {
     expect(worker.data.model).toBeUndefined();
     expect(worker.data["thinking-level"]).toBeUndefined();
     expect(worker.body).toContain("# Worker");
+    expectWorkerDirectives(worker.body);
 
     const workerHeavy = parseMarkdownDocument(await readFile(".omp/agents/worker-heavy.md"));
     expect(workerHeavy.data.name).toBe("worker-heavy");
     expect(workerHeavy.body).toContain("Execute only your assigned task");
+    expectWorkerDirectives(workerHeavy.body);
 
     const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
     expect(reviewer.data).toMatchObject({
@@ -77,10 +96,16 @@ describe("project init scaffold", () => {
     expect(reviewer.data.model).toBeUndefined();
     expect(reviewer.data["thinking-level"]).toBeUndefined();
     expect(reviewer.body).toContain("# Reviewer");
+    expect(reviewer.body).toContain("append a blocking review note");
+    expect(reviewer.body).toContain("Do not request user input directly");
+    expectNoAskToolDirective(reviewer.body);
 
     const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
     expect(checker.data.name).toBe("wave-flow-checker");
     expect(checker.body).toContain("# Wave Flow Checker");
+    expect(checker.body).toContain("Do not request user input directly");
+    expect(checker.body).toContain("report `failed` with concrete findings");
+    expectNoAskToolDirective(checker.body);
     expect(await pathExists(".roadmaps/config.yml")).toBe(true);
   });
 
@@ -109,14 +134,18 @@ describe("project init scaffold", () => {
     expect(worker.data.model).toBe("pi/task");
     expect(worker.data["thinking-level"]).toBe("medium");
     expect(worker.body).toContain("Execute only your assigned task");
+    expectWorkerDirectives(worker.body);
 
     const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
     expect(reviewer.data.model).toBeUndefined();
     expect(reviewer.data["thinking-level"]).toBeUndefined();
     expect(reviewer.body).toContain("Review implementation against the approved plan");
+    expect(reviewer.body).toContain("append a blocking review note");
+    expectNoAskToolDirective(reviewer.body);
 
     const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
     expect(checker.body).toContain("flow contradictions");
+    expectNoAskToolDirective(checker.body);
   });
 
   test("renders configured model and thinking for all generated agents", async () => {

@@ -34,6 +34,16 @@ Command-specific workflow for /milestone:plan:
 - If the roadmap phase is complete and there are no remaining planned or blocked milestone outlines, stop and ask whether the user wants a post-implementation change request or a new roadmap.
 - After milestone planning is open, use roadmap_engineer_transition with operation create_milestone_plan for the selected roadmap milestone, then validate before asking for approval.`;
   }
+  if (name === "milestone:implement") {
+    return `
+Command-specific workflow for /milestone:implement:
+- Use the built-in \`ask\` tool from the orchestrator/main-agent role if implementation uncovers missing decisions, ownership gaps, unplanned files, acceptance ambiguity, cleanup scope questions, or approval needs.
+- Do not write or modify code yourself.
+- Dispatch only tasks in the active wave with non-overlapping ownership, using the exact agent named by each task's worker field.
+- If workers or reviewers append blocking notes, update task/progress state to blocked or resolving, ask the user from the orchestrator/main-agent role when needed, then redispatch or replan after resolution.
+- Require worker notes whose workerId matches each task's assigned worker before dispatching reviewer for per-wave review.
+- Never perform wave reviews yourself and never perform wave-flow checks during implementation.`;
+  }
   if (name !== "roadmap:reopen") return "";
   return `
 Command-specific workflow for /roadmap:reopen:

@@ -22,6 +22,7 @@ Rules:
 - Do not approve plans.
 - Do not perform implementation.
 - Do not perform wave implementation reviews.
+- Do not request user input directly; report `failed` with concrete findings when a planning decision is missing.
 - Read the active roadmap state, draft milestone/change plan, referenced code, and referenced documentation needed to evaluate flow.
 - Use `roadmap_engineer_search_context` before reading large context, and expand only relevant entries with `roadmap_engineer_read_context`.
 - Report either `passed` with a concise summary or `failed` with concrete findings that the planner can use to revise the draft plan.

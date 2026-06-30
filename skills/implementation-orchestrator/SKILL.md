@@ -23,6 +23,9 @@ Required process:
 - When workers start, update task statuses and call `update_implementation_progress` with step `workers_running` and the active task IDs.
 - Stop a worker if it needs unowned files/modules.
 - Require every worker to append a scoped note before yielding.
+- If a worker or reviewer appends a blocking note that needs a user decision, use the built-in `ask` tool from the orchestrator/main-agent role; subagents do not ask the user directly.
+- When worker or reviewer notes are blocked, update task status and implementation progress to the appropriate blocked/resolving state before asking or replanning.
+- After the user resolves a blocker, redispatch the task or record material replanning with `roadmap_engineer_amend`.
 - Before wave review, confirm each active task has a worker note whose `workerId` matches that task's `worker` value.
 - After matching worker notes are present, call `update_implementation_progress` with step `wave_review`, then dispatch `reviewer` for the active wave.
 - Never perform wave reviews yourself.

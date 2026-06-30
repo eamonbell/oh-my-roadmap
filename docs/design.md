@@ -60,6 +60,7 @@ Config and state are stored under `.roadmaps`:
 - Task dependencies must reference known tasks in earlier waves and must not form cycles.
 - Only one wave may be `running` or `reviewing`; later waves cannot start until earlier waves are complete.
 - A worker that needs an unowned file/module must stop and append a blocking note.
+- Workers and reviewers do not request user input directly; they append blocking notes for the orchestrator or main agent to resolve.
 - Implementation orchestrators dispatch tasks to the exact worker role recorded on each task and do not write code themselves.
 - Wave-flow checks run during planning before approval; implementation orchestrators do not perform wave-flow checks.
 - Review runs after every wave and at closeout.

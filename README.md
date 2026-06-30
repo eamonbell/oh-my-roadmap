@@ -12,7 +12,7 @@ discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> mileston
 
 Milestone and change implementation progress is tracked through explicit task status, wave status, and a persisted implementation progress cursor. Closeout requires structured evidence for every acceptance criterion and verification command; each item must be `passed` or `deferred` with a reason and approver.
 
-Planning prompts and role skills require agents to inspect relevant existing code and documentation, reference useful paths in artifacts, and use OMP's built-in `ask` tool to interview the user until material decisions and gaps are closed.
+Planning and orchestrator prompts require user-facing agents to inspect relevant existing code and documentation, reference useful paths in artifacts, and use OMP's built-in `ask` tool to interview the user until material decisions and gaps are closed. Subagents record blockers in notes and do not request user input directly.
 
 Agents should use compact `roadmap_engineer_read_state` scopes and `roadmap_engineer_search_context` to inspect active-roadmap notes, roadmap sections, plan sections, decisions, risks, issues, and review findings before reading large `.roadmaps` artifacts directly. Search returns compact snippets by default; agents can call `roadmap_engineer_read_context` with selected result IDs when full entry detail is needed.
 
