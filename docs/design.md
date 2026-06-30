@@ -16,10 +16,11 @@ discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> mileston
 
 ## Artifact Root
 
-State is stored under `.roadmaps`:
+Config and state are stored under `.roadmaps`:
 
 ```text
 .roadmaps/
+  config.yml
   active.yml
   <roadmap-id>/
     roadmap.md
@@ -42,7 +43,10 @@ State is stored under `.roadmaps`:
 - Phase transitions are strict; agents must record discovery, approve the roadmap, plan and approve a milestone, implement, review, close out, then complete in order.
 - Planning agents must use the built-in `ask` tool to interview the user until material decisions, tradeoffs, approvals, gaps, and open questions are closed.
 - Roadmap, milestone, change, review, and closeout artifacts should reference relevant existing code and documentation paths when those references help future agents understand the plan.
-- Roadmaps define phased intent, not full implementation details.
+- Roadmap approval requires a finalized generated `roadmap.md` from structured state.
+- Roadmaps define concrete milestone outlines, not full implementation plans.
+- Each roadmap milestone outline must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
+- An approved roadmap can be reopened only from `roadmap_approved`, before any milestone or change request is active. Reopening records a required reason, returns to `roadmap_draft`, marks the roadmap not finalized, preserves approval history, and requires regeneration plus explicit reapproval.
 - Milestone plans must be decision-complete before implementation starts.
 - Milestone plans must include exact verification commands, acceptance criteria, dependency analysis, execution waves, worker assignments, and exclusive file/module ownership.
 - Cleanup is approval-gated.

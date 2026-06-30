@@ -1,10 +1,12 @@
 import * as fs from "node:fs/promises";
 import { milestoneNotesPath } from "./paths";
+import { readText } from "./files";
 import { parseMarkdownDocument } from "./frontmatter";
-import { loadState } from "./store";
+import { roadmapDocPath } from "./paths";
+import { loadState, renderRoadmapMarkdown } from "./store";
 import { validateCloseoutEvidence } from "./closeout";
 import { issue, validateChangeRequest, validateMilestonePlan } from "./plan-validation";
-import { PHASES, type LoadedState, type ValidationIssue, type ValidationResult } from "./types";
+import { PHASES, type LoadedState, type RoadmapMilestoneOutline, type RoadmapState, type ValidationIssue, type ValidationResult } from "./types";
 
 const ROADMAP_APPROVED_INDEX = PHASES.indexOf("roadmap_approved");
 const MILESTONE_APPROVED_INDEX = PHASES.indexOf("milestone_approved");
@@ -15,6 +17,101 @@ function phaseIndex(phase: string): number {
 
 function hasApproval(approvals: { by: string; at: string; summary: string }[]): boolean {
   return approvals.length > 0;
+}
+
+function hasContent(value: string | undefined): boolean {
+  if (!value || value.trim() === "") return false;
+  return !/\b(TBD|TODO)\b/i.test(value);
+}
+
+function validateContent(value: string | undefined, code: string, message: string, errors: ValidationIssue[]): void {
+  if (!hasContent(value)) errors.push(issue(code, message));
+}
+
+function validateContentList(
+  values: string[] | undefined,
+  code: string,
+  message: string,
+  errors: ValidationIssue[],
+  allowEmpty = false,
+): void {
+  if (!Array.isArray(values) || (!allowEmpty && values.length === 0)) {
+    errors.push(issue(code, message));
+    return;
+  }
+  for (const value of values) {
+    if (!hasContent(value)) {
+      errors.push(issue(code, `${message}: ${value || "(empty)"}`));
+      return;
+    }
+  }
+}
+
+async function validateGeneratedRoadmapDoc(
+  cwd: string,
+  roadmap: RoadmapState,
+  errors: ValidationIssue[],
+): Promise<void> {
+  if (!roadmap.roadmap_finalized) return;
+  try {
+    const actual = await readText(roadmapDocPath(cwd, roadmap.roadmap_id));
+    const expected = renderRoadmapMarkdown(roadmap);
+    if (actual !== expected) {
+      errors.push(issue("roadmap.doc.stale", "roadmap.md must match the generated roadmap state"));
+    }
+  } catch (error) {
+    errors.push(issue("roadmap.doc.missing", error instanceof Error ? error.message : String(error)));
+  }
+}
+
+function validateMilestoneOutline(
+  milestone: RoadmapMilestoneOutline,
+  milestoneIds: Set<string>,
+  errors: ValidationIssue[],
+): void {
+  validateContent(milestone.id, "roadmap.milestone.id.missing", "Roadmap milestone ID is required", errors);
+  validateContent(milestone.title, "roadmap.milestone.title.missing", `Roadmap milestone ${milestone.id} requires a title`, errors);
+  validateContent(milestone.goal, "roadmap.milestone.goal.missing", `Roadmap milestone ${milestone.id} requires a goal`, errors);
+  validateContentList(milestone.scope, "roadmap.milestone.scope.missing", `Roadmap milestone ${milestone.id} requires concrete scope`, errors);
+  validateContentList(milestone.non_goals, "roadmap.milestone.non_goals.missing", `Roadmap milestone ${milestone.id} requires concrete non-goals`, errors);
+  validateContentList(milestone.evidence, "roadmap.milestone.evidence.missing", `Roadmap milestone ${milestone.id} requires concrete evidence`, errors);
+  validateContentList(milestone.dependencies, "roadmap.milestone.dependencies.invalid", `Roadmap milestone ${milestone.id} has invalid dependencies`, errors, true);
+  validateContentList(milestone.risks, "roadmap.milestone.risks.missing", `Roadmap milestone ${milestone.id} requires concrete risks`, errors);
+  validateContentList(milestone.acceptance_intent, "roadmap.milestone.acceptance.missing", `Roadmap milestone ${milestone.id} requires acceptance intent`, errors);
+  validateContentList(milestone.verification_intent, "roadmap.milestone.verification.missing", `Roadmap milestone ${milestone.id} requires verification intent`, errors);
+
+  for (const dependency of milestone.dependencies ?? []) {
+    if (!milestoneIds.has(dependency)) {
+      errors.push(issue("roadmap.milestone.dependency.unknown", `Roadmap milestone ${milestone.id} depends on unknown milestone ${dependency}`));
+    }
+  }
+}
+
+async function validateRoadmapOutline(cwd: string, roadmap: RoadmapState, errors: ValidationIssue[]): Promise<void> {
+  if (!roadmap.roadmap_finalized) {
+    errors.push(issue("roadmap.finalized.missing", "Roadmap must be finalized with roadmap_engineer_update_roadmap before approval"));
+  }
+  validateContent(roadmap.goal, "roadmap.goal.missing", "Roadmap requires a concrete goal", errors);
+  validateContentList(roadmap.success_criteria, "roadmap.success.missing", "Roadmap requires concrete success criteria", errors);
+  validateContentList(roadmap.constraints, "roadmap.constraints.missing", "Roadmap requires concrete constraints", errors);
+  validateContentList(roadmap.non_goals, "roadmap.non_goals.missing", "Roadmap requires concrete non-goals", errors);
+  validateContentList(roadmap.context, "roadmap.context.missing", "Roadmap requires concrete context", errors);
+  validateContentList(roadmap.evidence, "roadmap.evidence.missing", "Roadmap requires concrete evidence", errors);
+  validateContentList(roadmap.risks, "roadmap.risks.missing", "Roadmap requires concrete risks", errors);
+
+  if (!Array.isArray(roadmap.milestones) || roadmap.milestones.length === 0) {
+    errors.push(issue("roadmap.milestones.missing", "Roadmap requires at least one concrete milestone outline"));
+  }
+
+  const milestoneIds = new Set<string>();
+  for (const milestone of roadmap.milestones ?? []) {
+    if (milestoneIds.has(milestone.id)) {
+      errors.push(issue("milestone.duplicate", `Duplicate milestone id: ${milestone.id}`));
+    }
+    milestoneIds.add(milestone.id);
+  }
+  for (const milestone of roadmap.milestones ?? []) validateMilestoneOutline(milestone, milestoneIds, errors);
+  await validateGeneratedRoadmapDoc(cwd, roadmap, errors);
 }
 
 async function findOpenBlockingNotes(
@@ -86,13 +183,7 @@ export async function validateRoadmapState(cwd: string): Promise<ValidationResul
     }
   }
 
-  const milestoneIds = new Set<string>();
-  for (const milestone of roadmap.milestones) {
-    if (milestoneIds.has(milestone.id)) {
-      errors.push(issue("milestone.duplicate", `Duplicate milestone id: ${milestone.id}`));
-    }
-    milestoneIds.add(milestone.id);
-  }
+  await validateRoadmapOutline(cwd, roadmap, errors);
 
   if (state.active.milestone_id && !state.milestone) {
     errors.push(issue("milestone.missing", "Active pointer references a missing milestone"));

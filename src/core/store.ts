@@ -18,6 +18,7 @@ import {
   appendText,
   fileExists,
   readMarkdownData,
+  readText,
   readYamlFile,
   writeMarkdownData,
   writeText,
@@ -37,6 +38,7 @@ import type {
   LoadedState,
   MilestonePlan,
   Phase,
+  RoadmapMilestoneOutline,
   RoadmapState,
   TaskPlan,
   WavePlan,
@@ -57,6 +59,17 @@ export interface CreateMilestonePlanInput {
   tasks: MilestonePlan["tasks"];
   waves: MilestonePlan["waves"];
   openQuestions?: string[];
+}
+
+export interface UpdateRoadmapInput {
+  goal: string;
+  successCriteria: string[];
+  constraints: string[];
+  nonGoals: string[];
+  context: string[];
+  evidence: string[];
+  risks: string[];
+  milestones: RoadmapMilestoneOutline[];
 }
 
 export interface AppendNoteInput {
@@ -86,6 +99,7 @@ export interface TransitionInput {
   operation:
     | "record_discovery"
     | "approve_roadmap"
+    | "reopen_roadmap"
     | "start_milestone_planning"
     | "create_milestone_plan"
     | "approve_milestone"
@@ -131,6 +145,153 @@ export function assertSlug(slug: string, field: string): void {
   }
 }
 
+function list(items: string[]): string {
+  return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- (none)";
+}
+
+function renderMilestone(milestone: RoadmapMilestoneOutline): string {
+  return [
+    `### ${milestone.id} - ${milestone.title}`,
+    ``,
+    `Status: ${milestone.status}`,
+    ``,
+    `Goal: ${milestone.goal}`,
+    ``,
+    `Scope:`,
+    list(milestone.scope),
+    ``,
+    `Non-Goals:`,
+    list(milestone.non_goals),
+    ``,
+    `Evidence:`,
+    list(milestone.evidence),
+    ``,
+    `Dependencies:`,
+    list(milestone.dependencies),
+    ``,
+    `Risks:`,
+    list(milestone.risks),
+    ``,
+    `Acceptance Intent:`,
+    list(milestone.acceptance_intent),
+    ``,
+    `Verification Intent:`,
+    list(milestone.verification_intent),
+  ].join("\n");
+}
+
+export function renderRoadmapMarkdown(state: RoadmapState): string {
+  const body = [
+    `# ${state.title}`,
+    ``,
+    `## Goal`,
+    ``,
+    state.goal || "(not finalized)",
+    ``,
+    `## Success Criteria`,
+    ``,
+    list(state.success_criteria ?? []),
+    ``,
+    `## Constraints`,
+    ``,
+    list(state.constraints ?? []),
+    ``,
+    `## Non-Goals`,
+    ``,
+    list(state.non_goals ?? []),
+    ``,
+    `## Context`,
+    ``,
+    list(state.context ?? []),
+    ``,
+    `## Evidence`,
+    ``,
+    list(state.evidence ?? []),
+    ``,
+    `## Discovery Findings`,
+    ``,
+    list(state.discovery.findings ?? []),
+    ``,
+    `## Milestones`,
+    ``,
+    (state.milestones ?? []).length > 0 ? state.milestones.map(renderMilestone).join("\n\n") : "- (none)",
+    ``,
+    `## Risks`,
+    ``,
+    list(state.risks ?? []),
+    ``,
+    `## Open Questions`,
+    ``,
+    list(state.open_questions ?? []),
+  ].join("\n");
+
+  return serializeMarkdownDocument(
+    {
+      roadmap_id: state.roadmap_id,
+      title: state.title,
+      status: state.roadmap_finalized ? "finalized" : "draft",
+    },
+    body,
+  );
+}
+
+function hasContent(value: string | undefined): boolean {
+  if (!value || value.trim() === "") return false;
+  return !/\b(TBD|TODO)\b/i.test(value);
+}
+
+function hasContentItems(items: string[] | undefined): boolean {
+  return Array.isArray(items) && items.length > 0 && items.every(hasContent);
+}
+
+async function assertRoadmapReadyForApproval(cwd: string, roadmap: RoadmapState): Promise<void> {
+  if (!roadmap.roadmap_finalized) throw new Error("Roadmap approval requires a finalized roadmap");
+  if (!hasContent(roadmap.goal)) throw new Error("Roadmap approval requires a concrete goal");
+  for (const [label, items] of [
+    ["success criteria", roadmap.success_criteria],
+    ["constraints", roadmap.constraints],
+    ["non-goals", roadmap.non_goals],
+    ["context", roadmap.context],
+    ["evidence", roadmap.evidence],
+    ["risks", roadmap.risks],
+  ] as const) {
+    if (!hasContentItems(items)) throw new Error(`Roadmap approval requires concrete ${label}`);
+  }
+  if (!Array.isArray(roadmap.milestones) || roadmap.milestones.length === 0) {
+    throw new Error("Roadmap approval requires at least one concrete milestone");
+  }
+
+  const milestoneIds = new Set<string>();
+  for (const milestone of roadmap.milestones) {
+    if (milestoneIds.has(milestone.id)) throw new Error(`Duplicate milestone id: ${milestone.id}`);
+    milestoneIds.add(milestone.id);
+    if (!hasContent(milestone.id)) throw new Error("Roadmap milestone requires an id");
+    if (!hasContent(milestone.title)) throw new Error(`Roadmap milestone ${milestone.id} requires a title`);
+    if (!hasContent(milestone.goal)) throw new Error(`Roadmap milestone ${milestone.id} requires a goal`);
+    for (const [label, items] of [
+      ["scope", milestone.scope],
+      ["non-goals", milestone.non_goals],
+      ["evidence", milestone.evidence],
+      ["risks", milestone.risks],
+      ["acceptance intent", milestone.acceptance_intent],
+      ["verification intent", milestone.verification_intent],
+    ] as const) {
+      if (!hasContentItems(items)) throw new Error(`Roadmap milestone ${milestone.id} requires concrete ${label}`);
+    }
+  }
+  for (const milestone of roadmap.milestones) {
+    for (const dependency of milestone.dependencies ?? []) {
+      if (!milestoneIds.has(dependency)) {
+        throw new Error(`Roadmap milestone ${milestone.id} depends on unknown milestone ${dependency}`);
+      }
+    }
+  }
+
+  const expected = renderRoadmapMarkdown(roadmap);
+  const actual = await readText(roadmapDocPath(cwd, roadmap.roadmap_id));
+  if (actual !== expected) throw new Error("Roadmap approval requires generated roadmap.md to match state");
+}
+
 export async function loadActive(cwd: string): Promise<ActivePointer | undefined> {
   const filePath = activePointerPath(cwd);
   if (!(await fileExists(filePath))) return undefined;
@@ -148,6 +309,9 @@ export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<
 export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
   state.updated_at = nowIso();
   await writeYamlFile(roadmapStatePath(cwd, state.roadmap_id), state);
+  if (state.roadmap_finalized) {
+    await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
+  }
 }
 
 export async function loadMilestonePlan(
@@ -221,6 +385,14 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
     phase: "discovery",
     created_at: createdAt,
     updated_at: createdAt,
+    roadmap_finalized: false,
+    goal: input.summary ?? "",
+    success_criteria: [],
+    constraints: [],
+    non_goals: [],
+    context: [],
+    evidence: [],
+    risks: [],
     discovery: {
       recorded: input.discovery?.recorded ?? false,
       external_research_required: input.discovery?.external_research_required ?? false,
@@ -237,14 +409,48 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
   await writeActive(cwd, { roadmap_id: input.roadmapId, updated_at: createdAt });
   await writeText(
     roadmapDocPath(cwd, input.roadmapId),
-    serializeMarkdownDocument(
-      { roadmap_id: input.roadmapId, title: input.title, status: "draft" },
-      `# ${input.title}\n\n${input.summary ?? "Roadmap intent, milestones, risks, and success criteria are drafted here."}\n`,
-    ),
+    renderRoadmapMarkdown(state),
   );
   await writeText(decisionsPath(cwd, input.roadmapId), "# Decision Register\n");
   await writeText(risksPath(cwd, input.roadmapId), "# Risk Register\n");
   return state;
+}
+
+export async function updateRoadmap(
+  cwd: string,
+  input: UpdateRoadmapInput,
+): Promise<RoadmapState> {
+  const loaded = await loadState(cwd);
+  if (!loaded.active || !loaded.roadmap) {
+    throw new Error("No active roadmap. Run /roadmap:new first.");
+  }
+  if (!["discovery", "roadmap_draft"].includes(loaded.roadmap.phase)) {
+    throw new Error(`update_roadmap requires phase discovery or roadmap_draft; current phase is ${loaded.roadmap.phase}`);
+  }
+
+  for (const milestone of input.milestones) {
+    assertSlug(milestone.id, "milestone.id");
+  }
+
+  const state: RoadmapState = {
+    ...loaded.roadmap,
+    roadmap_finalized: true,
+    goal: input.goal,
+    success_criteria: input.successCriteria,
+    constraints: input.constraints,
+    non_goals: input.nonGoals,
+    context: input.context,
+    evidence: input.evidence,
+    risks: input.risks,
+    milestones: input.milestones.map((milestone) => ({
+      ...milestone,
+      status: milestone.status ?? "planned",
+    })),
+  };
+
+  await writeRoadmapState(cwd, state);
+  await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
+  return await loadRoadmapState(cwd, state.roadmap_id);
 }
 
 export async function createMilestonePlan(
@@ -253,8 +459,12 @@ export async function createMilestonePlan(
   input: CreateMilestonePlanInput,
 ): Promise<MilestonePlan> {
   assertSlug(input.milestoneId, "milestoneId");
-  if (roadmap.milestones.some((milestone) => milestone.id === input.milestoneId)) {
-    throw new Error(`Milestone already exists: ${input.milestoneId}`);
+  const roadmapMilestone = roadmap.milestones.find((milestone) => milestone.id === input.milestoneId);
+  if (!roadmapMilestone) {
+    throw new Error(`Milestone is not defined in roadmap: ${input.milestoneId}`);
+  }
+  if (roadmapMilestone.status !== "planned" && roadmapMilestone.status !== "blocked") {
+    throw new Error(`Milestone already has a plan: ${input.milestoneId}`);
   }
 
   const plan: MilestonePlan = {
@@ -282,11 +492,8 @@ export async function createMilestonePlan(
     ),
   );
 
-  roadmap.milestones.push({
-    id: input.milestoneId,
-    title: input.title,
-    status: "milestone_planning",
-  });
+  roadmapMilestone.title = input.title;
+  roadmapMilestone.status = "milestone_planning";
   roadmap.active_milestone_id = input.milestoneId;
   roadmap.phase = "milestone_planning";
   await writeRoadmapState(cwd, roadmap);
@@ -401,9 +608,27 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       if (roadmap.open_questions.length > 0) {
         throw new Error("Roadmap approval requires all material questions to be resolved");
       }
+      await assertRoadmapReadyForApproval(cwd, roadmap);
       roadmap.phase = "roadmap_approved";
       roadmap.approvals.push(approval(input.approver, input.summary));
       break;
+    case "reopen_roadmap": {
+      requirePhase(roadmap.phase, "roadmap_approved", input.operation);
+      const reason = input.reason?.trim();
+      if (!reason) throw new Error("reopen_roadmap requires a reason");
+      if (activeMilestoneId) throw new Error("reopen_roadmap requires no active milestone");
+      if (loaded.active.change_request_id || roadmap.active_change_request_id) {
+        throw new Error("reopen_roadmap requires no active change request");
+      }
+
+      roadmap.phase = "roadmap_draft";
+      roadmap.roadmap_finalized = false;
+      await appendText(
+        decisionsPath(cwd, roadmap.roadmap_id),
+        `\n## Roadmap Reopened\n\n- Reason: ${reason}\n- At: ${nowIso()}\n\nRoadmap reopened for pre-milestone changes. Regenerate the structured roadmap and require reapproval before milestone planning.\n`,
+      );
+      break;
+    }
     case "start_milestone_planning":
       requirePhase(roadmap.phase, "roadmap_approved", input.operation);
       roadmap.phase = "milestone_planning";
