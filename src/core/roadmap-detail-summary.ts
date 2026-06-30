@@ -633,7 +633,10 @@ ${next.description}`,
 
 function waveDispatchControl(summary: ActiveRoadmapDetailSummary): RoadmapDetailControl {
   const input = targetInput(summary);
-  const enabled = !!summary.activeExecution?.activeWave && summary.activeExecution.progressStep !== "wave_review";
+  const enabled = !!summary.activeExecution?.activeWave &&
+    summary.activeExecution.progressStep === "not_started" &&
+    summary.gate.status === "open" &&
+    summary.canonicalBlockers.counts.open === 0;
   return {
     key: "d",
     label: "Prepare wave dispatch",
