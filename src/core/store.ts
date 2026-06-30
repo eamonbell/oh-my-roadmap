@@ -1489,6 +1489,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
 
       roadmap.phase = "roadmap_draft";
       roadmap.roadmap_finalized = false;
+      roadmap.roadmap_revision += 1;
       roadmap.roadmap_content_hash = roadmapContentHash(roadmap);
       roadmap.roadmap_milestone_check = pendingRoadmapMilestoneCheck(
         roadmap.roadmap_revision,
@@ -1498,6 +1499,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         decisionsPath(cwd, roadmap.roadmap_id),
         `\n## Roadmap Reopened\n\n- Reason: ${reason}\n- At: ${nowIso()}\n\nRoadmap reopened for pre-milestone changes. Regenerate the structured roadmap and require reapproval before milestone planning.\n`,
       );
+      await writeText(roadmapDocPath(cwd, roadmap.roadmap_id), renderRoadmapMarkdown(roadmap));
       break;
     }
     case "start_milestone_planning":
