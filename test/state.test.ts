@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { readRoadmapEvents } from "../src/core/events";
 import { shouldBlockToolCall } from "../src/core/gate";
-import { renderReport } from "../src/core/report";
+import { applyNextAction, nextActionPlan, renderReport } from "../src/core/report";
 import {
   appendNote,
   createChangeRequest,
@@ -347,6 +347,54 @@ describe("roadmap state lifecycle", () => {
     validation = await validateRoadmapState(cwd);
     expect(validation.valid).toBe(true);
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+  });
+
+  test("builds structured next actions for roadmap quality gate states", async () => {
+    await initRoadmap(cwd, { roadmapId: "next-action-gates", title: "Next Action Gates" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput());
+
+    let action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Run roadmap milestone checker",
+      status: "agent_required",
+      safe_to_apply: false,
+      scope: { roadmap_id: "next-action-gates" },
+    });
+    expect(action.id).toContain("milestone-check:pending");
+
+    await transition(cwd, {
+      operation: "record_roadmap_milestone_check",
+      roadmapMilestoneCheck: {
+        status: "failed",
+        checkedBy: "roadmap-milestone-checker",
+        summary: "Milestones conflict.",
+        findings: ["m01-core needs a clearer exit criterion."],
+      },
+    });
+    action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Revise roadmap after failed checker",
+      status: "needs_input",
+      missing_inputs: ["revised roadmap"],
+    });
+    expect(action.description).toContain("m01-core needs a clearer exit criterion");
+
+    await recordPassedRoadmapMilestoneCheck();
+    await updateRoadmap(cwd, roadmapInput({
+      successCriteria: ["Roadmap approval requires concrete milestones.", "Checker must be current."],
+    }));
+    action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Rerun roadmap milestone checker",
+      status: "stale",
+      safe_to_apply: false,
+    });
+    expect(action.description).toContain("checked revision");
+    await expect(applyNextAction(cwd, action.id)).rejects.toThrow("action status is stale");
   });
 
   test("requires current passed roadmap-milestone check to record its event id", async () => {
@@ -722,6 +770,132 @@ describe("roadmap state lifecycle", () => {
     validation = await validateRoadmapState(cwd);
     expect(validation.valid).toBe(true);
     await transition(cwd, { operation: "approve_milestone", approver: "user" });
+  });
+
+  test("builds structured next actions for wave-flow gate and blockers", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+
+    let action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Run wave-flow checker",
+      status: "agent_required",
+      safe_to_apply: false,
+      scope: { roadmap_id: "complex-refactor", milestone_id: "m01-core" },
+    });
+
+    await transition(cwd, {
+      operation: "record_wave_flow_check",
+      waveFlowCheck: {
+        status: "failed",
+        checkedBy: "wave-flow-checker",
+        summary: "Wave order is wrong.",
+        findings: ["t02-report cannot run before t01-state."],
+      },
+    });
+    action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Revise plan after failed wave-flow check",
+      status: "needs_input",
+      missing_inputs: ["revised milestone plan"],
+    });
+    expect(action.description).toContain("t02-report cannot run before t01-state");
+
+    await openBlocker(cwd, {
+      title: "Worker unavailable",
+      description: "The assigned worker needs a replacement.",
+      waveId: "w01",
+      severity: "blocking",
+    });
+    action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Resolve blocking blockers",
+      status: "blocked",
+      safe_to_apply: false,
+      scope: { roadmap_id: "complex-refactor", milestone_id: "m01-core" },
+    });
+    expect(action.blockers[0]).toContain("Worker unavailable");
+    await expect(applyNextAction(cwd, action.id)).rejects.toThrow("action status is blocked");
+  });
+
+  test("applies only current safe next actions", async () => {
+    await approvedRoadmap();
+
+    let action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Start milestone planning",
+      status: "ready",
+      safe_to_apply: true,
+      tool: { name: "roadmap_engineer_transition", input: { operation: "start_milestone_planning" } },
+    });
+    await expect(applyNextAction(cwd, "wrong-action")).rejects.toThrow("current next action is");
+    await applyNextAction(cwd, action.id);
+    expect((await loadState(cwd)).roadmap?.phase).toBe("milestone_planning");
+
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+    await recordPassedWaveFlowCheck();
+    action = await nextActionPlan(cwd);
+    expect(action.status).toBe("approval_required");
+    await expect(applyNextAction(cwd, action.id)).rejects.toThrow("action status is approval_required");
+
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Start implementation",
+      status: "ready",
+      safe_to_apply: true,
+      tool: { input: { operation: "start_implementation" } },
+    });
+    await applyNextAction(cwd, action.id);
+    expect((await loadState(cwd)).roadmap?.phase).toBe("implementing");
+  });
+
+  test("applies safe progress advancement when the next wave is unambiguous", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await transition(cwd, { operation: "update_wave_status", waveId: "w01", waveStatus: "complete" });
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: { activeWaveId: "w01", step: "ready_for_next_wave", activeTaskIds: [] },
+    });
+
+    let action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Advance to next wave",
+      status: "ready",
+      safe_to_apply: true,
+      scope: { wave_id: "w02" },
+      tool: {
+        input: {
+          operation: "update_implementation_progress",
+          progress: { activeWaveId: "w02", step: "not_started", activeTaskIds: [] },
+        },
+      },
+    });
+    await applyNextAction(cwd, action.id);
+    expect((await loadState(cwd)).milestone?.progress).toMatchObject({
+      active_wave_id: "w02",
+      step: "not_started",
+      active_task_ids: [],
+    });
+
+    await transition(cwd, { operation: "update_wave_status", waveId: "w02", waveStatus: "complete" });
+    await transition(cwd, {
+      operation: "update_implementation_progress",
+      progress: { activeWaveId: "w02", step: "ready_for_next_wave", activeTaskIds: [] },
+    });
+    action = await nextActionPlan(cwd);
+    expect(action).toMatchObject({
+      label: "Mark closeout ready",
+      status: "ready",
+      safe_to_apply: true,
+    });
+    await applyNextAction(cwd, action.id);
+    expect((await loadState(cwd)).milestone?.progress).toMatchObject({
+      step: "closeout_ready",
+      active_task_ids: [],
+    });
   });
 
   test("rejects invalid implementation worker roles", async () => {

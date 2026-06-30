@@ -33,7 +33,7 @@ import {
   type ReadContextInput,
   type SearchContextInput,
 } from "../core/context";
-import { nextAction, renderReport } from "../core/report";
+import { applyNextAction, nextActionPlan, renderReport } from "../core/report";
 import { summarizeState, type StateReadScope } from "../core/state-summary";
 import { validateRoadmapState } from "../core/validation";
 
@@ -508,8 +508,23 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     approval: "read",
     parameters: z.object({}),
     async execute(_id, _params, _signal, _update, ctx) {
-      const action = await nextAction(ctx.cwd);
-      return textResult(action, { action });
+      const plan = await nextActionPlan(ctx.cwd);
+      const action = plan.description;
+      return textResult(action, { action, plan });
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_apply_next_action",
+    label: "Apply Next Roadmap Action",
+    description: "Apply the current safe, unambiguous next action by id.",
+    approval: "write",
+    parameters: z.object({
+      actionId: z.string(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await applyNextAction(ctx.cwd, (params as { actionId: string }).actionId);
+      return textResult(`Applied next action: ${result.plan.label}.`, result);
     },
   } as ToolDefinition);
 
