@@ -36,6 +36,15 @@ import {
 import { applyNextAction, nextActionPlan, renderReport } from "../core/report";
 import { summarizeState, type StateReadScope } from "../core/state-summary";
 import { validateRoadmapState } from "../core/validation";
+import {
+  prepareWaveDispatch,
+  prepareWaveReview,
+  recordWaveResult,
+  recordWaveReview,
+  type RecordWaveResultInput,
+  type RecordWaveReviewInput,
+  type WaveOrchestrationTargetInput,
+} from "../core/wave-orchestration";
 
 function textResult<T>(text: string, details: T): AgentToolResult<T> {
   return { content: [{ type: "text", text }], details };
@@ -148,6 +157,11 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   const contextNoteStatusSchema = z.enum(["open", "resolved", "deferred"]);
   const blockerSeveritySchema = z.enum(["blocking", "non_blocking"]);
   const blockerStatusSchema = z.enum(["open", "resolved", "deferred"]);
+  const waveOrchestrationTargetSchema = z.object({
+    roadmapId: z.string().optional(),
+    milestoneId: z.string().optional(),
+    changeRequestId: z.string().optional(),
+  });
   const roadmapMilestoneSchema = z.object({
     id: z.string(),
     title: z.string(),
@@ -486,6 +500,70 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     async execute(_id, params, _signal, _update, ctx) {
       const result = await listBlockers(ctx.cwd, params as ListBlockersInput);
       return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_prepare_wave_dispatch",
+    label: "Prepare Wave Dispatch",
+    description: "Validate the active implementation wave and return exact worker assignment packages.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema,
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await prepareWaveDispatch(ctx.cwd, params as WaveOrchestrationTargetInput);
+      return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_record_wave_result",
+    label: "Record Wave Result",
+    description: "Record an active-wave worker result, update task runtime state, and open blockers when needed.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema.extend({
+      taskId: z.string(),
+      status: z.enum(["completed", "failed", "blocked"]),
+      summary: z.string().optional(),
+      notes: z.array(z.string()).optional(),
+      blocker: z
+        .object({
+          title: z.string().optional(),
+          description: z.string().optional(),
+        })
+        .optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await recordWaveResult(ctx.cwd, params as RecordWaveResultInput);
+      return textResult(`Recorded wave task ${result.task_id} as ${result.status}.`, result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_prepare_wave_review",
+    label: "Prepare Wave Review",
+    description: "Validate active-wave completion and return the exact reviewer package.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema,
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await prepareWaveReview(ctx.cwd, params as WaveOrchestrationTargetInput);
+      return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_record_wave_review",
+    label: "Record Wave Review",
+    description: "Record reviewer pass/fail, mark the active wave complete or blocked, and open review blockers.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema.extend({
+      status: z.enum(["passed", "failed"]),
+      summary: z.string(),
+      findings: z.array(z.string()).optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const input = params as RecordWaveReviewInput;
+      const result = await recordWaveReview(ctx.cwd, input);
+      return textResult(`Recorded wave review as ${input.status}.`, result);
     },
   } as ToolDefinition);
 

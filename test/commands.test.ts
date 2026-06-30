@@ -146,7 +146,12 @@ describe("roadmap commands", () => {
     const sent = sentMessages[0];
     if (!sent) throw new Error("Expected a sent message");
     expect(sent.content).toContain("Use the built-in `ask` tool from the orchestrator/main-agent role");
-    expect(sent.content).toContain("If workers or reviewers append blocking notes");
+    expect(sent.content).toContain("roadmap_engineer_prepare_wave_dispatch");
+    expect(sent.content).toContain("roadmap_engineer_record_wave_result");
+    expect(sent.content).toContain("roadmap_engineer_prepare_wave_review");
+    expect(sent.content).toContain("roadmap_engineer_record_wave_review");
+    expect(sent.content).toContain("built-in task/subagent mechanism");
+    expect(sent.content).toContain("If workers or reviewers report blockers");
     expect(sent.content).toContain("ask the user from the orchestrator/main-agent role");
     expect(sent.content).toContain("Do not write or modify code yourself");
     expect(sent.content).toContain("Never perform wave reviews yourself");
