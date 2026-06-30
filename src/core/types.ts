@@ -78,16 +78,35 @@ export interface MilestoneSummary {
   status: Phase | "planned" | "blocked";
 }
 
+export interface RoadmapMilestoneOutline extends MilestoneSummary {
+  goal: string;
+  scope: string[];
+  non_goals: string[];
+  evidence: string[];
+  dependencies: string[];
+  risks: string[];
+  acceptance_intent: string[];
+  verification_intent: string[];
+}
+
 export interface RoadmapState {
   roadmap_id: string;
   title: string;
   phase: Phase;
   created_at: string;
   updated_at: string;
+  roadmap_finalized: boolean;
+  goal: string;
+  success_criteria: string[];
+  constraints: string[];
+  non_goals: string[];
+  context: string[];
+  evidence: string[];
+  risks: string[];
   discovery: DiscoveryState;
   approvals: Approval[];
   open_questions: string[];
-  milestones: MilestoneSummary[];
+  milestones: RoadmapMilestoneOutline[];
   active_milestone_id?: string;
   active_change_request_id?: string;
   bypass?: BypassState;

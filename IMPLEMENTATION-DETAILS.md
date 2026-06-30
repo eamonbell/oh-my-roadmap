@@ -40,10 +40,11 @@ The extension registers tools and slash commands from `src/main.ts`. The direct 
 
 ## Canonical Artifact Layout
 
-The state root is `.roadmaps`.
+The config and state root is `.roadmaps`.
 
 ```text
 .roadmaps/
+  config.yml
   active.yml
   <roadmap-id>/
     roadmap.md
@@ -66,7 +67,7 @@ The state root is `.roadmaps`.
 - optional `change_request_id`
 - `updated_at`
 
-`state.yml` stores `RoadmapState`, including the active phase, discovery state, approvals, open questions, milestone summaries, optional active milestone/change IDs, and optional bypass state.
+`state.yml` stores `RoadmapState`, including the active phase, finalized roadmap outline, discovery state, approvals, open questions, concrete roadmap milestone outlines, optional active milestone/change IDs, and optional bypass state.
 
 Milestone and change artifacts are Markdown files with YAML frontmatter containing the machine-readable plan/change state. Human-facing content follows the frontmatter.
 
@@ -133,6 +134,11 @@ Implemented model-callable tools:
   - Creates `.roadmaps`, `active.yml`, roadmap directory, `state.yml`, `roadmap.md`, `decisions.md`, and `risks.md`.
   - Rejects creation if another roadmap is already active.
 
+- `roadmap_engineer_update_roadmap`
+  - Writes the finalized structured roadmap outline into `state.yml`.
+  - Generates `roadmap.md` from the same state.
+  - Requires roadmap planning phase and does not create milestone plans, tasks, waves, workers, or ownership.
+
 - `roadmap_engineer_read_state`
   - Reads active pointer, active roadmap state, active milestone plan, and active change request.
 
@@ -140,6 +146,7 @@ Implemented model-callable tools:
   - Supports operations:
     - `record_discovery`
     - `approve_roadmap`
+    - `reopen_roadmap`
     - `start_milestone_planning`
     - `create_milestone_plan`
     - `approve_milestone`
@@ -187,6 +194,7 @@ Implemented OMP slash commands:
 - `/roadmap:resume`
 - `/roadmap:status`
 - `/roadmap:amend`
+- `/roadmap:reopen`
 - `/milestone:plan`
 - `/milestone:implement`
 - `/milestone:status`
@@ -249,10 +257,13 @@ Known limitation:
 - Roadmap existence and required fields.
 - Phase membership in the canonical phase list.
 - Roadmap open questions are empty before approval.
+- Roadmap outline is finalized before approval.
+- Generated `roadmap.md` matches `state.yml`.
 - Discovery is recorded before approved phases.
 - Required external research is recorded before approved phases.
 - Roadmap approval exists before approved phases.
-- Duplicate roadmap milestone IDs.
+- Roadmap milestone outlines are concrete and non-empty.
+- Duplicate roadmap milestone IDs and unknown roadmap milestone dependencies.
 - Active milestone existence.
 - Milestone required fields.
 - Milestone open questions are empty.
@@ -304,10 +315,10 @@ IDs are validated as lower-case slug strings matching:
 Implemented role playbooks:
 
 - `skills/roadmap-planner/SKILL.md`
-  - Repo discovery, no assumptions, roadmap phased intent, research requirements, approval constraints.
+  - Repo discovery, no assumptions, concrete roadmap milestone outlines, research requirements, approval constraints.
 
 - `skills/milestone-planner/SKILL.md`
-  - Prior context review, drift detection, decision-complete milestone/change planning, dependency waves, ownership.
+  - Prior context review, approved roadmap milestone expansion, drift detection, decision-complete milestone/change planning, dependency waves, ownership.
 
 - `skills/implementation-orchestrator/SKILL.md`
   - One wave at a time, active branch only, worker dispatch, notes, review, amendment handling.

@@ -9,10 +9,14 @@ import {
   createChangeRequest,
   initRoadmap,
   loadState,
+  renderRoadmapMarkdown,
   resetRoadmapStateForTest,
   transition,
+  updateRoadmap,
   type CreateMilestonePlanInput,
+  type UpdateRoadmapInput,
 } from "../src/core/store";
+import { decisionsPath, roadmapDocPath } from "../src/core/paths";
 import type { CloseoutEvidence } from "../src/core/types";
 import { validateImplementationGate, validateRoadmapState } from "../src/core/validation";
 
@@ -79,12 +83,41 @@ function closedEvidence(overrides: Partial<CloseoutEvidence> = {}): CloseoutEvid
   };
 }
 
+function roadmapInput(overrides: Partial<UpdateRoadmapInput> = {}): UpdateRoadmapInput {
+  return {
+    goal: "Refactor roadmap-engineer state safely.",
+    successCriteria: ["Roadmap approval requires concrete milestones."],
+    constraints: ["Keep the implementation simple and direct."],
+    nonGoals: ["Do not create milestone task plans during roadmap creation."],
+    context: ["Reviewed src/core/store.ts and src/core/validation.ts."],
+    evidence: ["Discovery recorded current state lifecycle behavior."],
+    risks: ["Validation may block old incomplete roadmap states."],
+    milestones: [
+      {
+        id: "m01-core",
+        title: "Core milestone",
+        status: "planned",
+        goal: "Harden core roadmap state and validation.",
+        scope: ["Add structured roadmap finalization."],
+        non_goals: ["Do not implement milestone tasks in roadmap planning."],
+        evidence: ["src/core/store.ts owns roadmap transitions."],
+        dependencies: [],
+        risks: ["Approval may fail until the generated roadmap is current."],
+        acceptance_intent: ["Roadmap cannot be approved without concrete milestone outlines."],
+        verification_intent: ["Run bun test."],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 async function approvedRoadmap(): Promise<void> {
   await initRoadmap(cwd, { roadmapId: "complex-refactor", title: "Complex Refactor" });
   await transition(cwd, {
     operation: "record_discovery",
     discovery: { findings: ["Inspected local roadmap-engineer sources."] },
   });
+  await updateRoadmap(cwd, roadmapInput());
   await transition(cwd, {
     operation: "approve_roadmap",
     approver: "user",
@@ -115,11 +148,12 @@ describe("roadmap state lifecycle", () => {
     await initRoadmap(cwd, { roadmapId: "test-roadmap", title: "Test Roadmap" });
 
     const validation = await validateRoadmapState(cwd);
-    expect(validation.valid).toBe(true);
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.finalized.missing");
 
     const gate = await validateImplementationGate(cwd);
     expect(gate.valid).toBe(false);
-    expect(gate.errors.map((error) => error.code)).toContain("gate.phase.closed");
+    expect(gate.errors.map((error) => error.code)).toContain("roadmap.finalized.missing");
   });
 
   test("enforces discovery before roadmap approval and rejects repeated approval", async () => {
@@ -130,6 +164,7 @@ describe("roadmap state lifecycle", () => {
     ).rejects.toThrow("approve_roadmap requires phase roadmap_draft");
 
     await transition(cwd, { operation: "record_discovery" });
+    await updateRoadmap(cwd, roadmapInput());
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
     await expect(
@@ -152,10 +187,155 @@ describe("roadmap state lifecycle", () => {
       operation: "record_discovery",
       discovery: { external_research_recorded: true },
     });
+    await updateRoadmap(cwd, roadmapInput());
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
     const validation = await validateRoadmapState(cwd);
     expect(validation.valid).toBe(true);
+  });
+
+  test("requires finalized structured roadmap before approval", async () => {
+    await initRoadmap(cwd, { roadmapId: "unfinalized-roadmap", title: "Unfinalized Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+
+    await expect(
+      transition(cwd, { operation: "approve_roadmap", approver: "user" }),
+    ).rejects.toThrow("finalized roadmap");
+  });
+
+  test("accepts a complete generated roadmap before approval", async () => {
+    await initRoadmap(cwd, { roadmapId: "complete-roadmap", title: "Complete Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    const state = await updateRoadmap(cwd, roadmapInput());
+
+    expect(await fs.readFile(roadmapDocPath(cwd, state.roadmap_id), "utf8")).toBe(
+      renderRoadmapMarkdown(state),
+    );
+
+    await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+    expect((await validateRoadmapState(cwd)).valid).toBe(true);
+  });
+
+  test("reopens an approved roadmap and requires regenerated approval", async () => {
+    await approvedRoadmap();
+    const approved = await loadState(cwd);
+    if (!approved.roadmap) throw new Error("Expected roadmap state");
+    const originalRoadmapText = await fs.readFile(roadmapDocPath(cwd, approved.roadmap.roadmap_id), "utf8");
+
+    await transition(cwd, {
+      operation: "reopen_roadmap",
+      reason: "Add a missing migration milestone before planning starts.",
+    });
+
+    const reopened = await loadState(cwd);
+    if (!reopened.roadmap) throw new Error("Expected reopened roadmap state");
+    expect(reopened.roadmap.phase).toBe("roadmap_draft");
+    expect(reopened.roadmap.roadmap_finalized).toBe(false);
+    expect(reopened.roadmap.approvals).toHaveLength(1);
+    expect(await fs.readFile(roadmapDocPath(cwd, reopened.roadmap.roadmap_id), "utf8")).toBe(originalRoadmapText);
+
+    const decisions = await fs.readFile(decisionsPath(cwd, reopened.roadmap.roadmap_id), "utf8");
+    expect(decisions).toContain("## Roadmap Reopened");
+    expect(decisions).toContain("Add a missing migration milestone before planning starts.");
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.finalized.missing");
+    await expect(
+      transition(cwd, { operation: "approve_roadmap", approver: "user" }),
+    ).rejects.toThrow("finalized roadmap");
+
+    await updateRoadmap(cwd, roadmapInput({
+      goal: "Refactor roadmap-engineer state safely after reopening.",
+    }));
+    await transition(cwd, {
+      operation: "approve_roadmap",
+      approver: "user",
+      summary: "Reapproved after roadmap reopen",
+    });
+
+    const reapproved = await loadState(cwd);
+    expect(reapproved.roadmap?.phase).toBe("roadmap_approved");
+    expect(reapproved.roadmap?.approvals).toHaveLength(2);
+    expect((await validateRoadmapState(cwd)).valid).toBe(true);
+  });
+
+  test("rejects roadmap reopen without a reason or outside roadmap approval", async () => {
+    await initRoadmap(cwd, { roadmapId: "draft-roadmap", title: "Draft Roadmap" });
+
+    await expect(
+      transition(cwd, { operation: "reopen_roadmap", reason: "Need to change scope." }),
+    ).rejects.toThrow("reopen_roadmap requires phase roadmap_approved");
+
+    await transition(cwd, { operation: "record_discovery" });
+    await updateRoadmap(cwd, roadmapInput());
+    await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+
+    await expect(
+      transition(cwd, { operation: "reopen_roadmap" }),
+    ).rejects.toThrow("reopen_roadmap requires a reason");
+  });
+
+  test("rejects incomplete roadmap milestone outlines", async () => {
+    await initRoadmap(cwd, { roadmapId: "bad-roadmap", title: "Bad Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+
+    await updateRoadmap(cwd, roadmapInput({ milestones: [] }));
+    let validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestones.missing");
+    await expect(transition(cwd, { operation: "approve_roadmap", approver: "user" })).rejects.toThrow(
+      "at least one concrete milestone",
+    );
+
+    await updateRoadmap(cwd, roadmapInput({
+      milestones: [{ ...roadmapInput().milestones[0]!, goal: "" }],
+    }));
+    validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone.goal.missing");
+
+    await updateRoadmap(cwd, roadmapInput({
+      milestones: [
+        roadmapInput().milestones[0]!,
+        { ...roadmapInput().milestones[0]!, title: "Duplicate core" },
+      ],
+    }));
+    validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("milestone.duplicate");
+
+    await updateRoadmap(cwd, roadmapInput({
+      milestones: [{ ...roadmapInput().milestones[0]!, dependencies: ["missing"] }],
+    }));
+    validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone.dependency.unknown");
+
+    await updateRoadmap(cwd, roadmapInput({ goal: "TODO" }));
+    validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.goal.missing");
+  });
+
+  test("rejects approval when generated roadmap markdown is stale", async () => {
+    await initRoadmap(cwd, { roadmapId: "stale-roadmap", title: "Stale Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    const state = await updateRoadmap(cwd, roadmapInput());
+    await fs.writeFile(roadmapDocPath(cwd, state.roadmap_id), "# Hand edited\n", "utf8");
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.doc.stale");
+    await expect(transition(cwd, { operation: "approve_roadmap", approver: "user" })).rejects.toThrow(
+      "generated roadmap.md",
+    );
   });
 
   test("opens implementation gate only after milestone approval and implementation phase", async () => {

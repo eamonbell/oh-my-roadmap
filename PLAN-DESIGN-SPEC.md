@@ -35,6 +35,7 @@ V1 slash commands:
 - `/roadmap:resume`
 - `/roadmap:status`
 - `/roadmap:amend`
+- `/roadmap:reopen`
 - `/milestone:plan`
 - `/milestone:implement`
 - `/milestone:status`
@@ -51,9 +52,12 @@ Required phase sequence:
 
 `discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> milestone_approved -> implementing -> reviewing -> closeout -> complete`
 
-Roadmap approval requires a recorded repo discovery pass. External research is required when local discovery identifies external APIs, dependencies,
-or current-docs risk. Roadmaps define phased intent: goals, constraints, milestone order, dependencies, risks, and success criteria, not full
-implementation details.
+Roadmap approval requires a recorded repo discovery pass and a finalized generated roadmap. External research is required when local discovery identifies external APIs, dependencies,
+or current-docs risk. Roadmaps define concrete milestone outlines with goals, constraints, milestone order, dependencies, risks, evidence, acceptance intent, and success criteria, not full
+milestone implementation plans.
+
+`/roadmap:reopen` is allowed only from `roadmap_approved`, before milestone planning or change requests are active. It records a required reason, returns the roadmap to `roadmap_draft`,
+marks the generated roadmap not finalized, preserves approval history, and requires the full structured roadmap to be regenerated and explicitly approved again.
 
 Milestone plans must be decision-complete before implementation opens. They must include exact verification commands, acceptance criteria, cleanup
 policy, dependency analysis, exclusive file/module ownership, worker assignments, and execution waves such as `Wave 1: T1, T3`, `Wave 2: T2`.
@@ -64,7 +68,7 @@ replans ownership before edits continue.
 
 ## State, Tools, And Gates
 
-Use `.roadmaps/<roadmap-id>/` with:
+Use `.roadmaps/config.yml` for project config and `.roadmaps/<roadmap-id>/` with:
 
 - `roadmap.md`
 - `state.yml`

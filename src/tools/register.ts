@@ -7,11 +7,13 @@ import {
   initRoadmap,
   loadState,
   transition,
+  updateRoadmap,
   type AmendmentInput,
   type AppendNoteInput,
   type CreateChangeRequestInput,
   type InitRoadmapInput,
   type TransitionInput,
+  type UpdateRoadmapInput,
 } from "../core/store";
 import { nextAction, renderReport } from "../core/report";
 import { validateRoadmapState } from "../core/validation";
@@ -75,6 +77,33 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     waves: z.array(waveSchema),
     openQuestions: z.array(z.string()).optional(),
   });
+  const roadmapMilestoneSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    status: z
+      .enum([
+        "planned",
+        "blocked",
+        "discovery",
+        "roadmap_draft",
+        "roadmap_approved",
+        "milestone_planning",
+        "milestone_approved",
+        "implementing",
+        "reviewing",
+        "closeout",
+        "complete",
+      ])
+      .default("planned"),
+    goal: z.string(),
+    scope: z.array(z.string()),
+    non_goals: z.array(z.string()),
+    evidence: z.array(z.string()),
+    dependencies: z.array(z.string()).default([]),
+    risks: z.array(z.string()),
+    acceptance_intent: z.array(z.string()),
+    verification_intent: z.array(z.string()),
+  });
 
   register({
     name: "roadmap_engineer_init",
@@ -101,6 +130,27 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   } as ToolDefinition);
 
   register({
+    name: "roadmap_engineer_update_roadmap",
+    label: "Update Roadmap",
+    description: "Finalize the structured roadmap outline and generate roadmap.md before roadmap approval.",
+    approval: "write",
+    parameters: z.object({
+      goal: z.string(),
+      successCriteria: z.array(z.string()),
+      constraints: z.array(z.string()),
+      nonGoals: z.array(z.string()),
+      context: z.array(z.string()),
+      evidence: z.array(z.string()),
+      risks: z.array(z.string()),
+      milestones: z.array(roadmapMilestoneSchema),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const state = await updateRoadmap(ctx.cwd, params as UpdateRoadmapInput);
+      return textResult(`Updated roadmap ${state.roadmap_id}.`, state);
+    },
+  } as ToolDefinition);
+
+  register({
     name: "roadmap_engineer_read_state",
     label: "Read Roadmap State",
     description: "Read the active roadmap, milestone, and change-request state.",
@@ -121,6 +171,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
       operation: z.enum([
         "record_discovery",
         "approve_roadmap",
+        "reopen_roadmap",
         "start_milestone_planning",
         "create_milestone_plan",
         "approve_milestone",

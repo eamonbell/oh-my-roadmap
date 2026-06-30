@@ -2,7 +2,7 @@
 
 `roadmap-engineer` is a local OMP extension for complex feature and refactor work. It forces large work through explicit roadmap, milestone, implementation-wave, review, evidence, and change-request gates.
 
-The canonical workflow state lives in `.roadmaps`. Direct file-write tools are blocked while an active roadmap is outside an approved implementation state. V1 intentionally does not classify or block mutating shell commands.
+The canonical workflow config and state live in `.roadmaps`. Direct file-write tools are blocked while an active roadmap is outside an approved implementation state. V1 intentionally does not classify or block mutating shell commands.
 
 The workflow is strict and state-driven:
 
@@ -30,10 +30,12 @@ omp -p '/extensions'
 
 ## Commands
 
+- `/roadmap:init`
 - `/roadmap:new`
 - `/roadmap:resume`
 - `/roadmap:status`
 - `/roadmap:amend`
+- `/roadmap:reopen`
 - `/milestone:plan`
 - `/milestone:implement`
 - `/milestone:status`
@@ -43,6 +45,42 @@ omp -p '/extensions'
 - `/change:request`
 - `/change:status`
 - `/change:close`
+
+## Project Init
+
+Run `/roadmap:init` once in a project to scaffold roadmap-engineer project files without starting a roadmap workflow. The command creates `.roadmaps/config.yml` when it is missing and always refreshes the local OMP agent definitions:
+
+```text
+.roadmaps/config.yml
+.omp/agents/worker.md
+.omp/agents/reviewer.md
+```
+
+The `.roadmaps/config.yml` file configures the model and thinking level used when OMP dispatches the generated worker and reviewer agents:
+
+```yaml
+agents:
+  worker:
+    model: "provider/model-or-role"
+    thinking: "medium"
+  reviewer:
+    model: "provider/model-or-role"
+    thinking: "high"
+```
+
+Both `model` and `thinking` are optional. Supported thinking values are `inherit`, `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Re-running `/roadmap:init` preserves an existing `.roadmaps/config.yml` file, but overwrites `.omp/agents/worker.md` and `.omp/agents/reviewer.md` from the extension templates. Legacy `.roadmap/config.yml` files are ignored.
+
+`/roadmap:init` does not create or modify active roadmap workflow state.
+
+## Roadmap Approval
+
+`/roadmap:new` creates draft roadmap state, records discovery, then must finalize the generated roadmap with `roadmap_engineer_update_roadmap` before approval. Approval is blocked unless the roadmap includes concrete goals, success criteria, constraints, non-goals, context, evidence, risks, and at least one roadmap-level milestone outline.
+
+Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. `/milestone:plan` later expands one approved roadmap milestone into implementation tasks, waves, ownership, acceptance criteria, and verification commands.
+
+## Roadmap Reopen
+
+`/roadmap:reopen` is allowed only while the active roadmap is still in `roadmap_approved`, before milestone planning starts. It records a required reason in `decisions.md`, moves the roadmap back to `roadmap_draft`, marks the generated roadmap as not finalized, and preserves previous approval history. The agent must regenerate the full structured roadmap with `roadmap_engineer_update_roadmap`, validate it, ask for explicit reapproval, and approve it again before milestone planning can continue.
 
 ## Verification
 
