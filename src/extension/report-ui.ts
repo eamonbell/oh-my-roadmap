@@ -150,6 +150,7 @@ function renderHealthRail(summary: ActiveRoadmapDetailSummary): string[] {
     sectionHeader("Health"),
     ...keyValueLines("Roadmap", summary.roadmap.label, RAIL_WIDTH),
     ...keyValueLines("Phase", summary.roadmap.phase, RAIL_WIDTH),
+    ...keyValueLines("Quality gate", summary.qualityGate.status, RAIL_WIDTH),
     ...keyValueLines("Validation", summary.validation.status, RAIL_WIDTH),
     ...keyValueLines("Gate", summary.gate.status, RAIL_WIDTH),
     ...keyValueLines("Issues", issueCountLabel(summary), RAIL_WIDTH),
@@ -168,6 +169,9 @@ function renderMainDetails(summary: ActiveRoadmapDetailSummary, contentWidth: nu
     "",
     sectionHeader("Active Work"),
     ...renderActiveWork(summary, contentWidth),
+    "",
+    sectionHeader("Quality Gate"),
+    ...renderQualityGate(summary, contentWidth),
     "",
     sectionHeader("Issues"),
     ...renderIssues(summary, contentWidth),
@@ -200,6 +204,21 @@ function renderActiveWork(summary: ActiveRoadmapDetailSummary, contentWidth: num
   if (summary.blockers.length > 0) {
     lines.push(`${s.dim}Blockers${s.reset}`);
     lines.push(...summary.blockers.flatMap((blocker) => blockerLines(blocker, contentWidth)));
+  }
+
+  return lines;
+}
+
+function renderQualityGate(summary: ActiveRoadmapDetailSummary, contentWidth: number): string[] {
+  const gate = summary.qualityGate;
+  const lines = [
+    ...keyValueLines("Status", gate.status, contentWidth),
+    ...keyValueLines("Revision", `${gate.checkedRevision}/${gate.roadmapRevision}`, contentWidth),
+    ...keyValueLines("Event", gate.eventId ?? "none", contentWidth),
+  ];
+
+  if (gate.latestFinding) {
+    lines.push(...keyValueLines("Finding", gate.latestFinding, contentWidth));
   }
 
   return lines;
@@ -411,6 +430,10 @@ function styleValue(value: string): string {
 
   if (["inactive", "none", "not recorded", "pending", "todo"].includes(lower)) {
     return `${s.dim}${value}${s.reset}`;
+  }
+
+  if (lower === "stale") {
+    return `${s.yellow}${value}${s.reset}`;
   }
 
   return value

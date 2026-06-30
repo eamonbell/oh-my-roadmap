@@ -8,6 +8,7 @@ const DEFAULT_EVENT_LIMIT = 100;
 const MAX_EVENT_LIMIT = 500;
 
 export type RoadmapEventInput = Omit<RoadmapEvent, "id" | "schema_version" | "at"> & {
+  id?: string;
   at?: string;
 };
 
@@ -30,7 +31,7 @@ export interface ReadRoadmapEventsResult {
   events: RoadmapEvent[];
 }
 
-function eventId(): string {
+export function roadmapEventId(): string {
   return `evt_${crypto.randomUUID()}`;
 }
 
@@ -67,7 +68,7 @@ export async function appendRoadmapEvent(cwd: string, input: RoadmapEventInput):
   return await withStoreWriteLock(cwd, async () => {
     const event: RoadmapEvent = {
       ...input,
-      id: eventId(),
+      id: input.id ?? roadmapEventId(),
       schema_version: 1,
       at: input.at ?? new Date().toISOString(),
     };
