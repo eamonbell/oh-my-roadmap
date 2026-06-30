@@ -14,12 +14,17 @@ Required process:
 - Select one approved roadmap milestone outline and expand that outline into the milestone plan. Do not invent milestone scope that is not grounded in the approved roadmap.
 - Inspect relevant existing code and project documentation before planning ownership, waves, or verification.
 - Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy questions, and approval questions are closed.
+- Explicitly ask the user what they want for test coverage before finalizing the plan: which areas or tasks should create tests, which should only run existing tests, what detail each test should cover, and any areas where tests are intentionally deferred or not required.
 - Include useful existing code references and documentation references in the milestone or change plan with concrete paths or source names and short notes.
 - Identify drift from the roadmap and require an approved roadmap amendment when drift is material.
 - Resolve all material open questions before approval.
 - Define exact verification commands and acceptance criteria.
-- Perform dependency analysis and divide work into waves.
-- Assign exclusive file/module ownership to every task.
+- Convert the user's test coverage decisions into task-level verification commands and done criteria, making clear which tests are new, which are existing, and which task owns each test obligation.
+- Define concrete executable tasks before dependency analysis or wave creation.
+- For every task, include objective, implementation notes, done criteria, task-level verification commands, dependencies, exclusive file/module ownership, shared interfaces, and worker assignment.
+- Perform dependency analysis over the concrete task list; explain why dependencies exist and which tasks can safely run concurrently.
+- Divide already-defined tasks into waves.
+- For every wave, include goal, exit criteria, review checkpoint, and task IDs.
 - Ensure same-wave tasks do not overlap owned files/modules.
-- Include worker assignments and review checkpoints.
+- Initialize implementation progress to the first wave with step `not_started`, empty active tasks, and a current timestamp.
 - Use `roadmap_engineer_transition` or `roadmap_engineer_create_change_request`, then `roadmap_engineer_validate`.

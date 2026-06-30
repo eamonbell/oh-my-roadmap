@@ -92,13 +92,23 @@ Milestone plans contain:
 - `verification_commands`
 - `acceptance_criteria`
 - `cleanup_policy: approval-gated`
+- `user_interview`
+- `relevant_existing_code`
+- `relevant_documentation`
+- `decisions`
+- `dependency_analysis`
 - `tasks`
 - `waves`
+- `progress`
 
 Tasks contain:
 
 - `id`
 - `title`
+- `objective`
+- `implementation_notes`
+- `done_criteria`
+- `verification_commands`
 - `worker`
 - `status`
 - `depends_on`
@@ -109,8 +119,19 @@ Tasks contain:
 Waves contain:
 
 - `id`
+- `goal`
+- `exit_criteria`
+- `review_checkpoint`
 - `status`
 - `tasks`
+
+Implementation progress contains:
+
+- optional `active_wave_id`
+- `step`
+- `active_task_ids`
+- optional `blocked_reason`
+- `updated_at`
 
 Closeout evidence contains:
 
@@ -124,7 +145,7 @@ Closeout evidence contains:
 
 Milestone completion requires every acceptance criterion and verification command to be `passed` or `deferred`. Deferred results require a reason and approver.
 
-Change requests contain the milestone linkage, request text, approval list, verification commands, acceptance criteria, tasks, waves, and optional closeout evidence. Only one active change request is allowed.
+Change requests contain the milestone linkage, request text, approval list, verification commands, acceptance criteria, task/wave/context detail, implementation progress, and optional closeout evidence. Only one active change request is allowed.
 
 ## Custom Tools
 
@@ -169,6 +190,7 @@ Implemented model-callable tools:
     - `close_change`
     - `update_task_status`
     - `update_wave_status`
+    - `update_implementation_progress`
     - `record_closeout`
 
 - `roadmap_engineer_append_note`
@@ -279,12 +301,15 @@ Known limitation:
 - Verification commands are present.
 - Acceptance criteria are present.
 - Tasks and waves are present.
+- Task objectives, implementation notes, done criteria, and task verification commands are present.
 - Task IDs are unique.
 - Each task has a worker.
 - Each task owns at least one file or module.
 - Wave IDs are unique.
+- Wave goals, exit criteria, and review checkpoints are present.
 - Waves reference known task IDs.
 - Same-wave ownership does not overlap across owned files/modules.
+- Implementation progress references known active waves and tasks.
 - Milestone approval exists before milestone-approved-or-later phases.
 - Active change-request existence.
 - Change request is approved before implementation/review states.
@@ -330,7 +355,7 @@ Implemented role playbooks:
   - Prior context review, approved roadmap milestone expansion, drift detection, decision-complete milestone/change planning, dependency waves, ownership.
 
 - `skills/implementation-orchestrator/SKILL.md`
-  - One wave at a time, active branch only, worker dispatch, notes, review, amendment handling.
+  - One wave at a time, active branch only, progress cursor resume, worker dispatch, notes, review, amendment handling.
 
 - `skills/worker/SKILL.md`
   - Assigned scope only, no unowned edits, append scoped worker notes.

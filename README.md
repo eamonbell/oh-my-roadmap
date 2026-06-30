@@ -10,7 +10,7 @@ The workflow is strict and state-driven:
 discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> milestone_approved -> implementing -> reviewing -> closeout -> complete
 ```
 
-Milestone and change implementation progress is tracked through explicit task and wave status updates. Closeout requires structured evidence for every acceptance criterion and verification command; each item must be `passed` or `deferred` with a reason and approver.
+Milestone and change implementation progress is tracked through explicit task status, wave status, and a persisted implementation progress cursor. Closeout requires structured evidence for every acceptance criterion and verification command; each item must be `passed` or `deferred` with a reason and approver.
 
 Planning prompts and role skills require agents to inspect relevant existing code and documentation, reference useful paths in artifacts, and use OMP's built-in `ask` tool to interview the user until material decisions and gaps are closed.
 
@@ -78,7 +78,20 @@ Both `model` and `thinking` are optional. Supported thinking values are `inherit
 
 `/roadmap:new` creates draft roadmap state, records discovery, then must finalize the generated roadmap with `roadmap_engineer_update_roadmap` before approval. Approval is blocked unless the roadmap includes concrete goals, success criteria, constraints, non-goals, context, evidence, risks, and at least one roadmap-level milestone outline.
 
-Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. `/milestone:plan` later expands one approved roadmap milestone into implementation tasks, waves, ownership, acceptance criteria, and verification commands.
+Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. `/milestone:plan` later expands one approved roadmap milestone into concrete implementation tasks, dependency analysis, waves, ownership, acceptance criteria, task-level verification, and the initial pause/resume progress cursor.
+
+## Pause And Resume
+
+Milestone and change plans persist the current implementation cursor:
+
+- active wave
+- orchestration step
+- active task IDs
+- blocker reason, when blocked
+
+`/roadmap:resume`, `/roadmap:status`, `/milestone:status`, and `/change:status` treat this structured cursor as the source of truth. Worker and review notes provide supporting context, but they do not override the persisted cursor.
+
+Store mutations are serialized through `.roadmaps/store.lock` and state files are written with atomic replacement to reduce lost updates from concurrent agents or tool calls.
 
 ## Roadmap Reopen
 

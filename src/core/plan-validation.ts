@@ -1,10 +1,12 @@
 import type {
   ChangeRequest,
+  ImplementationProgress,
   MilestonePlan,
   TaskPlan,
   ValidationIssue,
   WavePlan,
 } from "./types";
+import { IMPLEMENTATION_PROGRESS_STEPS } from "./types";
 
 export function issue(code: string, message: string, path?: string): ValidationIssue {
   return path ? { code, message, path } : { code, message };
@@ -13,6 +15,7 @@ export function issue(code: string, message: string, path?: string): ValidationI
 function validateTasksAndWaves(
   tasks: TaskPlan[],
   waves: WavePlan[],
+  progress: ImplementationProgress,
   errors: ValidationIssue[],
 ): void {
   const taskIds = new Set<string>();
@@ -22,6 +25,16 @@ function validateTasksAndWaves(
     taskIds.add(task.id);
     taskById.set(task.id, task);
     if (!task.worker) errors.push(issue("task.worker.missing", `Task ${task.id} must assign a worker`));
+    if (!task.objective?.trim()) errors.push(issue("task.objective.missing", `Task ${task.id} must define an objective`));
+    if (task.implementation_notes.length === 0) {
+      errors.push(issue("task.implementation.missing", `Task ${task.id} must define implementation notes`));
+    }
+    if (task.done_criteria.length === 0) {
+      errors.push(issue("task.done.missing", `Task ${task.id} must define done criteria`));
+    }
+    if (task.verification_commands.length === 0) {
+      errors.push(issue("task.verify.missing", `Task ${task.id} must define verification commands`));
+    }
     if (task.owned_files.length === 0 && task.owned_modules.length === 0) {
       errors.push(issue("task.ownership.missing", `Task ${task.id} must own files or modules`));
     }
@@ -45,6 +58,13 @@ function validateTasksAndWaves(
     if (!wave) continue;
     if (waveIds.has(wave.id)) errors.push(issue("wave.duplicate", `Duplicate wave id: ${wave.id}`));
     waveIds.add(wave.id);
+    if (!wave.goal?.trim()) errors.push(issue("wave.goal.missing", `Wave ${wave.id} must define a goal`));
+    if (wave.exit_criteria.length === 0) {
+      errors.push(issue("wave.exit.missing", `Wave ${wave.id} must define exit criteria`));
+    }
+    if (!wave.review_checkpoint?.trim()) {
+      errors.push(issue("wave.review.missing", `Wave ${wave.id} must define a review checkpoint`));
+    }
     if (["running", "reviewing"].includes(wave.status)) activeWaveCount += 1;
 
     const owned = new Map<string, string>();
@@ -101,6 +121,7 @@ function validateTasksAndWaves(
     }
   }
   validateDependencyCycles(tasks, errors);
+  validateProgress(progress, taskById, waves, errors);
 
   const firstIncompleteIndex = waves.findIndex((wave) => wave.status !== "complete");
   if (firstIncompleteIndex !== -1) {
@@ -114,6 +135,46 @@ function validateTasksAndWaves(
           ),
         );
       }
+    }
+  }
+}
+
+function validateProgress(
+  progress: ImplementationProgress,
+  taskById: Map<string, TaskPlan>,
+  waves: WavePlan[],
+  errors: ValidationIssue[],
+): void {
+  if (!IMPLEMENTATION_PROGRESS_STEPS.includes(progress.step)) {
+    errors.push(issue("progress.step.invalid", `Invalid implementation progress step: ${progress.step}`));
+  }
+  if (progress.step === "resolving_blockers" && !progress.blocked_reason?.trim()) {
+    errors.push(issue("progress.blocked_reason.missing", "Blocked progress must include a blocked reason"));
+  }
+
+  const activeWave = progress.active_wave_id
+    ? waves.find((wave) => wave.id === progress.active_wave_id)
+    : undefined;
+  if (progress.active_wave_id && !activeWave) {
+    errors.push(issue("progress.wave.unknown", `Progress references unknown active wave ${progress.active_wave_id}`));
+  }
+  if (!progress.active_wave_id && waves.length > 0 && progress.step !== "closeout_ready") {
+    errors.push(issue("progress.wave.missing", "Progress must identify an active wave before closeout"));
+  }
+
+  const activeWaveTasks = new Set(activeWave?.tasks ?? []);
+  for (const taskId of progress.active_task_ids) {
+    if (!taskById.has(taskId)) {
+      errors.push(issue("progress.task.unknown", `Progress references unknown active task ${taskId}`));
+      continue;
+    }
+    if (activeWave && !activeWaveTasks.has(taskId)) {
+      errors.push(
+        issue(
+          "progress.task.outside_wave",
+          `Progress active task ${taskId} is not part of active wave ${activeWave.id}`,
+        ),
+      );
     }
   }
 }
@@ -158,7 +219,7 @@ export function validateMilestonePlan(plan: MilestonePlan, errors: ValidationIss
   }
   if (plan.tasks.length === 0) errors.push(issue("milestone.tasks.missing", "Milestone plan must define tasks"));
   if (plan.waves.length === 0) errors.push(issue("milestone.waves.missing", "Milestone plan must define waves"));
-  validateTasksAndWaves(plan.tasks, plan.waves, errors);
+  validateTasksAndWaves(plan.tasks, plan.waves, plan.progress, errors);
 }
 
 export function validateChangeRequest(change: ChangeRequest, errors: ValidationIssue[]): void {
@@ -178,6 +239,12 @@ export function validateChangeRequest(change: ChangeRequest, errors: ValidationI
       cleanup_policy: "approval-gated",
       tasks: change.tasks,
       waves: change.waves,
+      user_interview: change.user_interview,
+      relevant_existing_code: change.relevant_existing_code,
+      relevant_documentation: change.relevant_documentation,
+      decisions: change.decisions,
+      dependency_analysis: change.dependency_analysis,
+      progress: change.progress,
     },
     errors,
   );

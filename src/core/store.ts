@@ -13,6 +13,7 @@ import {
   roadmapStatePath,
   risksPath,
 } from "./paths";
+import { withStoreWriteLock } from "./lock";
 import { serializeMarkdownDocument, serializeYaml } from "./frontmatter";
 import {
   appendText,
@@ -35,6 +36,8 @@ import type {
   Approval,
   ChangeRequest,
   CloseoutEvidence,
+  ImplementationProgress,
+  ImplementationProgressStep,
   LoadedState,
   MilestonePlan,
   Phase,
@@ -56,6 +59,11 @@ export interface CreateMilestonePlanInput {
   title: string;
   verificationCommands: string[];
   acceptanceCriteria: string[];
+  userInterview?: string[];
+  relevantExistingCode?: string[];
+  relevantDocumentation?: string[];
+  decisions?: string[];
+  dependencyAnalysis?: string[];
   tasks: MilestonePlan["tasks"];
   waves: MilestonePlan["waves"];
   openQuestions?: string[];
@@ -91,8 +99,20 @@ export interface CreateChangeRequestInput {
   request: string;
   verificationCommands: string[];
   acceptanceCriteria: string[];
+  userInterview?: string[];
+  relevantExistingCode?: string[];
+  relevantDocumentation?: string[];
+  decisions?: string[];
+  dependencyAnalysis?: string[];
   tasks: ChangeRequest["tasks"];
   waves: ChangeRequest["waves"];
+}
+
+export interface UpdateImplementationProgressInput {
+  activeWaveId?: string;
+  step: ImplementationProgressStep;
+  activeTaskIds?: string[];
+  blockedReason?: string;
 }
 
 export interface TransitionInput {
@@ -113,6 +133,7 @@ export interface TransitionInput {
     | "close_change"
     | "update_task_status"
     | "update_wave_status"
+    | "update_implementation_progress"
     | "record_closeout";
   approver?: string;
   summary?: string;
@@ -123,6 +144,7 @@ export interface TransitionInput {
   taskStatus?: TaskPlan["status"];
   waveId?: string;
   waveStatus?: WavePlan["status"];
+  progress?: UpdateImplementationProgressInput;
   closeout?: CloseoutEvidence;
 }
 
@@ -147,6 +169,105 @@ export function assertSlug(slug: string, field: string): void {
 
 function list(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- (none)";
+}
+
+function valueList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function valueString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function initialProgress(waves: WavePlan[]): ImplementationProgress {
+  return {
+    ...(waves[0] ? { active_wave_id: waves[0].id } : {}),
+    step: "not_started",
+    active_task_ids: [],
+    updated_at: nowIso(),
+  };
+}
+
+function normalizeTask(task: TaskPlan): TaskPlan {
+  const raw = task as unknown as Record<string, unknown>;
+  return {
+    ...task,
+    objective: valueString(raw.objective),
+    implementation_notes: valueList(raw.implementation_notes),
+    done_criteria: valueList(raw.done_criteria),
+    verification_commands: valueList(raw.verification_commands),
+    depends_on: valueList(raw.depends_on),
+    owned_files: valueList(raw.owned_files),
+    owned_modules: valueList(raw.owned_modules),
+    shared_interfaces: valueList(raw.shared_interfaces),
+  };
+}
+
+function normalizeWave(wave: WavePlan): WavePlan {
+  const raw = wave as unknown as Record<string, unknown>;
+  return {
+    ...wave,
+    goal: valueString(raw.goal),
+    exit_criteria: valueList(raw.exit_criteria),
+    review_checkpoint: valueString(raw.review_checkpoint),
+    tasks: valueList(raw.tasks),
+  };
+}
+
+function normalizeProgress(value: unknown, waves: WavePlan[]): ImplementationProgress {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<ImplementationProgress>
+    : {};
+  return {
+    ...(typeof raw.active_wave_id === "string"
+      ? { active_wave_id: raw.active_wave_id }
+      : waves[0]
+        ? { active_wave_id: waves[0].id }
+        : {}),
+    step: raw.step ?? "not_started",
+    active_task_ids: valueList(raw.active_task_ids),
+    ...(typeof raw.blocked_reason === "string" ? { blocked_reason: raw.blocked_reason } : {}),
+    updated_at: raw.updated_at ?? nowIso(),
+  };
+}
+
+function normalizeMilestonePlan(plan: MilestonePlan): MilestonePlan {
+  const raw = plan as unknown as Record<string, unknown>;
+  const tasks = Array.isArray(plan.tasks) ? plan.tasks.map(normalizeTask) : [];
+  const waves = Array.isArray(plan.waves) ? plan.waves.map(normalizeWave) : [];
+  return {
+    ...plan,
+    open_questions: valueList(raw.open_questions),
+    verification_commands: valueList(raw.verification_commands),
+    acceptance_criteria: valueList(raw.acceptance_criteria),
+    user_interview: valueList(raw.user_interview),
+    relevant_existing_code: valueList(raw.relevant_existing_code),
+    relevant_documentation: valueList(raw.relevant_documentation),
+    decisions: valueList(raw.decisions),
+    dependency_analysis: valueList(raw.dependency_analysis),
+    tasks,
+    waves,
+    progress: normalizeProgress(raw.progress, waves),
+  };
+}
+
+function normalizeChangeRequest(change: ChangeRequest): ChangeRequest {
+  const raw = change as unknown as Record<string, unknown>;
+  const tasks = Array.isArray(change.tasks) ? change.tasks.map(normalizeTask) : [];
+  const waves = Array.isArray(change.waves) ? change.waves.map(normalizeWave) : [];
+  return {
+    ...change,
+    verification_commands: valueList(raw.verification_commands),
+    acceptance_criteria: valueList(raw.acceptance_criteria),
+    user_interview: valueList(raw.user_interview),
+    relevant_existing_code: valueList(raw.relevant_existing_code),
+    relevant_documentation: valueList(raw.relevant_documentation),
+    decisions: valueList(raw.decisions),
+    dependency_analysis: valueList(raw.dependency_analysis),
+    tasks,
+    waves,
+    progress: normalizeProgress(raw.progress, waves),
+  };
 }
 
 function renderMilestone(milestone: RoadmapMilestoneOutline): string {
@@ -235,6 +356,125 @@ export function renderRoadmapMarkdown(state: RoadmapState): string {
   );
 }
 
+function renderPlanSummary(plan: MilestonePlan | ChangeRequest): string {
+  const label = "change_request_id" in plan ? `Change request: ${plan.change_request_id}` : `Milestone: ${plan.milestone_id}`;
+  return [
+    label,
+    `Title: ${plan.title}`,
+    `Status: ${plan.status}`,
+    `Active wave: ${plan.progress.active_wave_id ?? "(none)"}`,
+    `Progress step: ${plan.progress.step}`,
+    `Active tasks: ${plan.progress.active_task_ids.join(", ") || "(none)"}`,
+    `Blocked reason: ${plan.progress.blocked_reason ?? "(none)"}`,
+  ].join("\n");
+}
+
+function renderTask(task: TaskPlan): string {
+  return [
+    `### ${task.id} - ${task.title}`,
+    ``,
+    `Worker: ${task.worker}`,
+    `Status: ${task.status}`,
+    `Objective: ${task.objective || "(not recorded)"}`,
+    ``,
+    `Implementation Notes:`,
+    list(task.implementation_notes),
+    ``,
+    `Done Criteria:`,
+    list(task.done_criteria),
+    ``,
+    `Verification Commands:`,
+    list(task.verification_commands),
+    ``,
+    `Depends On:`,
+    list(task.depends_on),
+    ``,
+    `Owned Files:`,
+    list(task.owned_files),
+    ``,
+    `Owned Modules:`,
+    list(task.owned_modules),
+    ``,
+    `Shared Interfaces:`,
+    list(task.shared_interfaces),
+  ].join("\n");
+}
+
+function renderWave(wave: WavePlan): string {
+  return [
+    `### ${wave.id}`,
+    ``,
+    `Status: ${wave.status}`,
+    `Goal: ${wave.goal || "(not recorded)"}`,
+    `Review Checkpoint: ${wave.review_checkpoint || "(not recorded)"}`,
+    ``,
+    `Tasks:`,
+    list(wave.tasks),
+    ``,
+    `Exit Criteria:`,
+    list(wave.exit_criteria),
+  ].join("\n");
+}
+
+function renderImplementationPlanBody(plan: MilestonePlan | ChangeRequest): string {
+  const requestedDelta = "request" in plan ? `\n## Requested Delta\n\n${plan.request}\n` : "";
+  return [
+    `# ${plan.title}`,
+    requestedDelta.trimEnd(),
+    `## Summary`,
+    ``,
+    renderPlanSummary(plan),
+    ``,
+    `## User Interview`,
+    ``,
+    list(plan.user_interview),
+    ``,
+    `## Context`,
+    ``,
+    `### Relevant Existing Code`,
+    ``,
+    list(plan.relevant_existing_code),
+    ``,
+    `### Relevant Documentation`,
+    ``,
+    list(plan.relevant_documentation),
+    ``,
+    `### Decisions`,
+    ``,
+    list(plan.decisions),
+    ``,
+    `## Required Work`,
+    ``,
+    plan.tasks.length > 0 ? plan.tasks.map(renderTask).join("\n\n") : "- (none)",
+    ``,
+    `## Dependency Analysis`,
+    ``,
+    list(plan.dependency_analysis),
+    ``,
+    `## Execution Waves`,
+    ``,
+    plan.waves.length > 0 ? plan.waves.map(renderWave).join("\n\n") : "- (none)",
+    ``,
+    `## Progress`,
+    ``,
+    `- Active wave: ${plan.progress.active_wave_id ?? "(none)"}`,
+    `- Step: ${plan.progress.step}`,
+    `- Active tasks: ${plan.progress.active_task_ids.join(", ") || "(none)"}`,
+    `- Blocked reason: ${plan.progress.blocked_reason ?? "(none)"}`,
+    `- Updated at: ${plan.progress.updated_at}`,
+    ``,
+    `## Verification`,
+    ``,
+    `### Acceptance Criteria`,
+    ``,
+    list(plan.acceptance_criteria),
+    ``,
+    `### Verification Commands`,
+    ``,
+    list(plan.verification_commands),
+  ].filter((section) => section !== "").join("\n");
+}
+
 function hasContent(value: string | undefined): boolean {
   if (!value || value.trim() === "") return false;
   return !/\b(TBD|TODO)\b/i.test(value);
@@ -299,7 +539,9 @@ export async function loadActive(cwd: string): Promise<ActivePointer | undefined
 }
 
 export async function writeActive(cwd: string, active: ActivePointer): Promise<void> {
-  await writeYamlFile(activePointerPath(cwd), active);
+  await withStoreWriteLock(cwd, async () => {
+    await writeYamlFile(activePointerPath(cwd), active);
+  });
 }
 
 export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<RoadmapState> {
@@ -307,11 +549,13 @@ export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<
 }
 
 export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
-  state.updated_at = nowIso();
-  await writeYamlFile(roadmapStatePath(cwd, state.roadmap_id), state);
-  if (state.roadmap_finalized) {
-    await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
-  }
+  await withStoreWriteLock(cwd, async () => {
+    state.updated_at = nowIso();
+    await writeYamlFile(roadmapStatePath(cwd, state.roadmap_id), state);
+    if (state.roadmap_finalized) {
+      await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
+    }
+  });
 }
 
 export async function loadMilestonePlan(
@@ -319,21 +563,24 @@ export async function loadMilestonePlan(
   roadmapId: string,
   milestoneId: string,
 ): Promise<MilestonePlan> {
-  return await readMarkdownData<MilestonePlan>(
+  return normalizeMilestonePlan(await readMarkdownData<MilestonePlan>(
     milestonePlanPath(cwd, roadmapId, milestoneId),
-  );
+  ));
 }
 
 export async function writeMilestonePlan(
   cwd: string,
   plan: MilestonePlan,
-  body: string,
+  body?: string,
 ): Promise<void> {
-  await writeMarkdownData(
-    milestonePlanPath(cwd, plan.roadmap_id, plan.milestone_id),
-    { ...plan } as unknown as Record<string, unknown>,
-    body,
-  );
+  await withStoreWriteLock(cwd, async () => {
+    const normalized = normalizeMilestonePlan(plan);
+    await writeMarkdownData(
+      milestonePlanPath(cwd, normalized.roadmap_id, normalized.milestone_id),
+      { ...normalized } as unknown as Record<string, unknown>,
+      body ?? renderImplementationPlanBody(normalized),
+    );
+  });
 }
 
 export async function loadChangeRequest(
@@ -342,9 +589,9 @@ export async function loadChangeRequest(
   milestoneId: string,
   changeRequestId: string,
 ): Promise<ChangeRequest> {
-  return await readMarkdownData<ChangeRequest>(
+  return normalizeChangeRequest(await readMarkdownData<ChangeRequest>(
     changeRequestPath(cwd, roadmapId, milestoneId, changeRequestId),
-  );
+  ));
 }
 
 export async function loadState(cwd: string): Promise<LoadedState> {
@@ -372,6 +619,7 @@ export async function loadState(cwd: string): Promise<LoadedState> {
 }
 
 export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
+  return await withStoreWriteLock(cwd, async () => {
   assertSlug(input.roadmapId, "roadmapId");
   const existingActive = await loadActive(cwd);
   if (existingActive) {
@@ -414,12 +662,14 @@ export async function initRoadmap(cwd: string, input: InitRoadmapInput): Promise
   await writeText(decisionsPath(cwd, input.roadmapId), "# Decision Register\n");
   await writeText(risksPath(cwd, input.roadmapId), "# Risk Register\n");
   return state;
+  });
 }
 
 export async function updateRoadmap(
   cwd: string,
   input: UpdateRoadmapInput,
 ): Promise<RoadmapState> {
+  return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   if (!loaded.active || !loaded.roadmap) {
     throw new Error("No active roadmap. Run /roadmap:new first.");
@@ -451,6 +701,7 @@ export async function updateRoadmap(
   await writeRoadmapState(cwd, state);
   await writeText(roadmapDocPath(cwd, state.roadmap_id), renderRoadmapMarkdown(state));
   return await loadRoadmapState(cwd, state.roadmap_id);
+  });
 }
 
 export async function createMilestonePlan(
@@ -458,8 +709,10 @@ export async function createMilestonePlan(
   roadmap: RoadmapState,
   input: CreateMilestonePlanInput,
 ): Promise<MilestonePlan> {
+  return await withStoreWriteLock(cwd, async () => {
   assertSlug(input.milestoneId, "milestoneId");
-  const roadmapMilestone = roadmap.milestones.find((milestone) => milestone.id === input.milestoneId);
+  const currentRoadmap = await loadRoadmapState(cwd, roadmap.roadmap_id);
+  const roadmapMilestone = currentRoadmap.milestones.find((milestone) => milestone.id === input.milestoneId);
   if (!roadmapMilestone) {
     throw new Error(`Milestone is not defined in roadmap: ${input.milestoneId}`);
   }
@@ -468,7 +721,7 @@ export async function createMilestonePlan(
   }
 
   const plan: MilestonePlan = {
-    roadmap_id: roadmap.roadmap_id,
+    roadmap_id: currentRoadmap.roadmap_id,
     milestone_id: input.milestoneId,
     title: input.title,
     status: "milestone_planning",
@@ -477,33 +730,40 @@ export async function createMilestonePlan(
     verification_commands: input.verificationCommands,
     acceptance_criteria: input.acceptanceCriteria,
     cleanup_policy: "approval-gated",
+    user_interview: input.userInterview ?? [],
+    relevant_existing_code: input.relevantExistingCode ?? [],
+    relevant_documentation: input.relevantDocumentation ?? [],
+    decisions: input.decisions ?? [],
+    dependency_analysis: input.dependencyAnalysis ?? [],
     tasks: input.tasks,
     waves: input.waves,
+    progress: initialProgress(input.waves),
   };
 
-  await fs.mkdir(milestoneDir(cwd, roadmap.roadmap_id, input.milestoneId), { recursive: true });
-  await writeMilestonePlan(cwd, plan, `# ${input.title}\n\nDecision-complete milestone plan.\n`);
-  await writeText(milestoneNotesPath(cwd, roadmap.roadmap_id, input.milestoneId), "# Milestone Notes\n");
+  await fs.mkdir(milestoneDir(cwd, currentRoadmap.roadmap_id, input.milestoneId), { recursive: true });
+  await writeMilestonePlan(cwd, plan);
+  await writeText(milestoneNotesPath(cwd, currentRoadmap.roadmap_id, input.milestoneId), "# Milestone Notes\n");
   await writeText(
-    milestoneCloseoutPath(cwd, roadmap.roadmap_id, input.milestoneId),
+    milestoneCloseoutPath(cwd, currentRoadmap.roadmap_id, input.milestoneId),
     serializeMarkdownDocument(
-      openCloseoutEvidence(roadmap.roadmap_id, input.milestoneId) as unknown as Record<string, unknown>,
+      openCloseoutEvidence(currentRoadmap.roadmap_id, input.milestoneId) as unknown as Record<string, unknown>,
       "# Closeout Evidence\n",
     ),
   );
 
   roadmapMilestone.title = input.title;
   roadmapMilestone.status = "milestone_planning";
-  roadmap.active_milestone_id = input.milestoneId;
-  roadmap.phase = "milestone_planning";
-  await writeRoadmapState(cwd, roadmap);
+  currentRoadmap.active_milestone_id = input.milestoneId;
+  currentRoadmap.phase = "milestone_planning";
+  await writeRoadmapState(cwd, currentRoadmap);
   await writeActive(cwd, {
-    roadmap_id: roadmap.roadmap_id,
+    roadmap_id: currentRoadmap.roadmap_id,
     milestone_id: input.milestoneId,
     updated_at: nowIso(),
   });
 
   return plan;
+  });
 }
 
 function approval(approver: string | undefined, summary: string | undefined): Approval {
@@ -554,10 +814,11 @@ async function writeChangeRequest(
   change: ChangeRequest,
   body?: string,
 ): Promise<void> {
+  const normalized = normalizeChangeRequest(change);
   await writeMarkdownData(
-    changeRequestPath(cwd, change.roadmap_id, change.milestone_id, change.change_request_id),
-    { ...change } as unknown as Record<string, unknown>,
-    body ?? `# ${change.title}\n\n${change.request}\n`,
+    changeRequestPath(cwd, normalized.roadmap_id, normalized.milestone_id, normalized.change_request_id),
+    { ...normalized } as unknown as Record<string, unknown>,
+    body ?? renderImplementationPlanBody(normalized),
   );
 }
 
@@ -576,6 +837,7 @@ async function writeActivePointer(
 }
 
 export async function transition(cwd: string, input: TransitionInput): Promise<LoadedState> {
+  return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   if (!loaded.active || !loaded.roadmap) {
     throw new Error("No active roadmap. Run /roadmap:new first.");
@@ -646,7 +908,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       if (plan.open_questions.length > 0) throw new Error("Milestone approval requires open questions to be resolved");
       if (plan.approvals.length > 0) throw new Error("Milestone is already approved");
       plan.approvals.push(approval(input.approver, input.summary));
-      await writeMilestonePlan(cwd, plan, `# ${plan.title}\n\nDecision-complete milestone plan.\n`);
+      await writeMilestonePlan(cwd, plan);
       roadmap.phase = "milestone_approved";
       setMilestoneStatus(roadmap, milestoneId, "milestone_approved");
       break;
@@ -746,7 +1008,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       }
       requireActiveMilestone(activeMilestoneId, loaded.milestone);
       const tasks = updateTaskStatus(loaded.milestone.tasks, input.taskId, input.taskStatus);
-      await writeMilestonePlan(cwd, { ...loaded.milestone, tasks }, `# ${loaded.milestone.title}\n\nDecision-complete milestone plan.\n`);
+      await writeMilestonePlan(cwd, { ...loaded.milestone, tasks });
       break;
     }
     case "update_wave_status": {
@@ -758,7 +1020,24 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       }
       requireActiveMilestone(activeMilestoneId, loaded.milestone);
       const waves = updateWaveStatus(loaded.milestone.waves, input.waveId, input.waveStatus);
-      await writeMilestonePlan(cwd, { ...loaded.milestone, waves }, `# ${loaded.milestone.title}\n\nDecision-complete milestone plan.\n`);
+      await writeMilestonePlan(cwd, { ...loaded.milestone, waves });
+      break;
+    }
+    case "update_implementation_progress": {
+      if (!input.progress) throw new Error("update_implementation_progress requires progress input");
+      const progress = {
+        ...(input.progress.activeWaveId ? { active_wave_id: input.progress.activeWaveId } : {}),
+        step: input.progress.step,
+        active_task_ids: input.progress.activeTaskIds ?? [],
+        ...(input.progress.blockedReason ? { blocked_reason: input.progress.blockedReason } : {}),
+        updated_at: nowIso(),
+      } satisfies ImplementationProgress;
+      if (loaded.changeRequest) {
+        await writeChangeRequest(cwd, { ...loaded.changeRequest, progress });
+        break;
+      }
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      await writeMilestonePlan(cwd, { ...loaded.milestone, progress });
       break;
     }
     case "record_closeout": {
@@ -792,6 +1071,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
 
   await writeRoadmapState(cwd, roadmap);
   return await loadState(cwd);
+  });
 }
 
 function updateTaskStatus(
@@ -825,6 +1105,7 @@ function updateWaveStatus(
 }
 
 export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
+  return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id;
   const milestoneId = input.milestoneId ?? loaded.active?.milestone_id;
@@ -847,9 +1128,11 @@ export async function appendNote(cwd: string, input: AppendNoteInput): Promise<s
   const filePath = milestoneNotesPath(cwd, roadmapId, milestoneId);
   await appendText(filePath, entry);
   return filePath;
+  });
 }
 
 export async function amend(cwd: string, input: AmendmentInput): Promise<string> {
+  return await withStoreWriteLock(cwd, async () => {
   const loaded = await loadState(cwd);
   if (!loaded.active?.roadmap_id || !loaded.roadmap) throw new Error("No active roadmap");
   if (input.material && !input.approvedBy) {
@@ -878,12 +1161,14 @@ export async function amend(cwd: string, input: AmendmentInput): Promise<string>
     status: "resolved",
   });
   return milestoneNotesPath(cwd, loaded.active.roadmap_id, milestoneId);
+  });
 }
 
 export async function createChangeRequest(
   cwd: string,
   input: CreateChangeRequestInput,
 ): Promise<ChangeRequest> {
+  return await withStoreWriteLock(cwd, async () => {
   assertSlug(input.changeRequestId, "changeRequestId");
   const loaded = await loadState(cwd);
   if (!loaded.active?.roadmap_id || !loaded.active.milestone_id || !loaded.roadmap) {
@@ -907,14 +1192,17 @@ export async function createChangeRequest(
     approvals: [],
     verification_commands: input.verificationCommands,
     acceptance_criteria: input.acceptanceCriteria,
+    user_interview: input.userInterview ?? [],
+    relevant_existing_code: input.relevantExistingCode ?? [],
+    relevant_documentation: input.relevantDocumentation ?? [],
+    decisions: input.decisions ?? [],
+    dependency_analysis: input.dependencyAnalysis ?? [],
     tasks: input.tasks,
     waves: input.waves,
+    progress: initialProgress(input.waves),
   };
 
-  await writeText(
-    changeRequestPath(cwd, change.roadmap_id, change.milestone_id, change.change_request_id),
-    serializeMarkdownDocument({ ...change } as unknown as Record<string, unknown>, `# ${change.title}\n\n${change.request}\n`),
-  );
+  await writeChangeRequest(cwd, change);
   loaded.roadmap.active_change_request_id = change.change_request_id;
   await writeRoadmapState(cwd, loaded.roadmap);
   await writeActive(cwd, {
@@ -924,6 +1212,7 @@ export async function createChangeRequest(
     updated_at: nowIso(),
   });
   return change;
+  });
 }
 
 export async function resetRoadmapStateForTest(cwd: string): Promise<void> {

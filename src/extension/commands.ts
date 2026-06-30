@@ -54,7 +54,10 @@ Follow the roadmap-engineer workflow strictly:
 - Use roadmap_engineer_update_roadmap to finalize a detailed generated roadmap before asking for roadmap approval.
 - Use roadmap_engineer_transition, roadmap_engineer_amend, roadmap_engineer_append_note, or roadmap_engineer_create_change_request for state changes.
 - Record discovery with roadmap_engineer_transition operation record_discovery before roadmap approval.
-- For implementation progress, update task and wave state with update_task_status and update_wave_status.
+- For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment.
+- For milestone planning, explicitly ask the user what test coverage they want based on the implementation tasks: which areas should create tests, which should run existing tests, what detail those tests should cover, and what coverage is intentionally deferred or not required.
+- For implementation progress, update task, wave, and cursor state with update_task_status, update_wave_status, and update_implementation_progress.
+- For implementation resume, treat the persisted progress cursor as authoritative for active wave, orchestration step, active tasks, and blocker reason.
 - Before closing milestones or changes, record structured closeout evidence with record_closeout.
 - For milestone and change implementation, perform dependency analysis, exclusive ownership checks, worker notes, per-wave review, and evidence closeout.
 - If implementation is not legally open, do not edit files.

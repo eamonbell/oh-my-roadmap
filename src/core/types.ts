@@ -115,6 +115,10 @@ export interface RoadmapState {
 export interface TaskPlan {
   id: string;
   title: string;
+  objective: string;
+  implementation_notes: string[];
+  done_criteria: string[];
+  verification_commands: string[];
   worker: string;
   status: "assigned" | "started" | "done" | "blocked";
   depends_on: string[];
@@ -125,8 +129,31 @@ export interface TaskPlan {
 
 export interface WavePlan {
   id: string;
+  goal: string;
+  exit_criteria: string[];
+  review_checkpoint: string;
   status: "pending" | "running" | "reviewing" | "blocked" | "complete";
   tasks: string[];
+}
+
+export const IMPLEMENTATION_PROGRESS_STEPS = [
+  "not_started",
+  "dispatching",
+  "workers_running",
+  "wave_review",
+  "resolving_blockers",
+  "ready_for_next_wave",
+  "closeout_ready",
+] as const;
+
+export type ImplementationProgressStep = (typeof IMPLEMENTATION_PROGRESS_STEPS)[number];
+
+export interface ImplementationProgress {
+  active_wave_id?: string;
+  step: ImplementationProgressStep;
+  active_task_ids: string[];
+  blocked_reason?: string;
+  updated_at: string;
 }
 
 export interface MilestonePlan {
@@ -139,8 +166,14 @@ export interface MilestonePlan {
   verification_commands: string[];
   acceptance_criteria: string[];
   cleanup_policy: "approval-gated";
+  user_interview: string[];
+  relevant_existing_code: string[];
+  relevant_documentation: string[];
+  decisions: string[];
+  dependency_analysis: string[];
   tasks: TaskPlan[];
   waves: WavePlan[];
+  progress: ImplementationProgress;
 }
 
 export interface ChangeRequest {
@@ -154,8 +187,14 @@ export interface ChangeRequest {
   approvals: Approval[];
   verification_commands: string[];
   acceptance_criteria: string[];
+  user_interview: string[];
+  relevant_existing_code: string[];
+  relevant_documentation: string[];
+  decisions: string[];
+  dependency_analysis: string[];
   tasks: TaskPlan[];
   waves: WavePlan[];
+  progress: ImplementationProgress;
   closeout?: CloseoutEvidence;
 }
 

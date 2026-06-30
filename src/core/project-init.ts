@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fileExists, readText, readYamlFile, writeText, writeYamlFile } from "./files";
 import { parseMarkdownDocument, serializeMarkdownDocument } from "./frontmatter";
+import { withStoreWriteLock } from "./lock";
 import { roadmapsDir } from "./paths";
 
 const CONFIG_FILE = "config.yml";
@@ -128,6 +129,7 @@ function renderAgent(role: AgentRole, description: string, body: string, config:
 }
 
 export async function initProject(cwd: string): Promise<ProjectInitResult> {
+  return await withStoreWriteLock(cwd, async () => {
   const targetConfigPath = configPath(cwd);
   const createdConfig = !(await fileExists(targetConfigPath));
   if (createdConfig) {
@@ -162,4 +164,5 @@ export async function initProject(cwd: string): Promise<ProjectInitResult> {
     agentPaths: targetAgentPaths,
     createdConfig,
   };
+  });
 }
