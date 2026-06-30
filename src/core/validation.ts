@@ -210,13 +210,11 @@ function hasCanonicalBlockerForNote(
     return canonicalBlockers.some((blocker) => blocker.id === metadata.blocker_id);
   }
 
-  return canonicalBlockers.some((blocker) =>
-    blocker.roadmap_id === metadata.roadmap_id &&
-    blocker.milestone_id === metadata.milestone_id &&
-    (blocker.change_request_id ?? undefined) === (typeof metadata.change_request_id === "string" ? metadata.change_request_id : undefined) &&
-    (blocker.task_id ?? undefined) === (typeof metadata.task_id === "string" ? metadata.task_id : undefined) &&
-    (blocker.wave_id ?? undefined) === (typeof metadata.wave_id === "string" ? metadata.wave_id : undefined),
-  );
+  if (typeof metadata.note_path === "string") {
+    return canonicalBlockers.some((blocker) => blocker.note_path === metadata.note_path);
+  }
+
+  return false;
 }
 
 function openCanonicalBlockingIssues(blockers: RoadmapBlocker[]): ValidationIssue[] {

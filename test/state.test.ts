@@ -1053,6 +1053,66 @@ describe("roadmap state lifecycle", () => {
     expect(gate.warnings.map((warning) => warning.code)).toContain("bypass.active");
   });
 
+  test("legacy blocking note is not suppressed by unrelated canonical blocker in the same scope", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    const unrelated = await openBlocker(cwd, {
+      title: "Resolved same-scope canonical blocker",
+      description: "This canonical blocker is not the legacy note.",
+    });
+    await resolveBlocker(cwd, {
+      blockerId: unrelated.id,
+      resolution: "Resolved before the legacy note was added.",
+    });
+    await fs.appendFile(
+      milestoneNotesPath(cwd, "complex-refactor", "m01-core"),
+      [
+        "",
+        "---",
+        "kind: review",
+        "roadmap_id: complex-refactor",
+        "milestone_id: m01-core",
+        "blocking: true",
+        "status: open",
+        "at: 2026-01-01T00:00:00.000Z",
+        "---",
+        "",
+        "## Legacy unresolved blocker",
+        "",
+        "This note has no blocker_id and is not represented by the resolved canonical blocker.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.map((error) => error.code)).toContain("notes.blocking.open");
+  });
+
+  test("explicit roadmap blocker scope does not borrow active milestone or change scope", async () => {
+    await approvedMilestone();
+    const blocker = await openBlocker(cwd, {
+      roadmapId: "other-roadmap",
+      title: "Other roadmap blocker",
+      description: "This blocker is intentionally roadmap scoped.",
+    });
+
+    expect(blocker).toMatchObject({
+      roadmap_id: "other-roadmap",
+      title: "Other roadmap blocker",
+    });
+    expect(blocker.milestone_id).toBeUndefined();
+    expect(blocker.change_request_id).toBeUndefined();
+
+    const scoped = await listBlockers(cwd, { roadmapId: "other-roadmap" });
+    expect(scoped.blockers).toEqual([blocker]);
+    expect((await readRoadmapEvents(cwd, { roadmapId: "other-roadmap", blockerId: blocker.id })).events[0]?.scope).toEqual({
+      roadmap_id: "other-roadmap",
+      blocker_id: blocker.id,
+    });
+  });
+
   test("lists blockers by scope, status, and severity", async () => {
     await approvedMilestone();
     const blocking = await openBlocker(cwd, {
