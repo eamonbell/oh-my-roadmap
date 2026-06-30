@@ -65,6 +65,8 @@ Config and state are stored under `.roadmaps`:
 
 Task and wave progress is recorded with `roadmap_engineer_transition` operations `update_task_status` and `update_wave_status`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
 
+Large roadmap registers are reviewed through read-only context tools. `roadmap_engineer_search_context` searches active-roadmap notes across all milestones plus roadmap-level decisions and risks, returning snippets and metadata by default. `roadmap_engineer_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
+
 ## Closeout Evidence
 
 Milestone completion requires structured closeout evidence in `closeout.md`. Every acceptance criterion and verification command must have a result of `passed` or `deferred`. Deferred items require a reason and approver. Closeout must also confirm worker notes were reviewed, include a review summary, and list any unresolved risks with a disposition.

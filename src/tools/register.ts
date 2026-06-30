@@ -15,6 +15,12 @@ import {
   type TransitionInput,
   type UpdateRoadmapInput,
 } from "../core/store";
+import {
+  readContext,
+  searchContext,
+  type ReadContextInput,
+  type SearchContextInput,
+} from "../core/context";
 import { nextAction, renderReport } from "../core/report";
 import { validateRoadmapState } from "../core/validation";
 
@@ -77,6 +83,9 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     waves: z.array(waveSchema),
     openQuestions: z.array(z.string()).optional(),
   });
+  const contextArtifactSchema = z.enum(["notes", "decisions", "risks"]);
+  const contextNoteKindSchema = z.enum(["worker", "review", "orchestrator", "decision", "issue"]);
+  const contextNoteStatusSchema = z.enum(["open", "resolved", "deferred"]);
   const roadmapMilestoneSchema = z.object({
     id: z.string(),
     title: z.string(),
@@ -159,6 +168,49 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     async execute(_id, _params, _signal, _update, ctx) {
       const state = await loadState(ctx.cwd);
       return textResult(JSON.stringify(state, null, 2), state);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_search_context",
+    label: "Search Roadmap Context",
+    description: "Search active-roadmap notes, decisions, and risks with compact snippet results.",
+    approval: "read",
+    parameters: z.object({
+      artifacts: z.array(contextArtifactSchema).optional(),
+      query: z.string().optional(),
+      useRegex: z.boolean().optional(),
+      caseSensitive: z.boolean().optional(),
+      maxResults: z.number().optional(),
+      snippetChars: z.number().optional(),
+      includeBodies: z.boolean().optional(),
+      maxBodyChars: z.number().optional(),
+      milestoneIds: z.array(z.string()).optional(),
+      kinds: z.array(contextNoteKindSchema).optional(),
+      statuses: z.array(contextNoteStatusSchema).optional(),
+      blocking: z.boolean().optional(),
+      waveId: z.string().optional(),
+      taskId: z.string().optional(),
+      workerId: z.string().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await searchContext(ctx.cwd, params as SearchContextInput);
+      return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_read_context",
+    label: "Read Roadmap Context",
+    description: "Read selected context entries returned by roadmap_engineer_search_context.",
+    approval: "read",
+    parameters: z.object({
+      ids: z.array(z.string()),
+      maxBodyChars: z.number().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await readContext(ctx.cwd, params as ReadContextInput);
+      return textResult(JSON.stringify(result, null, 2), result);
     },
   } as ToolDefinition);
 
