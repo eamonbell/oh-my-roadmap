@@ -112,6 +112,22 @@ export interface RoadmapState {
   bypass?: BypassState;
 }
 
+export const IMPLEMENTATION_WORKER_NAMES = ["worker-light", "worker", "worker-heavy"] as const;
+
+export type ImplementationWorkerName = (typeof IMPLEMENTATION_WORKER_NAMES)[number];
+
+export const WAVE_FLOW_CHECK_STATUSES = ["pending", "passed", "failed"] as const;
+
+export type WaveFlowCheckStatus = (typeof WAVE_FLOW_CHECK_STATUSES)[number];
+
+export interface WaveFlowCheck {
+  status: WaveFlowCheckStatus;
+  checked_by: string;
+  checked_at: string;
+  summary: string;
+  findings: string[];
+}
+
 export interface TaskPlan {
   id: string;
   title: string;
@@ -119,7 +135,7 @@ export interface TaskPlan {
   implementation_notes: string[];
   done_criteria: string[];
   verification_commands: string[];
-  worker: string;
+  worker: ImplementationWorkerName;
   status: "assigned" | "started" | "done" | "blocked";
   depends_on: string[];
   owned_files: string[];
@@ -174,6 +190,7 @@ export interface MilestonePlan {
   tasks: TaskPlan[];
   waves: WavePlan[];
   progress: ImplementationProgress;
+  wave_flow_check: WaveFlowCheck;
 }
 
 export interface ChangeRequest {
@@ -195,6 +212,7 @@ export interface ChangeRequest {
   tasks: TaskPlan[];
   waves: WavePlan[];
   progress: ImplementationProgress;
+  wave_flow_check: WaveFlowCheck;
   closeout?: CloseoutEvidence;
 }
 

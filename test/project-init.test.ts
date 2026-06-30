@@ -35,13 +35,26 @@ async function pathExists(relativePath: string): Promise<boolean> {
 }
 
 describe("project init scaffold", () => {
-  test("creates default config and local worker and reviewer agents", async () => {
+  test("creates default config and local generated agents", async () => {
     const result = await initProject(cwd);
 
     expect(result.createdConfig).toBe(true);
     expect(parseYaml<Record<string, unknown>>(await readFile(".roadmaps/config.yml"))).toEqual({
-      agents: { worker: {}, reviewer: {} },
+      agents: {
+        "worker-light": {},
+        worker: {},
+        "worker-heavy": {},
+        reviewer: {},
+        "wave-flow-checker": {},
+      },
     });
+
+    const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
+    expect(workerLight.data).toMatchObject({
+      name: "worker-light",
+      description: "Use for scoped roadmap-engineer implementation tasks assigned by an implementation orchestrator.",
+    });
+    expect(workerLight.body).toContain("# Worker");
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
     expect(worker.data).toMatchObject({
@@ -52,6 +65,10 @@ describe("project init scaffold", () => {
     expect(worker.data["thinking-level"]).toBeUndefined();
     expect(worker.body).toContain("# Worker");
 
+    const workerHeavy = parseMarkdownDocument(await readFile(".omp/agents/worker-heavy.md"));
+    expect(workerHeavy.data.name).toBe("worker-heavy");
+    expect(workerHeavy.body).toContain("Execute only your assigned task");
+
     const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
     expect(reviewer.data).toMatchObject({
       name: "reviewer",
@@ -60,6 +77,10 @@ describe("project init scaffold", () => {
     expect(reviewer.data.model).toBeUndefined();
     expect(reviewer.data["thinking-level"]).toBeUndefined();
     expect(reviewer.body).toContain("# Reviewer");
+
+    const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
+    expect(checker.data.name).toBe("wave-flow-checker");
+    expect(checker.body).toContain("# Wave Flow Checker");
     expect(await pathExists(".roadmaps/config.yml")).toBe(true);
   });
 
@@ -74,9 +95,15 @@ describe("project init scaffold", () => {
     const result = await initProject(cwd);
 
     expect(result.createdConfig).toBe(false);
-    expect(await readFile(".roadmaps/config.yml")).toBe(
-      "agents:\n  worker:\n    model: pi/task\n    thinking: medium\n  reviewer: {}\n",
-    );
+    expect(parseYaml<Record<string, unknown>>(await readFile(".roadmaps/config.yml"))).toEqual({
+      agents: {
+        "worker-light": {},
+        worker: { model: "pi/task", thinking: "medium" },
+        "worker-heavy": {},
+        reviewer: {},
+        "wave-flow-checker": {},
+      },
+    });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
     expect(worker.data.model).toBe("pi/task");
@@ -87,32 +114,56 @@ describe("project init scaffold", () => {
     expect(reviewer.data.model).toBeUndefined();
     expect(reviewer.data["thinking-level"]).toBeUndefined();
     expect(reviewer.body).toContain("Review implementation against the approved plan");
+
+    const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
+    expect(checker.body).toContain("flow contradictions");
   });
 
-  test("renders configured worker and reviewer model and thinking", async () => {
+  test("renders configured model and thinking for all generated agents", async () => {
     await writeFile(
       ".roadmaps/config.yml",
       [
         "agents:",
+        "  worker-light:",
+        "    model: pi/light",
+        "    thinking: minimal",
         "  worker:",
         "    model: pi/task",
         "    thinking: low",
+        "  worker-heavy:",
+        "    model: pi/heavy",
+        "    thinking: xhigh",
         "  reviewer:",
         "    model: anthropic/claude-sonnet",
         "    thinking: high",
+        "  wave-flow-checker:",
+        "    model: pi/checker",
+        "    thinking: medium",
         "",
       ].join("\n"),
     );
 
     await initProject(cwd);
 
+    const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
+    expect(workerLight.data.model).toBe("pi/light");
+    expect(workerLight.data["thinking-level"]).toBe("minimal");
+
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
     expect(worker.data.model).toBe("pi/task");
     expect(worker.data["thinking-level"]).toBe("low");
 
+    const workerHeavy = parseMarkdownDocument(await readFile(".omp/agents/worker-heavy.md"));
+    expect(workerHeavy.data.model).toBe("pi/heavy");
+    expect(workerHeavy.data["thinking-level"]).toBe("xhigh");
+
     const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
     expect(reviewer.data.model).toBe("anthropic/claude-sonnet");
     expect(reviewer.data["thinking-level"]).toBe("high");
+
+    const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
+    expect(checker.data.model).toBe("pi/checker");
+    expect(checker.data["thinking-level"]).toBe("medium");
   });
 
   test("ignores legacy .roadmap config", async () => {
@@ -125,7 +176,13 @@ describe("project init scaffold", () => {
 
     expect(result.createdConfig).toBe(true);
     expect(parseYaml<Record<string, unknown>>(await readFile(".roadmaps/config.yml"))).toEqual({
-      agents: { worker: {}, reviewer: {} },
+      agents: {
+        "worker-light": {},
+        worker: {},
+        "worker-heavy": {},
+        reviewer: {},
+        "wave-flow-checker": {},
+      },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));

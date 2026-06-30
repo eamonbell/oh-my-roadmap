@@ -22,9 +22,14 @@ Required process:
 - Convert the user's test coverage decisions into task-level verification commands and done criteria, making clear which tests are new, which are existing, and which task owns each test obligation.
 - Define concrete executable tasks before dependency analysis or wave creation.
 - For every task, include objective, implementation notes, done criteria, task-level verification commands, dependencies, exclusive file/module ownership, shared interfaces, and worker assignment.
+- Assign every implementation task to exactly one of `worker-light`, `worker`, or `worker-heavy` using this rubric: use `worker-light` for narrow, low-risk, localized edits; use `worker` for normal bounded implementation with moderate reasoning; use `worker-heavy` for cross-module, API/schema, concurrency, migration, high-risk, or high-ambiguity work.
 - Perform dependency analysis over the concrete task list; explain why dependencies exist and which tasks can safely run concurrently.
 - Divide already-defined tasks into waves.
 - For every wave, include goal, exit criteria, review checkpoint, and task IDs.
 - Ensure same-wave tasks do not overlap owned files/modules.
 - Initialize implementation progress to the first wave with step `not_started`, empty active tasks, and a current timestamp.
-- Use `roadmap_engineer_transition` or `roadmap_engineer_create_change_request`, then `roadmap_engineer_validate`.
+- Create or update the draft plan with `roadmap_engineer_transition` or `roadmap_engineer_create_change_request`.
+- Dispatch `wave-flow-checker` to review the draft waves before asking for approval.
+- Record the checker result with `roadmap_engineer_transition` operation `record_wave_flow_check`.
+- If the checker fails, revise the draft plan with `update_milestone_plan` or `update_change_request_plan`, rerun `wave-flow-checker`, and record the new result.
+- Use `roadmap_engineer_validate` only after the wave-flow check passes, then ask for approval.

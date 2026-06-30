@@ -102,6 +102,7 @@ function planSummary(plan: MilestonePlan | ChangeRequest | undefined): Record<st
     tasks: plan.tasks.map(taskSummary),
     waves: plan.waves.map(waveSummary),
     progress: plan.progress,
+    wave_flow_check: plan.wave_flow_check,
   };
 }
 

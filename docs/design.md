@@ -48,7 +48,7 @@ Config and state are stored under `.roadmaps`:
 - Each roadmap milestone outline must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
 - An approved roadmap can be reopened only from `roadmap_approved`, before any milestone or change request is active. Reopening records a required reason, returns to `roadmap_draft`, marks the roadmap not finalized, preserves approval history, and requires regeneration plus explicit reapproval.
 - Milestone plans must be decision-complete before implementation starts.
-- Milestone plans must include exact verification commands, acceptance criteria, concrete executable tasks, dependency analysis, execution waves, worker assignments, task-level verification, and exclusive file/module ownership.
+- Milestone plans must include exact verification commands, acceptance criteria, concrete executable tasks, dependency analysis, execution waves, `worker-light`/`worker`/`worker-heavy` assignments, task-level verification, exclusive file/module ownership, and a passed wave-flow check before approval.
 - Cleanup is approval-gated.
 
 ## Orchestration Rules
@@ -60,6 +60,8 @@ Config and state are stored under `.roadmaps`:
 - Task dependencies must reference known tasks in earlier waves and must not form cycles.
 - Only one wave may be `running` or `reviewing`; later waves cannot start until earlier waves are complete.
 - A worker that needs an unowned file/module must stop and append a blocking note.
+- Implementation orchestrators dispatch tasks to the exact worker role recorded on each task and do not write code themselves.
+- Wave-flow checks run during planning before approval; implementation orchestrators do not perform wave-flow checks.
 - Review runs after every wave and at closeout.
 - Blocking review findings stop later waves until resolved or explicitly deferred.
 

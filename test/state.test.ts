@@ -19,6 +19,7 @@ import {
 import { decisionsPath, milestoneNotesPath, milestonePlanPath, roadmapDocPath, storeLockPath } from "../src/core/paths";
 import type { CloseoutEvidence } from "../src/core/types";
 import { validateImplementationGate, validateRoadmapState } from "../src/core/validation";
+import { summarizeState } from "../src/core/state-summary";
 
 let cwd = "";
 
@@ -44,7 +45,7 @@ function milestoneInput(): CreateMilestonePlanInput {
         implementation_notes: ["Update state storage and lifecycle transitions."],
         done_criteria: ["State lifecycle operations remain valid."],
         verification_commands: ["bun test"],
-        worker: "worker-a",
+        worker: "worker-light",
         status: "assigned",
         depends_on: [],
         owned_files: ["src/core/store.ts"],
@@ -58,7 +59,7 @@ function milestoneInput(): CreateMilestonePlanInput {
         implementation_notes: ["Update report output from loaded state."],
         done_criteria: ["Reports show current milestone status."],
         verification_commands: ["bun test"],
-        worker: "worker-b",
+        worker: "worker-heavy",
         status: "assigned",
         depends_on: ["t01-state"],
         owned_files: ["src/core/report.ts"],
@@ -170,10 +171,23 @@ async function approvedRoadmap(): Promise<void> {
   });
 }
 
+async function recordPassedWaveFlowCheck(summary = "Wave flow check passed."): Promise<void> {
+  await transition(cwd, {
+    operation: "record_wave_flow_check",
+    waveFlowCheck: {
+      status: "passed",
+      checkedBy: "wave-flow-checker",
+      summary,
+      findings: [],
+    },
+  });
+}
+
 async function approvedMilestone(): Promise<void> {
   await approvedRoadmap();
   await transition(cwd, { operation: "start_milestone_planning" });
   await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+  await recordPassedWaveFlowCheck();
   await transition(cwd, {
     operation: "approve_milestone",
     approver: "user",
@@ -434,6 +448,82 @@ describe("roadmap state lifecycle", () => {
     expect(validation.errors.map((error) => error.code)).toContain("progress.blocked_reason.missing");
   });
 
+  test("requires valid implementation worker roles and a passed wave-flow check before milestone approval", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    input.tasks = [
+      { ...input.tasks[0]!, worker: "worker-light" },
+      { ...input.tasks[1]!, worker: "worker-heavy" },
+      {
+        ...input.tasks[0]!,
+        id: "t03-normal",
+        title: "Normal worker",
+        worker: "worker",
+        owned_files: ["src/core/validation.ts"],
+      },
+    ];
+    input.waves = [
+      testWave("w01", ["t01-state"]),
+      testWave("w02", ["t02-report"]),
+      testWave("w03", ["t03-normal"]),
+    ];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+
+    let validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("milestone.wave_flow_check.not_passed");
+    await expect(transition(cwd, { operation: "approve_milestone" })).rejects.toThrow("passed wave-flow check");
+
+    await transition(cwd, {
+      operation: "record_wave_flow_check",
+      waveFlowCheck: {
+        status: "failed",
+        checkedBy: "wave-flow-checker",
+        summary: "Future-wave verification conflict.",
+        findings: ["w02 verification depends on w03."],
+      },
+    });
+    await expect(transition(cwd, { operation: "approve_milestone" })).rejects.toThrow("passed wave-flow check");
+
+    await recordPassedWaveFlowCheck();
+    validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(true);
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+  });
+
+  test("rejects invalid implementation worker roles", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    input.tasks[0] = { ...input.tasks[0]!, worker: "worker-custom" as never };
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.map((error) => error.code)).toContain("task.worker.invalid");
+  });
+
+  test("draft milestone updates reset wave-flow check state", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+    await recordPassedWaveFlowCheck();
+
+    await transition(cwd, {
+      operation: "update_milestone_plan",
+      milestone: {
+        ...milestoneInput(),
+        title: "Updated core milestone",
+      },
+    });
+
+    const state = await loadState(cwd);
+    expect(state.milestone?.title).toBe("Updated core milestone");
+    expect(state.milestone?.wave_flow_check.status).toBe("pending");
+    await expect(transition(cwd, { operation: "approve_milestone" })).rejects.toThrow("passed wave-flow check");
+  });
+
   test("renders generated milestone markdown and updates implementation progress", async () => {
     await approvedRoadmap();
     await transition(cwd, { operation: "start_milestone_planning" });
@@ -445,11 +535,16 @@ describe("roadmap state lifecycle", () => {
       step: "not_started",
       active_task_ids: [],
     });
+    expect(summarizeState(state, "active_milestone")).toMatchObject({
+      milestone: { wave_flow_check: { status: "pending" } },
+    });
     if (!state.milestone) throw new Error("Expected milestone");
     let planMarkdown = await fs.readFile(milestonePlanPath(cwd, state.milestone.roadmap_id, state.milestone.milestone_id), "utf8");
     expect(planMarkdown).toContain("## Required Work");
     expect(planMarkdown).toContain("### t01-state - State engine");
     expect(planMarkdown).toContain("## Execution Waves");
+    expect(planMarkdown).toContain("## Wave Flow Check");
+    expect(planMarkdown).toContain("- Status: pending");
     expect(planMarkdown).toContain("## Progress");
 
     await transition(cwd, {
@@ -520,7 +615,7 @@ describe("roadmap state lifecycle", () => {
       appendNote(cwd, {
         kind: "worker",
         taskId: "t01-state",
-        workerId: "worker-a",
+        workerId: "worker-light",
         title: "Concurrent note",
         body: "Recorded while another store mutation was in flight.",
         status: "resolved",
@@ -679,6 +774,7 @@ describe("roadmap state lifecycle", () => {
     });
     await transition(cwd, { operation: "start_milestone_planning" });
     await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+    await recordPassedWaveFlowCheck();
     await transition(cwd, {
       operation: "approve_milestone",
       approver: "user",
@@ -757,6 +853,7 @@ describe("roadmap state lifecycle", () => {
     });
 
     expect((await validateImplementationGate(cwd)).valid).toBe(false);
+    await recordPassedWaveFlowCheck("Change flow check passed.");
     await transition(cwd, {
       operation: "approve_change",
       approver: "user",
@@ -782,6 +879,49 @@ describe("roadmap state lifecycle", () => {
     expect(state.roadmap?.phase).toBe("closeout");
     const report = await renderReport(cwd);
     expect(report).toContain("Active change request: none");
+  });
+
+  test("requires wave-flow check before change approval and resets it on draft update", async () => {
+    await closeoutPhase();
+    await createChangeRequest(cwd, {
+      changeRequestId: "c01-flow",
+      title: "Flow checked change",
+      request: "Adjust a completed workflow.",
+      verificationCommands: ["bun test"],
+      acceptanceCriteria: ["Change flow is checked"],
+      tasks: [{ ...milestoneInput().tasks[0]!, id: "t01-flow", depends_on: [] }],
+      waves: [testWave("w01", ["t01-flow"])],
+    });
+
+    await expect(transition(cwd, { operation: "approve_change" })).rejects.toThrow("passed wave-flow check");
+    let validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("change.wave_flow_check.not_passed");
+
+    await recordPassedWaveFlowCheck("Initial change flow passed.");
+    await transition(cwd, {
+      operation: "update_change_request_plan",
+      changeRequest: {
+        changeRequestId: "c01-flow",
+        title: "Updated flow checked change",
+        request: "Adjust a completed workflow with a revised plan.",
+        verificationCommands: ["bun test"],
+        acceptanceCriteria: ["Updated change flow is checked"],
+        tasks: [{ ...milestoneInput().tasks[0]!, id: "t01-flow-updated", depends_on: [] }],
+        waves: [testWave("w01", ["t01-flow-updated"])],
+      },
+    });
+
+    let state = await loadState(cwd);
+    expect(state.changeRequest?.title).toBe("Updated flow checked change");
+    expect(state.changeRequest?.wave_flow_check.status).toBe("pending");
+    await expect(transition(cwd, { operation: "approve_change" })).rejects.toThrow("passed wave-flow check");
+
+    await recordPassedWaveFlowCheck("Updated change flow passed.");
+    validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(true);
+    await transition(cwd, { operation: "approve_change", approver: "user" });
+    state = await loadState(cwd);
+    expect(state.changeRequest?.status).toBe("approved");
   });
 
   test("allows change requests from reviewing, closeout, and complete phases", async () => {
