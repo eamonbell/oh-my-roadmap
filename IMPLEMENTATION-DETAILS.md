@@ -142,6 +142,15 @@ Implemented model-callable tools:
 - `roadmap_engineer_read_state`
   - Reads active pointer, active roadmap state, active milestone plan, and active change request.
 
+- `roadmap_engineer_search_context`
+  - Searches the active roadmap's milestone `notes.md` files, `decisions.md`, and `risks.md`.
+  - Supports text or opt-in regex query, note metadata filters, compact snippets, optional bodies, and result caps.
+  - Searches across all milestones in the active roadmap only.
+
+- `roadmap_engineer_read_context`
+  - Reads selected context entries by IDs returned from `roadmap_engineer_search_context`.
+  - Returns capped bodies by default so agents can expand only the context they need.
+
 - `roadmap_engineer_transition`
   - Supports operations:
     - `record_discovery`

@@ -9,7 +9,8 @@ Produce a decision-complete plan for one milestone or change request.
 
 Required process:
 
-- Read active roadmap state, decisions, risks, previous notes, closeout evidence, and amendments.
+- Read active roadmap state, closeout evidence, and amendments.
+- Use `roadmap_engineer_search_context` for decisions, risks, and previous notes before reading full context; expand only relevant entries with `roadmap_engineer_read_context`.
 - Select one approved roadmap milestone outline and expand that outline into the milestone plan. Do not invent milestone scope that is not grounded in the approved roadmap.
 - Inspect relevant existing code and project documentation before planning ownership, waves, or verification.
 - Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy questions, and approval questions are closed.

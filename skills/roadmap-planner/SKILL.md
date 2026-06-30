@@ -10,6 +10,7 @@ Create a detailed roadmap with concrete milestone outlines, not milestone implem
 Required process:
 
 - Inspect the repo and relevant project documentation before drafting.
+- When amending or reopening an existing roadmap, use `roadmap_engineer_search_context` for prior decisions, risks, and notes before reading full context.
 - Use the built-in `ask` tool to interview the user until no material unknowns, decisions, tradeoffs, approvals, or scope gaps remain.
 - Capture useful existing code references and documentation references in the roadmap artifact with concrete paths or source names and short notes.
 - Record whether external research is required and whether it has been completed.

@@ -14,6 +14,8 @@ Milestone and change implementation progress is tracked through explicit task an
 
 Planning prompts and role skills require agents to inspect relevant existing code and documentation, reference useful paths in artifacts, and use OMP's built-in `ask` tool to interview the user until material decisions and gaps are closed.
 
+Agents should use `roadmap_engineer_search_context` to inspect active-roadmap notes, decisions, risks, issues, and review findings before reading large `.roadmaps` artifacts directly. Search returns compact snippets by default; agents can call `roadmap_engineer_read_context` with selected result IDs when full entry detail is needed.
+
 ## Local Use
 
 ```sh
