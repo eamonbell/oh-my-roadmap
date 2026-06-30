@@ -4,6 +4,7 @@ import {
   roadmapStatePath,
   roadmapUsagePath,
 } from "./paths";
+import { withDiagnosticTiming } from "../diagnostics";
 import { fileExists, readMarkdownData, readYamlFile, writeYamlFile } from "./files";
 import { withStoreWriteLock } from "./lock";
 import type { ActivePointer, ChangeRequest, RoadmapState } from "./types";
@@ -198,13 +199,29 @@ function normalizeSummary(value: unknown, roadmapId: string): RoadmapUsageSummar
 }
 
 export async function loadUsageSummary(cwd: string, roadmapId: string): Promise<RoadmapUsageSummary> {
-  const filePath = roadmapUsagePath(cwd, roadmapId);
-  if (!(await fileExists(filePath))) return emptyRoadmapUsageSummary(roadmapId);
-  return normalizeSummary(await readYamlFile<unknown>(filePath), roadmapId);
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "usage.loadUsageSummary",
+    cwd,
+    slowMs: 250,
+    metadata: { roadmap_id: roadmapId },
+  }, async () => {
+    const filePath = roadmapUsagePath(cwd, roadmapId);
+    if (!(await fileExists(filePath))) return emptyRoadmapUsageSummary(roadmapId);
+    return normalizeSummary(await readYamlFile<unknown>(filePath), roadmapId);
+  });
 }
 
 export async function writeUsageSummary(cwd: string, summary: RoadmapUsageSummary): Promise<void> {
-  await writeYamlFile(roadmapUsagePath(cwd, summary.roadmap_id), summary);
+  await withDiagnosticTiming({
+    component: "core",
+    operation: "usage.writeUsageSummary",
+    cwd,
+    slowMs: 250,
+    metadata: { roadmap_id: summary.roadmap_id },
+  }, async () => {
+    await writeYamlFile(roadmapUsagePath(cwd, summary.roadmap_id), summary);
+  });
 }
 
 function addTotals(target: UsageTotals, delta: UsageTotals): void {
@@ -343,23 +360,30 @@ function messageDedupeKey(message: Record<string, unknown>): string {
 }
 
 export async function recordMainUsage(cwd: string, message: unknown): Promise<void> {
-  if (!message || typeof message !== "object" || Array.isArray(message)) return;
-  const raw = message as Record<string, unknown>;
-  if (raw.role !== "assistant") return;
-  const usage = raw.usage && typeof raw.usage === "object" ? raw.usage as UsageLike : undefined;
-  if (!usage) return;
-  const totals = totalsFromUsage(usage, 1);
-  if (!hasBillableUsage(totals)) return;
+  await withDiagnosticTiming({
+    component: "core",
+    operation: "usage.recordMainUsage",
+    cwd,
+    slowMs: 250,
+  }, async () => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return;
+    const raw = message as Record<string, unknown>;
+    if (raw.role !== "assistant") return;
+    const usage = raw.usage && typeof raw.usage === "object" ? raw.usage as UsageLike : undefined;
+    if (!usage) return;
+    const totals = totalsFromUsage(usage, 1);
+    if (!hasBillableUsage(totals)) return;
 
-  await withStoreWriteLock(cwd, async () => {
-    const { scope, roadmap, change } = await readActiveScope(cwd);
-    if (!scope || !roadmap) return;
-    await recordDeltas(cwd, [{
-      agent: workflowUsageAgent(roadmap, change),
-      dedupeKey: messageDedupeKey(raw),
-      scope,
-      totals,
-    }]);
+    await withStoreWriteLock(cwd, async () => {
+      const { scope, roadmap, change } = await readActiveScope(cwd);
+      if (!scope || !roadmap) return;
+      await recordDeltas(cwd, [{
+        agent: workflowUsageAgent(roadmap, change),
+        dedupeKey: messageDedupeKey(raw),
+        scope,
+        totals,
+      }]);
+    });
   });
 }
 
@@ -409,14 +433,22 @@ function collectTaskDeltas(
 }
 
 export async function recordTaskUsage(cwd: string, toolCallId: string, toolResult: unknown): Promise<void> {
-  const details = taskDetailsFromToolResult(toolResult);
-  if (!details) return;
+  await withDiagnosticTiming({
+    component: "core",
+    operation: "usage.recordTaskUsage",
+    cwd,
+    slowMs: 250,
+    metadata: { tool_call_id: toolCallId },
+  }, async () => {
+    const details = taskDetailsFromToolResult(toolResult);
+    if (!details) return;
 
-  await withStoreWriteLock(cwd, async () => {
-    const { scope } = await readActiveScope(cwd);
-    if (!scope) return;
-    const deltas: UsageDelta[] = [];
-    collectTaskDeltas(details, scope, toolCallId, "", deltas);
-    await recordDeltas(cwd, deltas);
+    await withStoreWriteLock(cwd, async () => {
+      const { scope } = await readActiveScope(cwd);
+      if (!scope) return;
+      const deltas: UsageDelta[] = [];
+      collectTaskDeltas(details, scope, toolCallId, "", deltas);
+      await recordDeltas(cwd, deltas);
+    });
   });
 }
