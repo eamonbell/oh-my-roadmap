@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { initProject } from "../core/project-init";
-import { buildRoadmapDetailSummary } from "../core/roadmap-detail-summary";
+import { applyRoadmapDetailControl, buildRoadmapDetailSummary } from "../core/roadmap-detail-summary";
 import { renderReport } from "../core/report";
 import { RoadmapDetailsView } from "./report-ui.ts";
 
@@ -110,13 +110,29 @@ async function sendCommandPrompt(api: ExtensionAPI, name: string, args: string, 
   api.sendUserMessage(commandPrompt(name, args, report));
 }
 
-async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
+async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
   const summary = await buildRoadmapDetailSummary(ctx.cwd);
 
   void ctx.ui
     .custom(
-      (tui, _theme, _keybindings, done) =>
-        new RoadmapDetailsView(summary, tui, () => done(undefined)),
+      (tui, _theme, _keybindings, done) => {
+        const close = () => done(undefined);
+        return new RoadmapDetailsView(summary, tui, close, (key) => {
+          void applyRoadmapDetailControl(ctx.cwd, key)
+            .then((result) => {
+              if (result.action === "applied_next_action") {
+                ctx.ui.notify(`Applied next action: ${result.result.plan.label}`, "info");
+              } else {
+                api.sendUserMessage(result.prompt);
+              }
+              close();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error);
+              ctx.ui.notify(`roadmap:details control failed: ${message}`, "error");
+            });
+        });
+      },
       { overlay: true },
     )
     .catch((error: unknown) => {
@@ -146,7 +162,7 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
   api.registerCommand(DETAILS_COMMAND, {
     description: "View current roadmap state without prompting the model",
     handler: async (_args, ctx) => {
-      await showRoadmapDetails(ctx);
+      await showRoadmapDetails(api, ctx);
     },
   });
 

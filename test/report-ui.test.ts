@@ -45,6 +45,16 @@ const summary: RoadmapDetailSummary = {
     roadmapContentHash: "sha256:current",
     checkedContentHash: "sha256:current",
     eventId: "evt_test",
+    history: [
+      {
+        id: "evt_test",
+        at: "2026-06-30T12:00:00.000Z",
+        type: "quality_gate.recorded",
+        actor: "roadmap-milestone-checker",
+        summary: "Quality gate roadmap_milestone_check recorded as passed.",
+        label: "quality_gate.recorded evt_test: Quality gate roadmap_milestone_check recorded as passed.",
+      },
+    ],
   },
   validation: {
     valid: true,
@@ -74,7 +84,29 @@ const summary: RoadmapDetailSummary = {
       },
     ],
   },
-  nextAction: "Collect worker notes for active tasks, then update progress to wave_review.",
+  roadmapHealth: {
+    status: "healthy",
+    label: "healthy; 0 open blockers",
+    activePhase: "implementing",
+    validationStatus: "valid",
+    implementationGateStatus: "open",
+    qualityGateStatus: "passed",
+    openBlockerCount: 0,
+  },
+  nextAction: {
+    id: "progress:w01:collect-worker-notes",
+    label: "Collect worker notes",
+    description: "Collect worker notes for active tasks, then update progress to wave_review.",
+    status: "agent_required",
+    safe_to_apply: false,
+    blockers: [],
+    missing_inputs: [],
+    scope: {
+      roadmap_id: "demo",
+      milestone_id: "m01-core",
+      wave_id: "w01",
+    },
+  },
   waves: {
     total: 2,
     counts: {
@@ -91,6 +123,37 @@ const summary: RoadmapDetailSummary = {
       label: "w01 (running)",
     },
   },
+  activeExecution: {
+    activeWave: {
+      id: "w01",
+      status: "running",
+      goal: "Build the UI",
+      label: "w01 (running)",
+    },
+    progressStep: "workers_running",
+    activeTasks: [
+      {
+        id: "task-a",
+        worker: "worker-light",
+        status: "started",
+        title: "Build summary renderer",
+        label: "worker-light started: Build summary renderer",
+      },
+    ],
+    waveCounts: {
+      pending: 1,
+      running: 1,
+      reviewing: 0,
+      blocked: 0,
+      complete: 0,
+    },
+    taskCounts: {
+      assigned: 0,
+      started: 1,
+      done: 0,
+      blocked: 0,
+    },
+  },
   activeTasks: [
     {
       id: "task-a",
@@ -101,6 +164,49 @@ const summary: RoadmapDetailSummary = {
     },
   ],
   blockers: [],
+  canonicalBlockers: {
+    counts: {
+      open: 0,
+      resolved: 1,
+      deferred: 0,
+    },
+    open: [],
+  },
+  recentEvents: [
+    {
+      id: "evt_recent",
+      at: "2026-06-30T12:01:00.000Z",
+      type: "implementation.progress.updated",
+      actor: "user",
+      summary: "Implementation progress updated.",
+      label: "implementation.progress.updated evt_recent: Implementation progress updated.",
+    },
+  ],
+  availableControls: [
+    {
+      key: "a",
+      label: "Apply safe next action",
+      action: "apply_next_action",
+      enabled: false,
+      reason: "Next action is agent_required and safe_to_apply=false",
+      tool: {
+        name: "roadmap_engineer_apply_next_action",
+        input: { actionId: "progress:w01:collect-worker-notes" },
+      },
+      prompt: "Call roadmap_engineer_apply_next_action with input:\n{}",
+    },
+    {
+      key: "d",
+      label: "Prepare wave dispatch",
+      action: "insert_tool_call",
+      enabled: true,
+      tool: {
+        name: "roadmap_engineer_prepare_wave_dispatch",
+        input: { roadmapId: "demo", milestoneId: "m01-core" },
+      },
+      prompt: "Call roadmap_engineer_prepare_wave_dispatch with input:\n{}",
+    },
+  ],
   usage: {
     roadmap: {
       raw: {
@@ -153,15 +259,21 @@ describe("roadmap details renderer", () => {
 
     const nextAction = output.indexOf("Next Action");
     const activeWork = output.indexOf("Active Work");
+    const controls = output.indexOf("Controls");
     const qualityGate = output.indexOf("Quality Gate");
+    const blockers = output.indexOf(" Blockers", qualityGate);
+    const recentEvents = output.indexOf("Recent Events");
     const issues = output.lastIndexOf("Issues");
     const usage = output.indexOf("Usage");
     const metadata = output.indexOf("Metadata");
 
     expect(nextAction).toBeGreaterThan(-1);
     expect(activeWork).toBeGreaterThan(nextAction);
-    expect(qualityGate).toBeGreaterThan(activeWork);
-    expect(issues).toBeGreaterThan(qualityGate);
+    expect(controls).toBeGreaterThan(activeWork);
+    expect(qualityGate).toBeGreaterThan(controls);
+    expect(blockers).toBeGreaterThan(qualityGate);
+    expect(recentEvents).toBeGreaterThan(blockers);
+    expect(issues).toBeGreaterThan(recentEvents);
     expect(usage).toBeGreaterThan(issues);
     expect(metadata).toBeGreaterThan(usage);
     expect(output).toContain("Scope");
@@ -169,6 +281,10 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("Status    passed");
     expect(output).toContain("Revision  1/1");
     expect(output).toContain("Event     evt_test");
+    expect(output).toContain("[a] Apply safe next action");
+    expect(output).toContain("roadmap_engineer_prepare_wave_dispatch");
+    expect(output).toContain("Recent Events");
+    expect(output).toContain("implementation.progress.updated");
     expect(output).toContain("implementation_orchestrator");
   });
 
@@ -179,6 +295,9 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("Quality gate");
     expect(output).toContain("Quality Gate");
     expect(output).toContain("Active Work");
+    expect(output).toContain("Controls");
+    expect(output).toContain("Blockers");
+    expect(output).toContain("Recent Events");
     expect(output).toContain("Issues");
     expect(output).toContain("task-a [worker-light");
     expect(output).toContain("Cost");

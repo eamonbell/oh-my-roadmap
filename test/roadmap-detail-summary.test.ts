@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { renderReport } from "../src/core/report";
-import { buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "../src/core/roadmap-detail-summary";
+import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "../src/core/roadmap-detail-summary";
 import {
   appendNote,
   initRoadmap,
@@ -184,7 +184,16 @@ describe("roadmap detail summary", () => {
     expect(summary.gate.status).toBe("closed");
     expect(summary.gate.warnings.map((issue) => issue.code)).toContain("bypass.active");
     expect(summary.qualityGate.status).toBe("passed");
-    expect(summary.nextAction).toMatch(/^Resolve or defer blocking blockers: blk_[^:]+: Blocking note$/);
+    expect(summary.roadmapHealth).toMatchObject({
+      status: "blocked",
+      activePhase: "implementing",
+      validationStatus: "invalid",
+      implementationGateStatus: "closed",
+      qualityGateStatus: "passed",
+      openBlockerCount: 1,
+    });
+    expect(summary.nextAction.description).toMatch(/^Resolve or defer blocking blockers: blk_[^:]+: Blocking note$/);
+    expect(summary.nextAction.status).toBe("blocked");
     expect(summary.waves).toMatchObject({
       total: 1,
       counts: { blocked: 1 },
@@ -193,6 +202,11 @@ describe("roadmap detail summary", () => {
         status: "blocked",
         label: "w01 (blocked)",
       },
+    });
+    expect(summary.activeExecution).toMatchObject({
+      progressStep: "resolving_blockers",
+      activeWave: { id: "w01" },
+      taskCounts: { assigned: 0, started: 0, done: 0, blocked: 1 },
     });
     expect(summary.activeTasks).toEqual([
       {
@@ -209,8 +223,121 @@ describe("roadmap detail summary", () => {
       "Blocked wave w01",
       "Blocked task t01-state",
     ]);
+    expect(summary.canonicalBlockers.counts).toMatchObject({ open: 1, resolved: 0, deferred: 0 });
+    expect(summary.canonicalBlockers.open[0]).toMatchObject({
+      severity: "blocking",
+      status: "open",
+      title: "Blocking note",
+      scope: {
+        roadmapId: "summary-roadmap",
+        milestoneId: "m01-core",
+      },
+    });
+    expect(summary.qualityGate.history).toEqual([
+      expect.objectContaining({
+        type: "quality_gate.recorded",
+        summary: "Roadmap milestone check recorded as passed.",
+      }),
+    ]);
+    expect(summary.recentEvents.map((event) => event.type)).toContain("blocker.opened");
+    expect(summary.availableControls.find((control) => control.key === "a")).toMatchObject({
+      label: "Apply safe next action",
+      enabled: false,
+      tool: {
+        name: "roadmap_engineer_apply_next_action",
+      },
+    });
+    expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("roadmap_engineer_resolve_blocker");
+    expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("roadmap_engineer_defer_blocker");
     expect(summary.usage?.roadmap.label).toBe("$0.0123, 1 req, 20 tok, in 10, out 5, cache 2/3, reasoning 4");
     expect(summary.usage?.topAgents[0]?.label).toContain("implementation_orchestrator");
     expect(summary.usage?.milestone?.id).toBe("m01-core");
+  });
+
+  test("applies only enabled safe next-action controls", async () => {
+    await initRoadmap(cwd, { roadmapId: "control-roadmap", title: "Control Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected control flow."] },
+    });
+    await updateRoadmap(cwd, {
+      goal: "Apply safe controls.",
+      successCriteria: ["The dashboard applies the same safe next action helper."],
+      constraints: ["Unsafe actions remain prompts."],
+      nonGoals: ["Do not spawn workers from the dashboard."],
+      context: ["applyNextAction owns safe transition checks."],
+      evidence: ["The control descriptor includes roadmap_engineer_apply_next_action."],
+      risks: ["A stale action id must not be applied."],
+      milestones: [
+        {
+          id: "m01-core",
+          title: "Core milestone",
+          status: "planned",
+          goal: "Exercise safe controls.",
+          scope: ["Start milestone planning."],
+          non_goals: ["Do not plan implementation."],
+          evidence: ["The roadmap is approved before applying the control."],
+          dependencies: [],
+          risks: ["Control execution could bypass nextActionPlan."],
+          acceptance_intent: ["Phase advances through applyRoadmapDetailControl."],
+          verification_intent: ["Run focused summary tests."],
+        },
+      ],
+    });
+    await transition(cwd, {
+      operation: "record_roadmap_milestone_check",
+      roadmapMilestoneCheck: {
+        status: "passed",
+        checkedBy: "roadmap-milestone-checker",
+        summary: "Roadmap milestone check passed.",
+        findings: [],
+      },
+    });
+    await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+
+    const before = await buildRoadmapDetailSummary(cwd);
+    expect(before.kind).toBe("active");
+    if (before.kind !== "active") throw new Error("Expected active summary");
+    expect(before.availableControls.find((control) => control.key === "a")).toMatchObject({
+      enabled: true,
+      tool: {
+        name: "roadmap_engineer_apply_next_action",
+        input: { actionId: before.nextAction.id },
+      },
+    });
+
+    const result = await applyRoadmapDetailControl(cwd, "a");
+    expect(result.action).toBe("applied_next_action");
+    if (result.action !== "applied_next_action") throw new Error("Expected applied control");
+    expect(result.result.plan.id).toBe(before.nextAction.id);
+
+    const after = await buildRoadmapDetailSummary(cwd);
+    expect(after.kind).toBe("active");
+    if (after.kind !== "active") throw new Error("Expected active summary");
+    expect(after.roadmap.phase).toBe("milestone_planning");
+    await expect(applyRoadmapDetailControl(cwd, "a")).rejects.toThrow("disabled");
+
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+    await transition(cwd, {
+      operation: "record_wave_flow_check",
+      waveFlowCheck: {
+        status: "passed",
+        checkedBy: "wave-flow-checker",
+        summary: "Wave flow check passed.",
+        findings: [],
+      },
+    });
+    const approval = await buildRoadmapDetailSummary(cwd);
+    expect(approval.kind).toBe("active");
+    if (approval.kind !== "active") throw new Error("Expected active summary");
+    expect(approval.nextAction.status).toBe("approval_required");
+    expect(approval.availableControls.find((control) => control.key === "p")).toMatchObject({
+      enabled: true,
+      action: "insert_prompt",
+    });
+    const prompt = await applyRoadmapDetailControl(cwd, "p");
+    expect(prompt.action).toBe("insert_prompt");
+    if (prompt.action !== "insert_prompt") throw new Error("Expected prompt control");
+    expect(prompt.prompt).toContain("Ask the user for explicit approval");
   });
 });
