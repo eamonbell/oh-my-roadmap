@@ -3,7 +3,7 @@ import { milestoneNotesPath } from "./paths";
 import { readText } from "./files";
 import { parseMarkdownDocument } from "./frontmatter";
 import { roadmapDocPath } from "./paths";
-import { loadState, renderRoadmapMarkdown } from "./store";
+import { loadState, roadmapContentHash, renderRoadmapMarkdown } from "./store";
 import { validateCloseoutEvidence } from "./closeout";
 import { issue, validateChangeRequest, validateMilestonePlan } from "./plan-validation";
 import { PHASES, type LoadedState, type RoadmapMilestoneOutline, type RoadmapState, type ValidationIssue, type ValidationResult } from "./types";
@@ -54,6 +54,9 @@ async function validateGeneratedRoadmapDoc(
   errors: ValidationIssue[],
 ): Promise<void> {
   if (!roadmap.roadmap_finalized) return;
+  if (roadmap.phase === "roadmap_draft" && roadmap.roadmap_content_hash !== roadmapContentHash(roadmap)) {
+    errors.push(issue("roadmap.content_hash.stale", "roadmap content hash must match the generated roadmap state"));
+  }
   try {
     const actual = await readText(roadmapDocPath(cwd, roadmap.roadmap_id));
     const expected = renderRoadmapMarkdown(roadmap);
@@ -69,7 +72,35 @@ function validateRoadmapMilestoneCheck(roadmap: RoadmapState, errors: Validation
   if (!roadmap.roadmap_finalized) return;
 
   const check = roadmap.roadmap_milestone_check;
-  if (!check || check.status !== "passed") {
+  if (!check || check.status === "pending") {
+    errors.push(issue(
+      "roadmap.milestone_check.pending",
+      `Roadmap milestone check is pending for revision ${roadmap.roadmap_revision}`,
+    ));
+    return;
+  }
+
+  if (
+    roadmap.phase === "roadmap_draft" &&
+    (check.roadmap_revision !== roadmap.roadmap_revision || check.roadmap_content_hash !== roadmap.roadmap_content_hash)
+  ) {
+    errors.push(issue(
+      "roadmap.milestone_check.stale",
+      `Roadmap milestone check is stale: checked revision ${check.roadmap_revision}, current revision ${roadmap.roadmap_revision}`,
+    ));
+    return;
+  }
+
+  if (check.status === "failed") {
+    const latestFinding = check.findings[0] ? ` Latest finding: ${check.findings[0]}` : "";
+    errors.push(issue(
+      "roadmap.milestone_check.failed",
+      `Roadmap milestone check failed.${latestFinding}`,
+    ));
+    return;
+  }
+
+  if (check.status !== "passed") {
     errors.push(issue("roadmap.milestone_check.not_passed", "Roadmap requires a passed roadmap-milestone check before approval"));
     return;
   }

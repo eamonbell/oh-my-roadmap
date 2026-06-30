@@ -40,6 +40,7 @@ export interface ActiveRoadmapDetailSummary {
     reason?: string;
     requestedBy?: string;
   };
+  qualityGate: RoadmapDetailQualityGate;
   validation: RoadmapDetailCheck;
   gate: RoadmapDetailCheck;
   nextAction: string;
@@ -54,6 +55,18 @@ export interface RoadmapDetailReference {
   title: string;
   status: string;
   label: string;
+}
+
+export interface RoadmapDetailQualityGate {
+  gate: "roadmap_milestone_check";
+  status: "pending" | "passed" | "failed" | "stale";
+  label: string;
+  roadmapRevision: number;
+  checkedRevision: number;
+  roadmapContentHash: string;
+  checkedContentHash: string;
+  latestFinding?: string;
+  eventId?: string;
 }
 
 export interface RoadmapDetailCheck {
@@ -166,6 +179,7 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
       changeRequest: referenceFromPlan(state.active.change_request_id, state.changeRequest),
     },
     bypass: bypassSummary(state),
+    qualityGate: qualityGateSummary(state.roadmap),
     validation: checkSummary(validation, validation.valid ? "valid" : "invalid"),
     gate: checkSummary(gate, gate.valid ? "open" : "closed"),
     nextAction: await nextAction(cwd),
@@ -173,6 +187,27 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
     activeTasks: activeTasksSummary(context),
     blockers: blockerSummary(context),
     usage: usageSummary(state.usage, state.active.milestone_id, state.active.change_request_id),
+  };
+}
+
+function qualityGateSummary(roadmap: LoadedState["roadmap"]): RoadmapDetailQualityGate {
+  if (!roadmap) throw new Error("Expected active roadmap");
+  const check = roadmap.roadmap_milestone_check;
+  const stale = roadmap.phase === "roadmap_draft" && check.status !== "pending" && (
+    check.roadmap_revision !== roadmap.roadmap_revision ||
+    check.roadmap_content_hash !== roadmap.roadmap_content_hash
+  );
+  const status = stale ? "stale" : check.status;
+  return {
+    gate: "roadmap_milestone_check",
+    status,
+    label: `${status} (checked revision ${check.roadmap_revision}, current revision ${roadmap.roadmap_revision})`,
+    roadmapRevision: roadmap.roadmap_revision,
+    checkedRevision: check.roadmap_revision,
+    roadmapContentHash: roadmap.roadmap_content_hash,
+    checkedContentHash: check.roadmap_content_hash,
+    ...(check.findings[0] ? { latestFinding: check.findings[0] } : {}),
+    ...(check.event_id ? { eventId: check.event_id } : {}),
   };
 }
 

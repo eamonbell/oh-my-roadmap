@@ -1,5 +1,5 @@
 import { loadState } from "./store";
-import type { ImplementationProgress, TaskPlan, WavePlan } from "./types";
+import type { ImplementationProgress, RoadmapState, TaskPlan, WavePlan } from "./types";
 import type { RoadmapUsageSummary, UsageScopeSummary, UsageTotals } from "./usage";
 import { validateImplementationGate, validateRoadmapState } from "./validation";
 
@@ -85,6 +85,32 @@ function hasPlannableMilestone(state: Awaited<ReturnType<typeof loadState>>): bo
   return state.roadmap?.milestones.some((milestone) => ["planned", "blocked"].includes(milestone.status)) ?? false;
 }
 
+function roadmapMilestoneCheckLabel(roadmap: RoadmapState): string {
+  const check = roadmap.roadmap_milestone_check;
+  const stale = roadmap.phase === "roadmap_draft" && check.status !== "pending" && (
+    check.roadmap_revision !== roadmap.roadmap_revision ||
+    check.roadmap_content_hash !== roadmap.roadmap_content_hash
+  );
+  const status = stale ? "stale" : check.status;
+  return `${status} (checked revision ${check.roadmap_revision}, current revision ${roadmap.roadmap_revision})`;
+}
+
+function roadmapCheckNextAction(roadmap: RoadmapState): string | undefined {
+  const check = roadmap.roadmap_milestone_check;
+  if (!roadmap.roadmap_finalized || roadmap.phase !== "roadmap_draft") return undefined;
+  if (check.status === "pending") {
+    return `Dispatch roadmap-milestone checker for revision ${roadmap.roadmap_revision}.`;
+  }
+  if (check.roadmap_revision !== roadmap.roadmap_revision || check.roadmap_content_hash !== roadmap.roadmap_content_hash) {
+    return `Rerun roadmap-milestone checker: checked revision ${check.roadmap_revision}, current revision ${roadmap.roadmap_revision}.`;
+  }
+  if (check.status === "failed") {
+    const finding = check.findings[0] ? ` Latest finding: ${check.findings[0]}` : "";
+    return `Revise roadmap, regenerate roadmap.md, then rerun roadmap-milestone checker.${finding}`;
+  }
+  return undefined;
+}
+
 export async function renderReport(cwd: string): Promise<string> {
   const state = await loadState(cwd);
   if (!state.active || !state.roadmap) {
@@ -98,7 +124,7 @@ export async function renderReport(cwd: string): Promise<string> {
     ``,
     `Roadmap: ${state.roadmap.roadmap_id} (${state.roadmap.title})`,
     `Phase: ${state.roadmap.phase}`,
-    `Roadmap milestone check: ${state.roadmap.roadmap_milestone_check.status}`,
+    `Roadmap milestone check: ${roadmapMilestoneCheckLabel(state.roadmap)}`,
     `Active milestone: ${state.active.milestone_id ?? "none"}`,
     `Active change request: ${state.active.change_request_id ?? "none"}`,
     `Bypass: ${state.roadmap.bypass?.active ? state.roadmap.bypass.reason : "inactive"}`,
@@ -138,6 +164,8 @@ export async function nextAction(cwd: string): Promise<string> {
   const state = await loadState(cwd);
   if (!state.active || !state.roadmap) return "Create a roadmap with /roadmap:new.";
   const validation = await validateRoadmapState(cwd);
+  const roadmapCheckAction = roadmapCheckNextAction(state.roadmap);
+  if (roadmapCheckAction) return roadmapCheckAction;
   if (!validation.valid) return `Resolve validation errors: ${validation.errors[0]?.message}`;
   if (state.changeRequest) {
     switch (state.changeRequest.status) {
