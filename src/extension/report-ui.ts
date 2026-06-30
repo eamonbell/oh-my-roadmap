@@ -15,8 +15,8 @@ export type { RoadmapDetailSummary } from "../core/roadmap-detail-summary";
 const DETAILS_VIEW_HEIGHT = 24;
 const MIN_VIEW_WIDTH = 30;
 const MIN_VIEW_HEIGHT = 8;
-const WIDE_LAYOUT_WIDTH = 92;
-const RAIL_WIDTH = 28;
+const MIN_RAIL_WIDTH = 24;
+const MIN_MAIN_WIDTH = 44;
 const COLUMN_GAP = 2;
 const EMPTY_NEXT_ACTION = "Create a roadmap with /roadmap:new.";
 
@@ -66,17 +66,16 @@ export class RoadmapDetailsView implements Component {
   }
 
   render(width: number): readonly string[] {
-    const safeWidth = Math.max(MIN_VIEW_WIDTH, Math.trunc(width || 80));
-    const safeHeight = Math.max(MIN_VIEW_HEIGHT, getTuiRows(this.#tui));
+    const dims = getTuiRowsAndCols(this.#tui, width);
 
     const frame = renderRoadmapDetailsFrame({
       summary: this.#summary,
-      width: safeWidth,
-      height: safeHeight,
+      width: dims.cols,
+      height: dims.rows,
       scrollView: this.#scrollView,
     });
 
-    return fitFrameToTerminal(frame, safeWidth, safeHeight);
+    return fitFrameToTerminal(frame, dims.cols, dims.rows);
   }
 }
 
@@ -89,15 +88,15 @@ type RenderRoadmapDetailsFrameOptions = {
 
 export function renderRoadmapDetailsFrame(options: RenderRoadmapDetailsFrameOptions): string[] {
   const { summary, width, height, scrollView } = options;
-  const safeWidth = Math.max(MIN_VIEW_WIDTH, width);
-  const safeHeight = Math.max(MIN_VIEW_HEIGHT, height);
+  const safeWidth = Math.max(MIN_VIEW_WIDTH, Math.trunc(width || MIN_VIEW_WIDTH));
+  const safeHeight = Math.max(MIN_VIEW_HEIGHT, Math.trunc(height || DETAILS_VIEW_HEIGHT));
   const contentWidth = Math.max(1, safeWidth - 4);
   const headerLines = renderFixedHeader(summary, safeWidth);
   const footerLines = renderFixedFooter(safeWidth);
   const scrollHeight = Math.max(1, safeHeight - headerLines.length - footerLines.length);
 
   scrollView.setHeight(scrollHeight);
-  scrollView.setLines(renderScrollableBody(summary, contentWidth));
+  scrollView.setLines(renderScrollableBody(summary, contentWidth, scrollHeight));
 
   return [
     ...headerLines,
@@ -130,7 +129,7 @@ function renderFixedFooter(width: number): string[] {
   ];
 }
 
-function renderScrollableBody(summary: RoadmapDetailSummary, contentWidth: number): string[] {
+function renderScrollableBody(summary: RoadmapDetailSummary, contentWidth: number, scrollHeight: number): string[] {
   if (summary.kind === "empty") {
     return [
       sectionHeader("Next Action"),
@@ -141,16 +140,15 @@ function renderScrollableBody(summary: RoadmapDetailSummary, contentWidth: numbe
     ];
   }
 
-  const mainWidth = contentWidth >= WIDE_LAYOUT_WIDTH
-    ? Math.max(20, contentWidth - RAIL_WIDTH - COLUMN_GAP)
-    : contentWidth;
-  const rail = renderHealthRail(summary);
-  const main = renderMainDetails(summary, mainWidth);
-
-  if (contentWidth >= WIDE_LAYOUT_WIDTH) {
-    return renderColumns(rail, main, mainWidth);
+  const layout = computeColumnLayout(contentWidth, scrollHeight);
+  if (layout.mode === "columns") {
+    const rail = renderHealthRail(summary, layout.railWidth);
+    const main = renderMainDetails(summary, layout.mainWidth);
+    return renderColumns(rail, main, layout.railWidth, layout.mainWidth);
   }
 
+  const rail = renderHealthRail(summary, layout.contentWidth);
+  const main = renderMainDetails(summary, layout.contentWidth);
   return [
     ...rail,
     "",
@@ -158,21 +156,41 @@ function renderScrollableBody(summary: RoadmapDetailSummary, contentWidth: numbe
   ];
 }
 
-function renderHealthRail(summary: ActiveRoadmapDetailSummary): string[] {
+type ColumnLayout =
+  | { mode: "stacked"; contentWidth: number }
+  | { mode: "columns"; contentWidth: number; railWidth: number; mainWidth: number };
+
+function computeColumnLayout(contentWidth: number, scrollHeight: number): ColumnLayout {
+  if (contentWidth < MIN_RAIL_WIDTH + COLUMN_GAP + MIN_MAIN_WIDTH) {
+    return { mode: "stacked", contentWidth };
+  }
+
+  const railRatio = scrollHeight < 18 ? 0.34 : 0.28;
+  const railWidth = Math.max(MIN_RAIL_WIDTH, Math.floor(contentWidth * railRatio));
+  const mainWidth = contentWidth - railWidth - COLUMN_GAP;
+
+  if (mainWidth < MIN_MAIN_WIDTH) {
+    return { mode: "stacked", contentWidth };
+  }
+
+  return { mode: "columns", contentWidth, railWidth, mainWidth };
+}
+
+function renderHealthRail(summary: ActiveRoadmapDetailSummary, width: number): string[] {
   return [
     sectionHeader("Health"),
-    ...keyValueLines("Roadmap", summary.roadmap.label, RAIL_WIDTH),
-    ...keyValueLines("Phase", summary.roadmap.phase, RAIL_WIDTH),
-    ...keyValueLines("Quality gate", summary.qualityGate.status, RAIL_WIDTH),
-    ...keyValueLines("Validation", summary.validation.status, RAIL_WIDTH),
-    ...keyValueLines("Gate", summary.gate.status, RAIL_WIDTH),
-    ...keyValueLines("Open blockers", String(summary.roadmapHealth.openBlockerCount), RAIL_WIDTH),
-    ...keyValueLines("Issues", issueCountLabel(summary), RAIL_WIDTH),
+    ...keyValueLines("Roadmap", summary.roadmap.label, width),
+    ...keyValueLines("Phase", summary.roadmap.phase, width),
+    ...keyValueLines("Quality gate", summary.qualityGate.status, width),
+    ...keyValueLines("Validation", summary.validation.status, width),
+    ...keyValueLines("Gate", summary.gate.status, width),
+    ...keyValueLines("Open blockers", String(summary.roadmapHealth.openBlockerCount), width),
+    ...keyValueLines("Issues", issueCountLabel(summary), width),
     "",
     sectionHeader("Context"),
-    ...keyValueLines("Milestone", summary.active.milestone?.label ?? "none", RAIL_WIDTH),
-    ...keyValueLines("Change", summary.active.changeRequest?.label ?? "none", RAIL_WIDTH),
-    ...keyValueLines("Bypass", summary.bypass.label, RAIL_WIDTH),
+    ...keyValueLines("Milestone", summary.active.milestone?.label ?? "none", width),
+    ...keyValueLines("Change", summary.active.changeRequest?.label ?? "none", width),
+    ...keyValueLines("Bypass", summary.bypass.label, width),
   ];
 }
 
@@ -442,14 +460,14 @@ function blockerLines(blocker: RoadmapDetailBlocker, contentWidth: number): stri
   return bulletLines(`${blocker.label}: ${blocker.message}`, contentWidth, s.red);
 }
 
-function renderColumns(left: string[], right: string[], rightWidth: number): string[] {
-  const leftWrapped = left.flatMap((line) => wrapWords(line, RAIL_WIDTH));
+function renderColumns(left: string[], right: string[], leftWidth: number, rightWidth: number): string[] {
+  const leftWrapped = left.flatMap((line) => wrapWords(line, leftWidth));
   const rightWrapped = right.flatMap((line) => wrapWords(line, rightWidth));
   const lineCount = Math.max(leftWrapped.length, rightWrapped.length);
   const lines: string[] = [];
 
   for (let index = 0; index < lineCount; index++) {
-    const leftLine = padAnsiToWidth(truncateAnsi(leftWrapped[index] ?? "", RAIL_WIDTH), RAIL_WIDTH);
+    const leftLine = padAnsiToWidth(truncateAnsi(leftWrapped[index] ?? "", leftWidth), leftWidth);
     const rightLine = truncateAnsi(rightWrapped[index] ?? "", rightWidth);
     lines.push(`${leftLine}${" ".repeat(COLUMN_GAP)}${rightLine}`);
   }
@@ -586,9 +604,12 @@ function padAnsiToWidth(input: string, width: number): string {
   return `${input}${" ".repeat(padding)}`;
 }
 
-function getTuiRows(tui: TUI): number {
-  const terminal = (tui as unknown as { terminal?: { rows?: number } }).terminal;
-  return terminal?.rows ?? process.stdout.rows ?? DETAILS_VIEW_HEIGHT;
+function getTuiRowsAndCols(tui: TUI, fallbackWidth: number): { rows: number; cols: number } {
+  const terminal = (tui as unknown as { terminal?: { rows?: number; columns?: number } }).terminal;
+  return {
+    rows: Math.max(MIN_VIEW_HEIGHT, Math.trunc(terminal?.rows ?? process.stdout.rows ?? DETAILS_VIEW_HEIGHT)),
+    cols: Math.max(MIN_VIEW_WIDTH, Math.trunc(terminal?.columns ?? fallbackWidth ?? process.stdout.columns ?? MIN_VIEW_WIDTH)),
+  };
 }
 
 function wrapWords(input: string, width: number): string[] {
