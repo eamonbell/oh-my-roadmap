@@ -35,7 +35,7 @@ import {
   validateCloseoutEvidence,
   writeMilestoneCloseout,
 } from "./closeout";
-import { appendRoadmapEvent, readRoadmapEvents } from "./events";
+import { appendRoadmapEvent, readRoadmapEvents, roadmapEventId } from "./events";
 import type {
   ActivePointer,
   Approval,
@@ -406,9 +406,11 @@ async function appendTransitionEvent(
   input: TransitionInput,
   before: LoadedState,
   after: LoadedState,
+  id?: string,
 ): Promise<RoadmapEvent> {
   const details = transitionDetails(input, after);
   return await appendRoadmapEvent(cwd, {
+    ...(id ? { id } : {}),
     actor: transitionActor(input),
     type: transitionEventType(input.operation),
     operation: input.operation,
@@ -965,6 +967,9 @@ async function assertRoadmapReadyForApproval(cwd: string, roadmap: RoadmapState)
   if (roadmap.roadmap_milestone_check.summary.trim() === "") {
     throw new Error("Passed roadmap-milestone check must include a summary");
   }
+  if (roadmap.roadmap_milestone_check.event_id.trim() === "") {
+    throw new Error("Passed roadmap-milestone check must record its quality gate event id");
+  }
 }
 
 export async function loadActive(cwd: string): Promise<ActivePointer | undefined> {
@@ -1438,6 +1443,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
   const beforeEvent = structuredClone(loaded) as LoadedState;
   const roadmap = loadedRoadmap;
   const activeMilestoneId = active.milestone_id ?? roadmap.active_milestone_id;
+  let transitionEventId: string | undefined;
 
   switch (input.operation) {
     case "record_discovery": {
@@ -1487,6 +1493,8 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       }
       roadmap.roadmap_content_hash = roadmapContentHash(roadmap);
       roadmap.roadmap_milestone_check = recordedRoadmapMilestoneCheck(input.roadmapMilestoneCheck, roadmap);
+      transitionEventId = roadmapEventId();
+      roadmap.roadmap_milestone_check.event_id = transitionEventId;
       break;
     case "reopen_roadmap": {
       requirePhase(roadmap.phase, "roadmap_approved", input.operation);
@@ -1762,12 +1770,7 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
 
   await writeRoadmapState(cwd, roadmap);
   const after = await loadState(cwd);
-  const event = await appendTransitionEvent(cwd, input, beforeEvent, after);
-  if (input.operation === "record_roadmap_milestone_check" && after.roadmap) {
-    after.roadmap.roadmap_milestone_check.event_id = event.id;
-    await writeRoadmapState(cwd, after.roadmap);
-    return await loadState(cwd);
-  }
+  await appendTransitionEvent(cwd, input, beforeEvent, after, transitionEventId);
   return after;
   });
   });

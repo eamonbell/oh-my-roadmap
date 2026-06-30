@@ -192,6 +192,9 @@ describe("event ledger", () => {
       "milestone.completed",
     ]);
     expect(new Set(result.events.map((event) => event.id)).size).toBe(result.events.length);
+    const roadmapGate = result.events.find((event) => event.scope.gate === "roadmap_milestone_check");
+    expect(roadmapGate?.after?.event_id).toBe(roadmapGate?.id);
+    expect((await loadState(cwd)).roadmap?.roadmap_milestone_check.event_id).toBe(roadmapGate?.id);
 
     const taskEvents = await readRoadmapEvents(cwd, { taskId: "t01", type: ["task.status_changed"] });
     expect(taskEvents.events).toHaveLength(1);

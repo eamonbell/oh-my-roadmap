@@ -111,6 +111,9 @@ function validateRoadmapMilestoneCheck(roadmap: RoadmapState, errors: Validation
   if (!check.summary || check.summary.trim() === "") {
     errors.push(issue("roadmap.milestone_check.summary.missing", "Passed roadmap-milestone check must include a summary"));
   }
+  if (!check.event_id || check.event_id.trim() === "") {
+    errors.push(issue("roadmap.milestone_check.event_id.missing", "Passed roadmap-milestone check must record its quality gate event id"));
+  }
 }
 
 function validateMilestoneOutline(

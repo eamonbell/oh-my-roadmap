@@ -333,6 +333,28 @@ describe("roadmap state lifecycle", () => {
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
   });
 
+  test("requires current passed roadmap-milestone check to record its event id", async () => {
+    await initRoadmap(cwd, { roadmapId: "event-id-roadmap", title: "Event ID Roadmap" });
+    await transition(cwd, {
+      operation: "record_discovery",
+      discovery: { findings: ["Inspected local sources."] },
+    });
+    await updateRoadmap(cwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheck();
+
+    const state = await loadState(cwd);
+    if (!state.roadmap) throw new Error("Expected roadmap state");
+    expect(state.roadmap.roadmap_milestone_check.event_id).toMatch(/^evt_/);
+    state.roadmap.roadmap_milestone_check.event_id = "";
+    await writeRoadmapState(cwd, state.roadmap);
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.event_id.missing");
+    await expect(
+      transition(cwd, { operation: "approve_roadmap", approver: "user" }),
+    ).rejects.toThrow("quality gate event id");
+  });
+
   test("draft roadmap updates make the previous roadmap-milestone check stale", async () => {
     await initRoadmap(cwd, { roadmapId: "reset-check-roadmap", title: "Reset Check Roadmap" });
     await transition(cwd, {

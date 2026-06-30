@@ -153,17 +153,22 @@ describe("roadmap details renderer", () => {
 
     const nextAction = output.indexOf("Next Action");
     const activeWork = output.indexOf("Active Work");
+    const qualityGate = output.indexOf("Quality Gate");
     const issues = output.lastIndexOf("Issues");
     const usage = output.indexOf("Usage");
     const metadata = output.indexOf("Metadata");
 
     expect(nextAction).toBeGreaterThan(-1);
     expect(activeWork).toBeGreaterThan(nextAction);
-    expect(issues).toBeGreaterThan(activeWork);
+    expect(qualityGate).toBeGreaterThan(activeWork);
+    expect(issues).toBeGreaterThan(qualityGate);
     expect(usage).toBeGreaterThan(issues);
     expect(metadata).toBeGreaterThan(usage);
     expect(output).toContain("Scope");
     expect(output).toContain("Usage");
+    expect(output).toContain("Status    passed");
+    expect(output).toContain("Revision  1/1");
+    expect(output).toContain("Event     evt_test");
     expect(output).toContain("implementation_orchestrator");
   });
 
@@ -171,6 +176,8 @@ describe("roadmap details renderer", () => {
     const output = render(summary, 120);
 
     expect(output).toContain("Health");
+    expect(output).toContain("Quality gate");
+    expect(output).toContain("Quality Gate");
     expect(output).toContain("Active Work");
     expect(output).toContain("Issues");
     expect(output).toContain("task-a [worker-light");
