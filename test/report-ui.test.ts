@@ -6,13 +6,17 @@ function text(lines: readonly string[]): string {
   return lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
-function render(summary: RoadmapDetailSummary, width: number): string {
-  return text(renderRoadmapDetailsFrame({
+function renderedLines(summary: RoadmapDetailSummary, width: number, height = 80): string[] {
+  return renderRoadmapDetailsFrame({
     summary,
     width,
-    height: 80,
+    height,
     scrollView: new ScrollView([], { height: 1, scrollbar: "auto" }),
-  }));
+  }).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+}
+
+function render(summary: RoadmapDetailSummary, width: number): string {
+  return text(renderedLines(summary, width));
 }
 
 const summary: RoadmapDetailSummary = {
@@ -300,10 +304,36 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("Recent Events");
     expect(output).toContain("Issues");
     expect(output).toContain("task-a [worker-light");
+    expect(output).toContain("Scope");
+    expect(output).toContain("Usage");
+  });
+
+  test("stacks the rail above content when the terminal is narrow", () => {
+    const output = render(summary, 60);
+
+    expect(output).toContain("Health");
+    expect(output).toContain("Next Action");
+    expect(output.indexOf("Next Action")).toBeGreaterThan(output.indexOf("Health"));
+    expect(renderedLines(summary, 60).some((line) => line.includes("Health") && line.includes("Next Action"))).toBe(false);
+  });
+
+  test("uses the full usage table on ultra-wide terminals without capping column growth", () => {
+    const output = render(summary, 200);
+
     expect(output).toContain("Cost");
     expect(output).toContain("Req");
     expect(output).toContain("Tokens");
     expect(output).toContain("Top agents");
+    expect(output).toContain("roadmap_engineer_prepare_wave_dispatch");
+  });
+
+  test("fits rendered lines to the requested terminal dimensions", () => {
+    const width = 200;
+    const height = 18;
+    const lines = renderedLines(summary, width, height);
+
+    expect(lines).toHaveLength(height);
+    expect(lines.every((line) => line.length <= width)).toBe(true);
   });
 
   test("renders empty summaries without parsing report text", () => {
