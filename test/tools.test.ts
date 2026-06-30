@@ -69,6 +69,8 @@ describe("roadmap context tools", () => {
     const resolveBlockerTool = tools.get("roadmap_engineer_resolve_blocker");
     const deferBlockerTool = tools.get("roadmap_engineer_defer_blocker");
     const listBlockersTool = tools.get("roadmap_engineer_list_blockers");
+    const nextActionTool = tools.get("roadmap_engineer_next_action");
+    const applyNextActionTool = tools.get("roadmap_engineer_apply_next_action");
     expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
@@ -78,6 +80,8 @@ describe("roadmap context tools", () => {
     expect(resolveBlockerTool?.approval).toBe("write");
     expect(deferBlockerTool?.approval).toBe("write");
     expect(listBlockersTool?.approval).toBe("read");
+    expect(nextActionTool?.approval).toBe("read");
+    expect(applyNextActionTool?.approval).toBe("write");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -101,6 +105,22 @@ describe("roadmap context tools", () => {
       });
       expect(JSON.stringify(state?.details)).toContain("context_sections");
       expect(JSON.stringify(state?.details)).not.toContain("success_criteria");
+
+      const nextAction = await nextActionTool?.execute(
+        "next-action",
+        {},
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(nextAction?.details).toMatchObject({
+        action: "Resolve validation errors: Roadmap must be finalized with roadmap_engineer_update_roadmap before approval",
+        plan: {
+          label: "Resolve validation errors",
+          status: "needs_input",
+          safe_to_apply: false,
+        },
+      });
 
       const search = await searchTool?.execute(
         "search",
@@ -299,6 +319,70 @@ describe("roadmap context tools", () => {
             },
           },
         ],
+      });
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("applies the current safe next action through the apply tool", async () => {
+    const tools = new Map<string, RegisteredTool>();
+    const api = {
+      zod: { z },
+      registerTool(tool: RegisteredTool) {
+        tools.set(tool.name, tool);
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapTools(api);
+    const nextActionTool = tools.get("roadmap_engineer_next_action");
+    const applyNextActionTool = tools.get("roadmap_engineer_apply_next_action");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-apply-next-action-tool-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "tool-apply-roadmap", title: "Tool Apply Roadmap" });
+      await transition(cwd, {
+        operation: "record_discovery",
+        discovery: { findings: ["Inspected apply-next-action wiring."] },
+      });
+      await updateRoadmap(cwd, roadmapInput());
+      await transition(cwd, {
+        operation: "record_roadmap_milestone_check",
+        roadmapMilestoneCheck: {
+          status: "passed",
+          checkedBy: "roadmap-milestone-checker",
+          summary: "Milestone flow is coherent and buildable.",
+          findings: [],
+        },
+      });
+      await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+
+      const nextAction = await nextActionTool?.execute(
+        "next-action",
+        {},
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      const actionId = (nextAction?.details as { plan?: { id?: string } } | undefined)?.plan?.id;
+      expect(nextAction?.details).toMatchObject({
+        plan: {
+          label: "Start milestone planning",
+          status: "ready",
+          safe_to_apply: true,
+        },
+      });
+
+      const applied = await applyNextActionTool?.execute(
+        "apply-next-action",
+        { actionId },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(applied?.details).toMatchObject({
+        plan: { id: actionId },
+        state: { roadmap: { phase: "milestone_planning" } },
       });
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });

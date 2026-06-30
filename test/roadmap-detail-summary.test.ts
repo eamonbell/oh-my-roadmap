@@ -184,7 +184,7 @@ describe("roadmap detail summary", () => {
     expect(summary.gate.status).toBe("closed");
     expect(summary.gate.warnings.map((issue) => issue.code)).toContain("bypass.active");
     expect(summary.qualityGate.status).toBe("passed");
-    expect(summary.nextAction).toBe("Resolve validation errors: Open blocking blocker must be resolved or deferred: Blocking note");
+    expect(summary.nextAction).toMatch(/^Resolve or defer blocking blockers: blk_[^:]+: Blocking note$/);
     expect(summary.waves).toMatchObject({
       total: 1,
       counts: { blocked: 1 },
