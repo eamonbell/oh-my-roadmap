@@ -3,6 +3,7 @@ import type { Component, TUI } from "@oh-my-pi/pi-tui";
 import { matchesKey, ScrollView, truncateToWidth } from "@oh-my-pi/pi-tui";
 import { initProject } from "../core/project-init";
 import { renderReport } from "../core/report";
+import {RoadmapDetailsView} from './report-ui.ts'
 
 const COMMANDS = [
   ["roadmap:new", "Create a new gated roadmap workflow"],
@@ -23,63 +24,7 @@ const COMMANDS = [
 
 const INIT_COMMAND = "roadmap:init";
 const DETAILS_COMMAND = "roadmap:details";
-const DETAILS_VIEW_HEIGHT = 24;
 
-class RoadmapDetailsView implements Component {
-  readonly #report: string;
-  readonly #done: () => void;
-  readonly #tui: TUI;
-  readonly #scrollView = new ScrollView([], { height: DETAILS_VIEW_HEIGHT, scrollbar: "auto" });
-
-  constructor(report: string, tui: TUI, done: () => void) {
-    this.#report = report;
-    this.#tui = tui;
-    this.#done = done;
-  }
-
-  handleInput(data: string): void {
-    if (
-      matchesKey(data, "escape") ||
-      matchesKey(data, "esc") ||
-      matchesKey(data, "enter") ||
-      matchesKey(data, "return") ||
-      matchesKey(data, "ctrl+c") ||
-      data === "\n"
-    ) {
-      this.#done();
-      return;
-    }
-
-    if (this.#scrollView.handleScrollKey(data)) this.#tui.requestRender();
-  }
-
-  render(width: number): readonly string[] {
-    const safeWidth = Math.max(20, Math.trunc(width || 80));
-    this.#scrollView.setLines([
-      truncateToWidth("roadmap details (Esc/Enter/Ctrl+C to close)", safeWidth),
-      "",
-      ...wrapReport(this.#report, safeWidth),
-    ]);
-    return this.#scrollView.render(safeWidth);
-  }
-}
-
-function wrapReport(report: string, width: number): string[] {
-  const lines: string[] = [];
-  for (const line of report.split("\n")) {
-    lines.push(...wrapLine(line, width));
-  }
-  return lines;
-}
-
-function wrapLine(line: string, width: number): string[] {
-  if (line.length === 0) return [""];
-  const lines = [];
-  for (let index = 0; index < line.length; index += width) {
-    lines.push(line.slice(index, index + width));
-  }
-  return lines;
-}
 
 function commandSpecificInstructions(name: string): string {
   if (name === "milestone:plan") {
@@ -137,6 +82,7 @@ async function sendCommandPrompt(api: ExtensionAPI, name: string, args: string, 
   api.sendUserMessage(commandPrompt(name, args, report));
 }
 
+/*
 async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
   const report = await renderReport(ctx.cwd);
   void ctx.ui
@@ -145,6 +91,22 @@ async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
       const message = error instanceof Error ? error.message : String(error);
       ctx.ui.notify(`roadmap:details failed: ${message}`, "error");
     });
+}
+*/
+
+async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
+	const report = await renderReport(ctx.cwd);
+
+	void ctx.ui
+	.custom(
+		(tui, _theme, _keybindings, done) =>
+			new RoadmapDetailsView(report, tui, () => done(undefined)),
+		{overlay: true},
+	)
+	.catch((error: unknown) => {
+		const message = error instanceof Error ? error.message : String(error);
+		ctx.ui.notify(`roadmap:details failed: ${message}`, "error");
+	});
 }
 
 export function registerRoadmapCommands(api: ExtensionAPI): void {

@@ -1,14 +1,16 @@
-import {Component, matchesKey, ScrollView, TUI} from '@oh-my-pi/pi-tui'
+import {Component, matchesKey, ScrollView, TUI} from "@oh-my-pi/pi-tui";
 
 const DETAILS_VIEW_HEIGHT = 24;
+const MIN_VIEW_WIDTH = 30;
+const MIN_VIEW_HEIGHT = 8;
 
-class RoadmapDetailsView implements Component {
+export class RoadmapDetailsView implements Component {
 	readonly #report: string;
 	readonly #done: () => void;
 	readonly #tui: TUI;
 
 	readonly #scrollView = new ScrollView([], {
-		height: DETAILS_VIEW_HEIGHT,
+		height: 1,
 		scrollbar: "auto",
 	});
 
@@ -37,56 +39,110 @@ class RoadmapDetailsView implements Component {
 	}
 
 	render(width: number): readonly string[] {
-		const safeWidth = Math.max(30, Math.trunc(width || 80));
-		const lines = renderRoadmapReportPanel(this.#report, safeWidth);
+		const safeWidth = Math.max(MIN_VIEW_WIDTH, Math.trunc(width || 80));
+		const safeHeight = Math.max(MIN_VIEW_HEIGHT, getTuiRows(this.#tui));
 
-		this.#scrollView.setLines(lines);
+		const frame = renderRoadmapReportFrame({
+			report: this.#report,
+			width: safeWidth,
+			height: safeHeight,
+			scrollView: this.#scrollView,
+		});
 
-		return this.#scrollView.render(safeWidth);
+		return fitFrameToTerminal(frame, safeWidth, safeHeight);
 	}
 }
 
-function renderRoadmapReportPanel(report: string, width: number): string[] {
-	const safeWidth = Math.max(30, width);
-	const contentWidth = Math.max(10, safeWidth - 4);
+type RenderRoadmapReportFrameOptions = {
+	report: string;
+	width: number;
+	height: number;
+	scrollView: ScrollView;
+};
+
+function renderRoadmapReportFrame(options: RenderRoadmapReportFrameOptions): string[] {
+	const {report, width, height, scrollView} = options;
+
+	const safeWidth = Math.max(MIN_VIEW_WIDTH, width);
+	const safeHeight = Math.max(MIN_VIEW_HEIGHT, height);
+	const contentWidth = Math.max(1, safeWidth - 4);
+
 	const parsed = parseRoadmapReport(report);
 
+	const headerLines = renderFixedHeader(parsed, safeWidth);
+	const footerLines = renderFixedFooter(safeWidth);
+
+	const scrollHeight = Math.max(1, safeHeight - headerLines.length - footerLines.length);
+
+	scrollView.setHeight(scrollHeight);
+	scrollView.setLines(renderScrollableBody(parsed, contentWidth));
+
+	const scrolledBody = scrollView.render(contentWidth).map((line) => row(line, safeWidth));
+
+	return [
+		...headerLines,
+		...scrolledBody,
+		...footerLines,
+	];
+}
+
+function renderFixedHeader(parsed: ParsedRoadmapReport, width: number): string[] {
 	const lines: string[] = [];
 
-	lines.push(topBorder(safeWidth, ` ${s.bold}${s.cyan}${parsed.title}${s.reset} `));
-	lines.push(emptyRow(safeWidth));
+	lines.push(topBorder(width, ` ${s.bold}${s.cyan}${parsed.title}${s.reset} `));
+	lines.push(emptyRow(width));
 
 	for (const item of parsed.summary) {
-		lines.push(...renderKeyValueRow(item.key, item.value, safeWidth));
+		lines.push(...renderKeyValueRows(item.key, item.value, width));
 	}
 
 	if (parsed.summary.length > 0) {
-		lines.push(emptyRow(safeWidth));
-		lines.push(divider(safeWidth));
+		lines.push(emptyRow(width));
 	}
 
-	for (const section of parsed.sections) {
-		lines.push(sectionHeader(section.title, safeWidth));
+	lines.push(divider(width));
 
-		for (const line of section.lines) {
-			lines.push(...renderReportLine(line, safeWidth));
+	return lines;
+}
+
+function renderFixedFooter(width: number): string[] {
+	return [
+		divider(width),
+		row(`${s.dim}↑/↓ scroll  •  PgUp/PgDn jump  •  Esc/Enter close${s.reset}`, width, "center"),
+		bottomBorder(width),
+	];
+}
+
+function renderScrollableBody(parsed: ParsedRoadmapReport, contentWidth: number): string[] {
+	const lines: string[] = [];
+
+	for (const section of parsed.sections) {
+		if (lines.length > 0) {
+			lines.push("");
 		}
 
-		lines.push(emptyRow(safeWidth));
+		lines.push(sectionHeaderContent(section.title));
+
+		for (const line of section.lines) {
+			lines.push(...renderReportContentLine(line, contentWidth));
+		}
 	}
 
 	if (parsed.nextAction) {
-		lines.push(divider(safeWidth));
-		lines.push(sectionHeader("Next action", safeWidth));
-		for (const line of wrapWords(parsed.nextAction, contentWidth)) {
-			lines.push(row(`${s.green}→${s.reset} ${line}`, safeWidth));
+		if (lines.length > 0) {
+			lines.push("");
 		}
-		lines.push(emptyRow(safeWidth));
+
+		lines.push(sectionHeaderContent("Next action"));
+
+		for (const line of wrapWords(parsed.nextAction, Math.max(1, contentWidth - 2))) {
+			lines.push(`${s.green}→${s.reset} ${line}`);
+		}
 	}
 
-	lines.push(divider(safeWidth));
-	lines.push(row(`${s.dim}↑/↓ scroll  •  PgUp/PgDn jump  •  Esc/Enter close${s.reset}`, safeWidth, "center"));
-	lines.push(bottomBorder(safeWidth));
+	if (lines.length === 0) {
+		lines.push(`${s.dim}No roadmap details available.${s.reset}`);
+	}
 
 	return lines;
 }
@@ -190,7 +246,7 @@ function isSectionStart(key: string): boolean {
 	].includes(key);
 }
 
-function renderKeyValueRow(key: string, value: string, width: number): string[] {
+function renderKeyValueRows(key: string, value: string, width: number): string[] {
 	const contentWidth = Math.max(10, width - 4);
 	const labelWidth = Math.min(24, Math.max(14, key.length + 1));
 	const valueWidth = Math.max(10, contentWidth - labelWidth);
@@ -204,38 +260,50 @@ function renderKeyValueRow(key: string, value: string, width: number): string[] 
 	});
 }
 
-function renderReportLine(line: string, width: number): string[] {
-	const contentWidth = Math.max(10, width - 4);
-
+function renderReportContentLine(line: string, contentWidth: number): string[] {
 	if (line.startsWith("- ERROR ")) {
-		return wrapWords(line.replace(/^- ERROR\s+/, ""), contentWidth - 4).map((wrapped, index) =>
-			row(`${index === 0 ? `${s.red}✖${s.reset} ` : "  "}${s.red}${wrapped}${s.reset}`, width),
+		const message = line.replace(/^- ERROR\s+/, "");
+		return wrapWords(message, Math.max(1, contentWidth - 2)).map((wrapped, index) =>
+			`${index === 0 ? `${s.red}✖${s.reset} ` : "  "}${s.red}${wrapped}${s.reset}`,
 		);
 	}
 
 	if (line.startsWith("- WARN ")) {
-		return wrapWords(line.replace(/^- WARN\s+/, ""), contentWidth - 4).map((wrapped, index) =>
-			row(`${index === 0 ? `${s.yellow}▲${s.reset} ` : "  "}${s.yellow}${wrapped}${s.reset}`, width),
+		const message = line.replace(/^- WARN\s+/, "");
+		return wrapWords(message, Math.max(1, contentWidth - 2)).map((wrapped, index) =>
+			`${index === 0 ? `${s.yellow}▲${s.reset} ` : "  "}${s.yellow}${wrapped}${s.reset}`,
 		);
 	}
 
 	if (line.startsWith("- ")) {
-		return wrapWords(line.slice(2), contentWidth - 4).map((wrapped, index) =>
-			row(`${index === 0 ? `${s.cyan}•${s.reset} ` : "  "}${wrapped}`, width),
+		return wrapWords(line.slice(2), Math.max(1, contentWidth - 2)).map((wrapped, index) =>
+			`${index === 0 ? `${s.cyan}•${s.reset} ` : "  "}${wrapped}`,
 		);
 	}
 
 	const pair = splitKeyValue(line);
 	if (pair) {
-		return renderKeyValueRow(pair.key, pair.value, width);
+		return renderKeyValueContentLines(pair.key, pair.value, contentWidth);
 	}
 
-	return wrapWords(line, contentWidth).map((wrapped) => row(wrapped, width));
+	return wrapWords(line, contentWidth);
 }
 
-function sectionHeader(title: string, width: number): string {
-	const label = ` ${s.bold}${s.magenta}${toTitle(title)}${s.reset} `;
-	return row(label, width);
+function renderKeyValueContentLines(key: string, value: string, contentWidth: number): string[] {
+	const labelWidth = Math.min(24, Math.max(14, key.length + 1));
+	const valueWidth = Math.max(1, contentWidth - labelWidth);
+
+	const styledValue = styleValue(value);
+	const wrapped = wrapWords(styledValue, valueWidth);
+
+	return wrapped.map((line, index) => {
+		const label = index === 0 ? `${s.dim}${key.padEnd(labelWidth)}${s.reset}` : " ".repeat(labelWidth);
+		return `${label}${line}`;
+	});
+}
+
+function sectionHeaderContent(title: string): string {
+	return ` ${s.bold}${s.magenta}${toTitle(title)}${s.reset}`;
 }
 
 function styleValue(value: string): string {
@@ -296,6 +364,28 @@ function bottomBorder(width: number): string {
 
 function divider(width: number): string {
 	return `${s.dim}├${"─".repeat(Math.max(0, width - 2))}┤${s.reset}`;
+}
+
+function fitFrameToTerminal(lines: readonly string[], width: number, height: number): string[] {
+	const result: string[] = [];
+
+	for (let index = 0; index < height; index++) {
+		const line = lines[index] ?? "";
+		result.push(padAnsiToWidth(truncateAnsi(line, width), width));
+	}
+
+	return result;
+}
+
+function padAnsiToWidth(input: string, width: number): string {
+	const padding = Math.max(0, width - visibleWidth(input));
+	return `${input}${" ".repeat(padding)}`;
+}
+
+function getTuiRows(tui: TUI): number {
+	const terminal = (tui as unknown as { terminal?: { rows?: number } }).terminal;
+
+	return terminal?.rows ?? process.stdout.rows ?? DETAILS_VIEW_HEIGHT;
 }
 
 function wrapWords(input: string, width: number): string[] {
