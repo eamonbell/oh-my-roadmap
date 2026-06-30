@@ -54,23 +54,35 @@ Run `/roadmap:init` once in a project to scaffold roadmap-engineer project files
 
 ```text
 .roadmaps/config.yml
+.omp/agents/worker-light.md
 .omp/agents/worker.md
+.omp/agents/worker-heavy.md
 .omp/agents/reviewer.md
+.omp/agents/wave-flow-checker.md
 ```
 
-The `.roadmaps/config.yml` file configures the model and thinking level used when OMP dispatches the generated worker and reviewer agents:
+The `.roadmaps/config.yml` file configures the model and thinking level used when OMP dispatches the generated worker, reviewer, and wave-flow-checker agents:
 
 ```yaml
 agents:
+  worker-light:
+    model: "provider/light-model-or-role"
+    thinking: "minimal"
   worker:
     model: "provider/model-or-role"
     thinking: "medium"
+  worker-heavy:
+    model: "provider/heavy-model-or-role"
+    thinking: "high"
   reviewer:
     model: "provider/model-or-role"
     thinking: "high"
+  wave-flow-checker:
+    model: "provider/checker-model-or-role"
+    thinking: "medium"
 ```
 
-Both `model` and `thinking` are optional. Supported thinking values are `inherit`, `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Re-running `/roadmap:init` preserves an existing `.roadmaps/config.yml` file, but overwrites `.omp/agents/worker.md` and `.omp/agents/reviewer.md` from the extension templates. Legacy `.roadmap/config.yml` files are ignored.
+Both `model` and `thinking` are optional. Supported thinking values are `inherit`, `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Re-running `/roadmap:init` preserves existing role settings, adds any missing supported roles to `.roadmaps/config.yml`, and overwrites generated `.omp/agents/*.md` files from the extension templates. Legacy `.roadmap/config.yml` files are ignored.
 
 `/roadmap:init` does not create or modify active roadmap workflow state.
 
@@ -78,7 +90,7 @@ Both `model` and `thinking` are optional. Supported thinking values are `inherit
 
 `/roadmap:new` creates draft roadmap state, records discovery, then must finalize the generated roadmap with `roadmap_engineer_update_roadmap` before approval. Approval is blocked unless the roadmap includes concrete goals, success criteria, constraints, non-goals, context, evidence, risks, and at least one roadmap-level milestone outline.
 
-Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. `/milestone:plan` later expands one approved roadmap milestone into concrete implementation tasks, dependency analysis, waves, ownership, acceptance criteria, task-level verification, and the initial pause/resume progress cursor.
+Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. `/milestone:plan` later expands one approved roadmap milestone into concrete implementation tasks, dependency analysis, waves, ownership, worker-light/worker/worker-heavy assignments, acceptance criteria, task-level verification, a wave-flow check, and the initial pause/resume progress cursor.
 
 ## Pause And Resume
 

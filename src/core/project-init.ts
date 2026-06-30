@@ -8,7 +8,7 @@ import { roadmapsDir } from "./paths";
 
 const CONFIG_FILE = "config.yml";
 const OMP_AGENTS_DIR = path.join(".omp", "agents");
-const ROLE_NAMES = ["worker", "reviewer"] as const;
+const ROLE_NAMES = ["worker-light", "worker", "worker-heavy", "reviewer", "wave-flow-checker"] as const;
 const THINKING_LEVELS = new Set(["inherit", "off", "minimal", "low", "medium", "high", "xhigh"]);
 
 type AgentRole = (typeof ROLE_NAMES)[number];
@@ -96,15 +96,49 @@ function parseConfig(raw: unknown): RoadmapProjectConfig {
   rejectUnknownKeys(agents, ROLE_NAMES, "agents");
 
   return {
-    agents: {
-      worker: parseRoleConfig(agents.worker, "worker"),
-      reviewer: parseRoleConfig(agents.reviewer, "reviewer"),
-    },
+    agents: Object.fromEntries(
+      ROLE_NAMES.map((role) => [role, parseRoleConfig(agents[role], role)]),
+    ) as Record<AgentRole, AgentConfig>,
   };
 }
 
 async function loadConfig(cwd: string): Promise<RoadmapProjectConfig> {
   return parseConfig(await readYamlFile(configPath(cwd)));
+}
+
+function defaultConfig(): RoadmapProjectConfig {
+  return {
+    agents: Object.fromEntries(ROLE_NAMES.map((role) => [role, {}])) as Record<AgentRole, AgentConfig>,
+  };
+}
+
+async function ensureConfig(cwd: string): Promise<boolean> {
+  const targetConfigPath = configPath(cwd);
+  const createdConfig = !(await fileExists(targetConfigPath));
+  if (createdConfig) {
+    await writeYamlFile(targetConfigPath, defaultConfig());
+    return true;
+  }
+
+  const raw = await readYamlFile<unknown>(targetConfigPath);
+  const root = requirePlainObject(raw, "config");
+  rejectUnknownKeys(root, ["agents"], "config");
+  const agents = requirePlainObject(root.agents, "agents");
+  rejectUnknownKeys(agents, ROLE_NAMES, "agents");
+
+  let changed = false;
+  const expandedAgents: Record<string, unknown> = { ...agents };
+  for (const role of ROLE_NAMES) {
+    if (expandedAgents[role] === undefined) {
+      expandedAgents[role] = {};
+      changed = true;
+    }
+  }
+
+  const expanded = { agents: expandedAgents };
+  parseConfig(expanded);
+  if (changed) await writeYamlFile(targetConfigPath, expanded);
+  return false;
 }
 
 async function loadSkill(role: AgentRole): Promise<{ description: string; body: string }> {
@@ -131,33 +165,26 @@ function renderAgent(role: AgentRole, description: string, body: string, config:
 export async function initProject(cwd: string): Promise<ProjectInitResult> {
   return await withStoreWriteLock(cwd, async () => {
   const targetConfigPath = configPath(cwd);
-  const createdConfig = !(await fileExists(targetConfigPath));
-  if (createdConfig) {
-    await writeYamlFile(targetConfigPath, { agents: { worker: {}, reviewer: {} } });
-  }
+  const createdConfig = await ensureConfig(cwd);
 
   const config = await loadConfig(cwd);
-  const skills = {
-    worker: await loadSkill("worker"),
-    reviewer: await loadSkill("reviewer"),
-  };
+  const skills = Object.fromEntries(
+    await Promise.all(ROLE_NAMES.map(async (role) => [role, await loadSkill(role)])),
+  ) as Record<AgentRole, { description: string; body: string }>;
 
   const targetAgentsDir = agentsDir(cwd);
   await fs.mkdir(targetAgentsDir, { recursive: true });
 
-  const targetAgentPaths = {
-    worker: agentPath(cwd, "worker"),
-    reviewer: agentPath(cwd, "reviewer"),
-  };
+  const targetAgentPaths = Object.fromEntries(
+    ROLE_NAMES.map((role) => [role, agentPath(cwd, role)]),
+  ) as Record<AgentRole, string>;
 
-  await writeText(
-    targetAgentPaths.worker,
-    renderAgent("worker", skills.worker.description, skills.worker.body, config.agents.worker),
-  );
-  await writeText(
-    targetAgentPaths.reviewer,
-    renderAgent("reviewer", skills.reviewer.description, skills.reviewer.body, config.agents.reviewer),
-  );
+  for (const role of ROLE_NAMES) {
+    await writeText(
+      targetAgentPaths[role],
+      renderAgent(role, skills[role].description, skills[role].body, config.agents[role]),
+    );
+  }
 
   return {
     configPath: targetConfigPath,

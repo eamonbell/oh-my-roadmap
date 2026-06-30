@@ -1,9 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
-import type { Component, TUI } from "@oh-my-pi/pi-tui";
-import { matchesKey, ScrollView, truncateToWidth } from "@oh-my-pi/pi-tui";
 import { initProject } from "../core/project-init";
+import { buildRoadmapDetailSummary } from "../core/roadmap-detail-summary";
 import { renderReport } from "../core/report";
-import {RoadmapDetailsView} from './report-ui.ts'
+import { RoadmapDetailsView } from "./report-ui.ts";
 
 const COMMANDS = [
   ["roadmap:new", "Create a new gated roadmap workflow"],
@@ -68,11 +67,13 @@ Follow the roadmap-engineer workflow strictly:
 - Use roadmap_engineer_transition, roadmap_engineer_amend, roadmap_engineer_append_note, or roadmap_engineer_create_change_request for state changes.
 - Record discovery with roadmap_engineer_transition operation record_discovery before roadmap approval.
 - For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment.
+- For milestone and change planning, assign each task to exactly one of worker-light, worker, or worker-heavy based on risk and blast radius.
+- Before milestone or change approval, dispatch wave-flow-checker, record its result with record_wave_flow_check, and revise draft plans with update_milestone_plan or update_change_request_plan until the check passes.
 - For milestone planning, explicitly ask the user what test coverage they want based on the implementation tasks: which areas should create tests, which should run existing tests, what detail those tests should cover, and what coverage is intentionally deferred or not required.
 - For implementation progress, update task, wave, and cursor state with update_task_status, update_wave_status, and update_implementation_progress.
 - For implementation resume, treat the persisted progress cursor as authoritative for active wave, orchestration step, active tasks, and blocker reason.
 - Before closing milestones or changes, record structured closeout evidence with record_closeout.
-- For milestone and change implementation, perform dependency analysis, exclusive ownership checks, worker notes, per-wave review, and evidence closeout.
+- For milestone and change implementation, do not edit files yourself; dispatch each implementation task to the exact agent named by task.worker, require matching worker notes, dispatch reviewer for wave reviews, and collect evidence closeout.
 - If implementation is not legally open, do not edit files.
 ${commandSpecificInstructions(name)}`;
 }
@@ -82,31 +83,19 @@ async function sendCommandPrompt(api: ExtensionAPI, name: string, args: string, 
   api.sendUserMessage(commandPrompt(name, args, report));
 }
 
-/*
 async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
-  const report = await renderReport(ctx.cwd);
+  const summary = await buildRoadmapDetailSummary(ctx.cwd);
+
   void ctx.ui
-    .custom((tui, _theme, _keybindings, done) => new RoadmapDetailsView(report, tui, () => done(undefined)))
+    .custom(
+      (tui, _theme, _keybindings, done) =>
+        new RoadmapDetailsView(summary, tui, () => done(undefined)),
+      { overlay: true },
+    )
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       ctx.ui.notify(`roadmap:details failed: ${message}`, "error");
     });
-}
-*/
-
-async function showRoadmapDetails(ctx: ExtensionCommandContext): Promise<void> {
-	const report = await renderReport(ctx.cwd);
-
-	void ctx.ui
-	.custom(
-		(tui, _theme, _keybindings, done) =>
-			new RoadmapDetailsView(report, tui, () => done(undefined)),
-		{overlay: true},
-	)
-	.catch((error: unknown) => {
-		const message = error instanceof Error ? error.message : String(error);
-		ctx.ui.notify(`roadmap:details failed: ${message}`, "error");
-	});
 }
 
 export function registerRoadmapCommands(api: ExtensionAPI): void {
@@ -116,7 +105,7 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
       try {
         const result = await initProject(ctx.cwd);
         ctx.ui.notify(
-          `Initialized roadmap-engineer project files: ${result.configPath}, ${result.agentPaths.worker}, ${result.agentPaths.reviewer}`,
+          `Initialized roadmap-engineer project files: ${result.configPath}, ${Object.values(result.agentPaths).join(", ")}`,
           "info",
         );
       } catch (error) {

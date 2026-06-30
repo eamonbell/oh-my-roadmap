@@ -44,7 +44,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     implementation_notes: z.array(z.string()).default([]),
     done_criteria: z.array(z.string()),
     verification_commands: z.array(z.string()).default([]),
-    worker: z.string(),
+    worker: z.enum(["worker-light", "worker", "worker-heavy"]),
     status: z.enum(["assigned", "started", "done", "blocked"]).default("assigned"),
     depends_on: z.array(z.string()).default([]),
     owned_files: z.array(z.string()).default([]),
@@ -96,6 +96,20 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     waves: z.array(waveSchema),
     openQuestions: z.array(z.string()).optional(),
   });
+  const changeRequestInputSchema = z.object({
+    changeRequestId: z.string(),
+    title: z.string(),
+    request: z.string(),
+    verificationCommands: z.array(z.string()),
+    acceptanceCriteria: z.array(z.string()),
+    userInterview: z.array(z.string()).default([]),
+    relevantExistingCode: z.array(z.string()).default([]),
+    relevantDocumentation: z.array(z.string()).default([]),
+    decisions: z.array(z.string()).default([]),
+    dependencyAnalysis: z.array(z.string()).default([]),
+    tasks: z.array(taskSchema),
+    waves: z.array(waveSchema),
+  });
   const implementationProgressStepSchema = z.enum([
     "not_started",
     "dispatching",
@@ -110,6 +124,12 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     step: implementationProgressStepSchema,
     activeTaskIds: z.array(z.string()).default([]),
     blockedReason: z.string().optional(),
+  });
+  const waveFlowCheckInputSchema = z.object({
+    status: z.enum(["passed", "failed"]),
+    checkedBy: z.string().optional(),
+    summary: z.string().optional(),
+    findings: z.array(z.string()).default([]),
   });
   const contextArtifactSchema = z.enum(["notes", "decisions", "risks", "roadmap", "plan"]);
   const contextNoteKindSchema = z.enum(["worker", "review", "orchestrator", "decision", "issue"]);
@@ -268,6 +288,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
         "start_milestone_planning",
         "create_milestone_plan",
         "approve_milestone",
+        "update_milestone_plan",
         "start_implementation",
         "start_reviewing",
         "start_closeout",
@@ -275,11 +296,13 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
         "request_bypass",
         "clear_bypass",
         "approve_change",
+        "update_change_request_plan",
         "close_change",
         "update_task_status",
         "update_wave_status",
         "update_implementation_progress",
         "record_closeout",
+        "record_wave_flow_check",
       ]),
       ...approvalSchema.shape,
       reason: z.string().optional(),
@@ -292,12 +315,14 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
         })
         .optional(),
       milestone: milestoneInputSchema.optional(),
+      changeRequest: changeRequestInputSchema.optional(),
       taskId: z.string().optional(),
       taskStatus: z.enum(["assigned", "started", "done", "blocked"]).optional(),
       waveId: z.string().optional(),
       waveStatus: z.enum(["pending", "running", "reviewing", "blocked", "complete"]).optional(),
       progress: implementationProgressInputSchema.optional(),
       closeout: closeoutSchema.optional(),
+      waveFlowCheck: waveFlowCheckInputSchema.optional(),
     }),
     async execute(_id, params, _signal, _update, ctx) {
       const input = params as TransitionInput;
@@ -377,20 +402,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     label: "Create Change Request",
     description: "Create an active post-implementation change request and change plan.",
     approval: "write",
-    parameters: z.object({
-      changeRequestId: z.string(),
-      title: z.string(),
-      request: z.string(),
-      verificationCommands: z.array(z.string()),
-      acceptanceCriteria: z.array(z.string()),
-      userInterview: z.array(z.string()).default([]),
-      relevantExistingCode: z.array(z.string()).default([]),
-      relevantDocumentation: z.array(z.string()).default([]),
-      decisions: z.array(z.string()).default([]),
-      dependencyAnalysis: z.array(z.string()).default([]),
-      tasks: z.array(taskSchema),
-      waves: z.array(waveSchema),
-    }),
+    parameters: changeRequestInputSchema,
     async execute(_id, params, _signal, _update, ctx) {
       const change = await createChangeRequest(ctx.cwd, params as CreateChangeRequestInput);
       return textResult(`Created change request ${change.change_request_id}.`, change);

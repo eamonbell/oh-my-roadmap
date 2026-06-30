@@ -4,9 +4,12 @@ import type {
   MilestonePlan,
   TaskPlan,
   ValidationIssue,
+  WaveFlowCheck,
   WavePlan,
 } from "./types";
-import { IMPLEMENTATION_PROGRESS_STEPS } from "./types";
+import { IMPLEMENTATION_PROGRESS_STEPS, IMPLEMENTATION_WORKER_NAMES, WAVE_FLOW_CHECK_STATUSES } from "./types";
+
+const IMPLEMENTATION_WORKERS = new Set<string>(IMPLEMENTATION_WORKER_NAMES);
 
 export function issue(code: string, message: string, path?: string): ValidationIssue {
   return path ? { code, message, path } : { code, message };
@@ -24,7 +27,16 @@ function validateTasksAndWaves(
     if (taskIds.has(task.id)) errors.push(issue("task.duplicate", `Duplicate task id: ${task.id}`));
     taskIds.add(task.id);
     taskById.set(task.id, task);
-    if (!task.worker) errors.push(issue("task.worker.missing", `Task ${task.id} must assign a worker`));
+    if (!task.worker) {
+      errors.push(issue("task.worker.missing", `Task ${task.id} must assign a worker`));
+    } else if (!IMPLEMENTATION_WORKERS.has(task.worker)) {
+      errors.push(
+        issue(
+          "task.worker.invalid",
+          `Task ${task.id} must assign worker-light, worker, or worker-heavy; found ${task.worker}`,
+        ),
+      );
+    }
     if (!task.objective?.trim()) errors.push(issue("task.objective.missing", `Task ${task.id} must define an objective`));
     if (task.implementation_notes.length === 0) {
       errors.push(issue("task.implementation.missing", `Task ${task.id} must define implementation notes`));
@@ -202,23 +214,56 @@ function validateDependencyCycles(tasks: TaskPlan[], errors: ValidationIssue[]):
   for (const task of tasks) visit(task.id, []);
 }
 
-export function validateMilestonePlan(plan: MilestonePlan, errors: ValidationIssue[]): void {
-  if (!plan.milestone_id) errors.push(issue("milestone.id.missing", "Milestone ID is required"));
-  if (!plan.title) errors.push(issue("milestone.title.missing", "Milestone title is required"));
+function validateWaveFlowCheck(
+  waveFlowCheck: WaveFlowCheck | undefined,
+  errors: ValidationIssue[],
+  prefix: "milestone" | "change",
+): void {
+  if (!waveFlowCheck) {
+    errors.push(issue(`${prefix}.wave_flow_check.missing`, "Plan must include a wave-flow check"));
+    return;
+  }
+  if (!WAVE_FLOW_CHECK_STATUSES.includes(waveFlowCheck.status)) {
+    errors.push(issue(`${prefix}.wave_flow_check.status.invalid`, `Invalid wave-flow check status: ${waveFlowCheck.status}`));
+    return;
+  }
+  if (waveFlowCheck.status !== "passed") {
+    errors.push(issue(`${prefix}.wave_flow_check.not_passed`, "Plan requires a passed wave-flow check before approval"));
+    return;
+  }
+  if (!waveFlowCheck.checked_by.trim()) {
+    errors.push(issue(`${prefix}.wave_flow_check.checked_by.missing`, "Passed wave-flow check must record who checked it"));
+  }
+  if (!waveFlowCheck.checked_at.trim()) {
+    errors.push(issue(`${prefix}.wave_flow_check.checked_at.missing`, "Passed wave-flow check must record when it ran"));
+  }
+  if (!waveFlowCheck.summary.trim()) {
+    errors.push(issue(`${prefix}.wave_flow_check.summary.missing`, "Passed wave-flow check must include a summary"));
+  }
+}
+
+export function validateMilestonePlan(
+  plan: MilestonePlan,
+  errors: ValidationIssue[],
+  prefix: "milestone" | "change" = "milestone",
+): void {
+  if (!plan.milestone_id) errors.push(issue(`${prefix}.id.missing`, "Milestone ID is required"));
+  if (!plan.title) errors.push(issue(`${prefix}.title.missing`, "Milestone title is required"));
   if (plan.cleanup_policy !== "approval-gated") {
-    errors.push(issue("milestone.cleanup.invalid", "Cleanup policy must be approval-gated"));
+    errors.push(issue(`${prefix}.cleanup.invalid`, "Cleanup policy must be approval-gated"));
   }
   if (plan.open_questions.length > 0) {
-    errors.push(issue("milestone.questions.open", "Milestone has open material questions"));
+    errors.push(issue(`${prefix}.questions.open`, "Plan has open material questions"));
   }
   if (plan.verification_commands.length === 0) {
-    errors.push(issue("milestone.verify.missing", "Milestone plan must define verification commands"));
+    errors.push(issue(`${prefix}.verify.missing`, "Plan must define verification commands"));
   }
   if (plan.acceptance_criteria.length === 0) {
-    errors.push(issue("milestone.acceptance.missing", "Milestone plan must define acceptance criteria"));
+    errors.push(issue(`${prefix}.acceptance.missing`, "Plan must define acceptance criteria"));
   }
-  if (plan.tasks.length === 0) errors.push(issue("milestone.tasks.missing", "Milestone plan must define tasks"));
-  if (plan.waves.length === 0) errors.push(issue("milestone.waves.missing", "Milestone plan must define waves"));
+  if (plan.tasks.length === 0) errors.push(issue(`${prefix}.tasks.missing`, "Plan must define tasks"));
+  if (plan.waves.length === 0) errors.push(issue(`${prefix}.waves.missing`, "Plan must define waves"));
+  validateWaveFlowCheck(plan.wave_flow_check, errors, prefix);
   validateTasksAndWaves(plan.tasks, plan.waves, plan.progress, errors);
 }
 
@@ -245,7 +290,9 @@ export function validateChangeRequest(change: ChangeRequest, errors: ValidationI
       decisions: change.decisions,
       dependency_analysis: change.dependency_analysis,
       progress: change.progress,
+      wave_flow_check: change.wave_flow_check,
     },
     errors,
+    "change",
   );
 }

@@ -36,6 +36,7 @@ describe("roadmap commands", () => {
     expect(sent.options).toBeUndefined();
     expect(sent.content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:new.");
     expect(sent.content).toContain("User arguments:\nAdd billing workflows");
+    expect(sent.content).toContain("No active roadmap. Run /roadmap:new to start a gated roadmap workflow.");
   });
 
   test("roadmap:reopen sends command-specific reopen instructions", async () => {
@@ -153,10 +154,11 @@ describe("roadmap commands", () => {
     );
 
     expect(commands.has("roadmap:details")).toBe(true);
-    expect(customOptions).toEqual([undefined]);
+    expect(customOptions).toEqual([{ overlay: true }]);
     expect(capturedComponent).toBeDefined();
     renderedLines.push(...capturedComponent!.render(80));
-    expect(renderedLines.join("\n")).toContain("No active roadmap. Run /roadmap:new to start a gated roadmap workflow.");
+    expect(renderedLines.join("\n")).toContain("No active roadmap");
+    expect(renderedLines.join("\n")).toContain("gated roadmap workflow");
     capturedComponent!.handleInput?.("\x1b");
     expect(closeCount).toBe(1);
     expect(sentMessages).toHaveLength(0);

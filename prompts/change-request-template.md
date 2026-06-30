@@ -18,6 +18,12 @@ progress:
   step: not_started
   active_task_ids: []
   updated_at: example-timestamp
+wave_flow_check:
+  status: pending
+  checked_by: ""
+  checked_at: ""
+  summary: ""
+  findings: []
 ---
 
 # Example Change Request
@@ -46,7 +52,7 @@ List project docs, external docs, standards, or API references used while planni
 
 ## Required Work
 
-Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment.
+Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment. Worker assignment must be one of `worker-light`, `worker`, or `worker-heavy`.
 
 ## Dependency Analysis
 
@@ -55,6 +61,10 @@ Explain task dependencies, why each dependency exists, and which tasks can safel
 ## Execution Waves
 
 Group only already-defined tasks into waves. Each wave must include a goal, exit criteria, and review checkpoint.
+
+## Wave Flow Check
+
+Record the structured `wave_flow_check` status. It starts as `pending`, must be recorded by `wave-flow-checker`, and must be `passed` before approval.
 
 ## Progress
 

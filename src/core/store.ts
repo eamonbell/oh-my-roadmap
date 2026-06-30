@@ -45,6 +45,8 @@ import type {
   RoadmapMilestoneOutline,
   RoadmapState,
   TaskPlan,
+  WaveFlowCheck,
+  WaveFlowCheckStatus,
   WavePlan,
 } from "./types";
 
@@ -116,6 +118,13 @@ export interface UpdateImplementationProgressInput {
   blockedReason?: string;
 }
 
+export interface WaveFlowCheckInput {
+  status: WaveFlowCheckStatus;
+  checkedBy?: string;
+  summary?: string;
+  findings?: string[];
+}
+
 export interface TransitionInput {
   operation:
     | "record_discovery"
@@ -124,6 +133,7 @@ export interface TransitionInput {
     | "start_milestone_planning"
     | "create_milestone_plan"
     | "approve_milestone"
+    | "update_milestone_plan"
     | "start_implementation"
     | "start_reviewing"
     | "start_closeout"
@@ -131,22 +141,26 @@ export interface TransitionInput {
     | "request_bypass"
     | "clear_bypass"
     | "approve_change"
+    | "update_change_request_plan"
     | "close_change"
     | "update_task_status"
     | "update_wave_status"
     | "update_implementation_progress"
-    | "record_closeout";
+    | "record_closeout"
+    | "record_wave_flow_check";
   approver?: string;
   summary?: string;
   reason?: string;
   discovery?: Partial<RoadmapState["discovery"]>;
   milestone?: CreateMilestonePlanInput;
+  changeRequest?: CreateChangeRequestInput;
   taskId?: string;
   taskStatus?: TaskPlan["status"];
   waveId?: string;
   waveStatus?: WavePlan["status"];
   progress?: UpdateImplementationProgressInput;
   closeout?: CloseoutEvidence;
+  waveFlowCheck?: WaveFlowCheckInput;
 }
 
 export interface AmendmentInput {
@@ -186,6 +200,39 @@ function initialProgress(waves: WavePlan[]): ImplementationProgress {
     step: "not_started",
     active_task_ids: [],
     updated_at: nowIso(),
+  };
+}
+
+function pendingWaveFlowCheck(): WaveFlowCheck {
+  return {
+    status: "pending",
+    checked_by: "",
+    checked_at: "",
+    summary: "",
+    findings: [],
+  };
+}
+
+function recordedWaveFlowCheck(input: WaveFlowCheckInput): WaveFlowCheck {
+  return {
+    status: input.status,
+    checked_by: input.checkedBy?.trim() || "wave-flow-checker",
+    checked_at: nowIso(),
+    summary: input.summary?.trim() ?? "",
+    findings: input.findings ?? [],
+  };
+}
+
+function normalizeWaveFlowCheck(value: unknown): WaveFlowCheck {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return pendingWaveFlowCheck();
+  const raw = value as Partial<WaveFlowCheck>;
+  if (!["pending", "passed", "failed"].includes(raw.status ?? "")) return pendingWaveFlowCheck();
+  return {
+    status: raw.status as WaveFlowCheckStatus,
+    checked_by: valueString(raw.checked_by),
+    checked_at: valueString(raw.checked_at),
+    summary: valueString(raw.summary),
+    findings: valueList(raw.findings),
   };
 }
 
@@ -249,6 +296,7 @@ function normalizeMilestonePlan(plan: MilestonePlan): MilestonePlan {
     tasks,
     waves,
     progress: normalizeProgress(raw.progress, waves),
+    wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
   };
 }
 
@@ -268,6 +316,7 @@ function normalizeChangeRequest(change: ChangeRequest): ChangeRequest {
     tasks,
     waves,
     progress: normalizeProgress(raw.progress, waves),
+    wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
   };
 }
 
@@ -367,6 +416,7 @@ function renderPlanSummary(plan: MilestonePlan | ChangeRequest): string {
     `Progress step: ${plan.progress.step}`,
     `Active tasks: ${plan.progress.active_task_ids.join(", ") || "(none)"}`,
     `Blocked reason: ${plan.progress.blocked_reason ?? "(none)"}`,
+    `Wave flow check: ${plan.wave_flow_check.status}`,
   ].join("\n");
 }
 
@@ -463,6 +513,15 @@ function renderImplementationPlanBody(plan: MilestonePlan | ChangeRequest): stri
     `- Active tasks: ${plan.progress.active_task_ids.join(", ") || "(none)"}`,
     `- Blocked reason: ${plan.progress.blocked_reason ?? "(none)"}`,
     `- Updated at: ${plan.progress.updated_at}`,
+    ``,
+    `## Wave Flow Check`,
+    ``,
+    `- Status: ${plan.wave_flow_check.status}`,
+    `- Checked by: ${plan.wave_flow_check.checked_by || "(none)"}`,
+    `- Checked at: ${plan.wave_flow_check.checked_at || "(none)"}`,
+    `- Summary: ${plan.wave_flow_check.summary || "(none)"}`,
+    `- Findings:`,
+    list(plan.wave_flow_check.findings),
     ``,
     `## Verification`,
     ``,
@@ -740,6 +799,7 @@ export async function createMilestonePlan(
     tasks: input.tasks,
     waves: input.waves,
     progress: initialProgress(input.waves),
+    wave_flow_check: pendingWaveFlowCheck(),
   };
 
   await fs.mkdir(milestoneDir(cwd, currentRoadmap.roadmap_id, input.milestoneId), { recursive: true });
@@ -766,6 +826,38 @@ export async function createMilestonePlan(
 
   return plan;
   });
+}
+
+async function updateMilestonePlanDraft(
+  cwd: string,
+  plan: MilestonePlan,
+  input: CreateMilestonePlanInput,
+): Promise<MilestonePlan> {
+  if (plan.status !== "milestone_planning") {
+    throw new Error("update_milestone_plan requires a draft milestone plan");
+  }
+  if (plan.approvals.length > 0) throw new Error("Approved milestone plans cannot be updated");
+  if (input.milestoneId !== plan.milestone_id) {
+    throw new Error(`update_milestone_plan cannot change milestone id from ${plan.milestone_id} to ${input.milestoneId}`);
+  }
+  const updated: MilestonePlan = {
+    ...plan,
+    title: input.title,
+    open_questions: input.openQuestions ?? [],
+    verification_commands: input.verificationCommands,
+    acceptance_criteria: input.acceptanceCriteria,
+    user_interview: input.userInterview ?? [],
+    relevant_existing_code: input.relevantExistingCode ?? [],
+    relevant_documentation: input.relevantDocumentation ?? [],
+    decisions: input.decisions ?? [],
+    dependency_analysis: input.dependencyAnalysis ?? [],
+    tasks: input.tasks,
+    waves: input.waves,
+    progress: initialProgress(input.waves),
+    wave_flow_check: pendingWaveFlowCheck(),
+  };
+  await writeMilestonePlan(cwd, updated);
+  return updated;
 }
 
 function approval(approver: string | undefined, summary: string | undefined): Approval {
@@ -924,12 +1016,22 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
       const milestoneId = requireMilestoneId(activeMilestoneId);
       const plan = { ...loaded.milestone, status: "milestone_approved" as Phase };
       if (plan.open_questions.length > 0) throw new Error("Milestone approval requires open questions to be resolved");
+      if (plan.wave_flow_check.status !== "passed") {
+        throw new Error("Milestone approval requires a passed wave-flow check");
+      }
       if (plan.approvals.length > 0) throw new Error("Milestone is already approved");
       plan.approvals.push(approval(input.approver, input.summary));
       await writeMilestonePlan(cwd, plan);
       roadmap.phase = "milestone_approved";
       setMilestoneStatus(roadmap, milestoneId, "milestone_approved");
       break;
+    }
+    case "update_milestone_plan": {
+      requirePhase(roadmap.phase, "milestone_planning", input.operation);
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      if (!input.milestone) throw new Error("update_milestone_plan requires milestone input");
+      await updateMilestonePlanDraft(cwd, loaded.milestone, input.milestone);
+      return await loadState(cwd);
     }
     case "start_implementation": {
       if (loaded.changeRequest) {
@@ -994,10 +1096,43 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         throw new Error("No active change request to approve");
       }
       if (loaded.changeRequest.status !== "draft") throw new Error("Only draft change requests can be approved");
+      if (loaded.changeRequest.wave_flow_check.status !== "passed") {
+        throw new Error("Change approval requires a passed wave-flow check");
+      }
       const change = {
         ...loaded.changeRequest,
         status: "approved" as const,
         approvals: [...loaded.changeRequest.approvals, approval(input.approver, input.summary)],
+      };
+      await writeChangeRequest(cwd, change);
+      break;
+    }
+    case "update_change_request_plan": {
+      if (!loaded.changeRequest || !activeMilestoneId) {
+        throw new Error("No active change request to update");
+      }
+      if (!input.changeRequest) throw new Error("update_change_request_plan requires change request input");
+      if (loaded.changeRequest.status !== "draft") throw new Error("Only draft change requests can be updated");
+      if (input.changeRequest.changeRequestId !== loaded.changeRequest.change_request_id) {
+        throw new Error(
+          `update_change_request_plan cannot change request id from ${loaded.changeRequest.change_request_id} to ${input.changeRequest.changeRequestId}`,
+        );
+      }
+      const change: ChangeRequest = {
+        ...loaded.changeRequest,
+        title: input.changeRequest.title,
+        request: input.changeRequest.request,
+        verification_commands: input.changeRequest.verificationCommands,
+        acceptance_criteria: input.changeRequest.acceptanceCriteria,
+        user_interview: input.changeRequest.userInterview ?? [],
+        relevant_existing_code: input.changeRequest.relevantExistingCode ?? [],
+        relevant_documentation: input.changeRequest.relevantDocumentation ?? [],
+        decisions: input.changeRequest.decisions ?? [],
+        dependency_analysis: input.changeRequest.dependencyAnalysis ?? [],
+        tasks: input.changeRequest.tasks,
+        waves: input.changeRequest.waves,
+        progress: initialProgress(input.changeRequest.waves),
+        wave_flow_check: pendingWaveFlowCheck(),
       };
       await writeChangeRequest(cwd, change);
       break;
@@ -1081,6 +1216,21 @@ export async function transition(cwd: string, input: TransitionInput): Promise<L
         break;
       }
       await writeMilestoneCloseout(cwd, evidence);
+      break;
+    }
+    case "record_wave_flow_check": {
+      if (!input.waveFlowCheck) throw new Error("record_wave_flow_check requires wave flow check input");
+      const waveFlowCheck = recordedWaveFlowCheck(input.waveFlowCheck);
+      if (loaded.changeRequest) {
+        if (loaded.changeRequest.status !== "draft") throw new Error("record_wave_flow_check requires a draft change request");
+        await writeChangeRequest(cwd, { ...loaded.changeRequest, wave_flow_check: waveFlowCheck });
+        break;
+      }
+      requireActiveMilestone(activeMilestoneId, loaded.milestone);
+      if (loaded.milestone.status !== "milestone_planning") {
+        throw new Error("record_wave_flow_check requires a draft milestone plan");
+      }
+      await writeMilestonePlan(cwd, { ...loaded.milestone, wave_flow_check: waveFlowCheck });
       break;
     }
     default:
@@ -1218,6 +1368,7 @@ export async function createChangeRequest(
     tasks: input.tasks,
     waves: input.waves,
     progress: initialProgress(input.waves),
+    wave_flow_check: pendingWaveFlowCheck(),
   };
 
   await writeChangeRequest(cwd, change);

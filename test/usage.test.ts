@@ -95,10 +95,23 @@ async function approvedRoadmap(): Promise<void> {
   await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 }
 
+async function recordPassedWaveFlowCheck(): Promise<void> {
+  await transition(cwd, {
+    operation: "record_wave_flow_check",
+    waveFlowCheck: {
+      status: "passed",
+      checkedBy: "wave-flow-checker",
+      summary: "Wave flow check passed.",
+      findings: [],
+    },
+  });
+}
+
 async function approvedMilestone(): Promise<void> {
   await approvedRoadmap();
   await transition(cwd, { operation: "start_milestone_planning" });
   await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+  await recordPassedWaveFlowCheck();
   await transition(cwd, { operation: "approve_milestone", approver: "user" });
 }
 
