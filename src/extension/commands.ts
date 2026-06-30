@@ -56,8 +56,8 @@ Follow the roadmap-engineer workflow strictly:
 - Inspect existing code and documentation before planning or changing state.
 - Use the built-in ask tool to interview the user whenever additional information, decisions, tradeoffs, gaps, approvals, or unresolved questions remain.
 - Reference relevant existing code and documentation paths in roadmap, milestone, change, review, and closeout artifacts when those references help future agents.
-- Use roadmap_engineer_read_state before changing state when context is unclear.
-- Use roadmap_engineer_search_context for decisions, risks, notes, issues, and review findings; use roadmap_engineer_read_context only for selected entries that need full detail.
+- Use roadmap_engineer_read_state for compact orientation before changing state when context is unclear; request a focused scope when only roadmap, active milestone, active change, or usage context is needed.
+- Use roadmap_engineer_search_context for roadmap sections, plan sections, decisions, risks, notes, issues, and review findings; use roadmap_engineer_read_context only for selected entries that need full detail. Do not read full roadmap.md or plan.md directly unless the section tools cannot answer the question.
 - Use roadmap_engineer_validate before asking for approval or opening implementation.
 - Use roadmap_engineer_update_roadmap to finalize a detailed generated roadmap before asking for roadmap approval.
 - Use roadmap_engineer_transition, roadmap_engineer_amend, roadmap_engineer_append_note, or roadmap_engineer_create_change_request for state changes.

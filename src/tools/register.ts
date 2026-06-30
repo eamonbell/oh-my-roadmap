@@ -22,6 +22,7 @@ import {
   type SearchContextInput,
 } from "../core/context";
 import { nextAction, renderReport } from "../core/report";
+import { summarizeState, type StateReadScope } from "../core/state-summary";
 import { validateRoadmapState } from "../core/validation";
 
 function textResult<T>(text: string, details: T): AgentToolResult<T> {
@@ -110,7 +111,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     activeTaskIds: z.array(z.string()).default([]),
     blockedReason: z.string().optional(),
   });
-  const contextArtifactSchema = z.enum(["notes", "decisions", "risks"]);
+  const contextArtifactSchema = z.enum(["notes", "decisions", "risks", "roadmap", "plan"]);
   const contextNoteKindSchema = z.enum(["worker", "review", "orchestrator", "decision", "issue"]);
   const contextNoteStatusSchema = z.enum(["open", "resolved", "deferred"]);
   const roadmapMilestoneSchema = z.object({
@@ -189,19 +190,32 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   register({
     name: "roadmap_engineer_read_state",
     label: "Read Roadmap State",
-    description: "Read the active roadmap, milestone, and change-request state.",
+    description: "Read compact active roadmap, milestone, and change-request state. Full detail is available through roadmap_engineer_search_context and roadmap_engineer_read_context.",
     approval: "read",
-    parameters: z.object({}),
-    async execute(_id, _params, _signal, _update, ctx) {
+    parameters: z.object({
+      scope: z.enum(["compact", "roadmap", "active_milestone", "active_change", "usage"]).optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const scope = ((params as { scope?: StateReadScope }).scope ?? "compact") as StateReadScope;
       const state = await loadState(ctx.cwd);
-      return textResult(JSON.stringify(state, null, 2), state);
+      const roadmapSections = ["compact", "roadmap"].includes(scope)
+        ? (await searchContext(ctx.cwd, { artifacts: ["roadmap"], maxResults: 50, snippetChars: 80 })).results
+        : undefined;
+      const planSections = ["compact", "active_milestone", "active_change"].includes(scope)
+        ? (await searchContext(ctx.cwd, { artifacts: ["plan"], maxResults: 80, snippetChars: 80 })).results
+        : undefined;
+      const summary = summarizeState(state, scope, {
+        ...(roadmapSections !== undefined ? { roadmapSections } : {}),
+        ...(planSections !== undefined ? { planSections } : {}),
+      });
+      return textResult(JSON.stringify(summary, null, 2), summary);
     },
   } as ToolDefinition);
 
   register({
     name: "roadmap_engineer_search_context",
     label: "Search Roadmap Context",
-    description: "Search active-roadmap notes, decisions, and risks with compact snippet results.",
+    description: "Search active-roadmap notes, decisions, risks, roadmap sections, and plan sections with compact snippet results.",
     approval: "read",
     parameters: z.object({
       artifacts: z.array(contextArtifactSchema).optional(),

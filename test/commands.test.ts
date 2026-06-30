@@ -99,6 +99,8 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("what test coverage they want");
     expect(sent.content).toContain("which areas should create tests");
     expect(sent.content).toContain("what coverage is intentionally deferred or not required");
+    expect(sent.content).toContain("compact orientation");
+    expect(sent.content).toContain("roadmap sections, plan sections");
     expect(sent.content).toContain("do not call reopen_roadmap");
     expect(sent.content).toContain("start_milestone_planning to advance from the completed milestone");
   });

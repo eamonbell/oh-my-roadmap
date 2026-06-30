@@ -2,11 +2,12 @@ import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initRoadmap } from "../src/core/store";
+import { initRoadmap, writeActive } from "../src/core/store";
 import { searchContext, readContext } from "../src/core/context";
-import { decisionsPath, milestoneNotesPath, risksPath } from "../src/core/paths";
+import { decisionsPath, milestoneNotesPath, milestonePlanPath, risksPath, roadmapDocPath } from "../src/core/paths";
 
 let cwd = "";
+const AIDEA_ROADMAPS = "/Users/eamon/Development/Aidea/aidea-service/.roadmaps";
 
 beforeEach(async () => {
   cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-context-"));
@@ -19,6 +20,58 @@ afterEach(async () => {
 });
 
 async function writeContextFixtures(): Promise<void> {
+  await writeActive(cwd, {
+    roadmap_id: "active-roadmap",
+    milestone_id: "m01-core",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  });
+
+  await fs.writeFile(
+    roadmapDocPath(cwd, "active-roadmap"),
+    `---
+roadmap_id: active-roadmap
+title: Active Roadmap
+status: finalized
+---
+
+# Active Roadmap
+
+## Goal
+
+Reduce context usage without removing implementation-critical detail.
+
+## Acceptance Intent
+
+Agents can retrieve exact roadmap sections by ID when needed.
+`,
+    "utf8",
+  );
+
+  await fs.mkdir(path.dirname(milestonePlanPath(cwd, "active-roadmap", "m01-core")), { recursive: true });
+  await fs.writeFile(
+    milestonePlanPath(cwd, "active-roadmap", "m01-core"),
+    `---
+roadmap_id: active-roadmap
+milestone_id: m01-core
+title: Core Milestone
+status: milestone_approved
+---
+
+# Core Milestone
+
+## Summary
+
+Milestone: m01-core
+
+## Required Work
+
+### t01-parser - Parser
+
+Task ownership and exact verification commands stay available in the full plan.
+`,
+    "utf8",
+  );
+
   await fs.mkdir(path.dirname(milestoneNotesPath(cwd, "active-roadmap", "m01-core")), { recursive: true });
   await fs.writeFile(
     milestoneNotesPath(cwd, "active-roadmap", "m01-core"),
@@ -94,6 +147,15 @@ Mitigate with snippets and capped read expansion.
   );
 }
 
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("roadmap context search", () => {
   test("searches notes across milestones and heading sections for decisions and risks", async () => {
     const result = await searchContext(cwd, {});
@@ -164,5 +226,71 @@ describe("roadmap context search", () => {
     expect(result.missingIds).toEqual(["missing"]);
     expect(result.results[0]?.body).toHaveLength(16);
     expect(result.results[0]?.bodyTruncated).toBe(true);
+  });
+
+  test("searches and reads roadmap and plan sections without reading whole files", async () => {
+    const roadmap = await searchContext(cwd, {
+      artifacts: ["roadmap"],
+      query: "implementation-critical",
+    });
+    expect(roadmap.total).toBe(1);
+    expect(roadmap.results[0]?.id).toBe("roadmap:goal");
+    expect(roadmap.results[0]?.body).toBeUndefined();
+
+    const plan = await searchContext(cwd, {
+      artifacts: ["plan"],
+      query: "Required Work",
+    });
+    expect(plan.total).toBe(1);
+    expect(plan.results[0]?.id).toBe("plan:m01-core:required-work");
+    expect(plan.results[0]?.milestoneId).toBe("m01-core");
+
+    const expanded = await readContext(cwd, {
+      ids: ["roadmap:goal", "plan:m01-core:required-work"],
+      maxBodyChars: 200,
+    });
+    expect(expanded.found).toBe(2);
+    expect(expanded.results.map((entry) => entry.id)).toEqual([
+      "roadmap:goal",
+      "plan:m01-core:required-work",
+    ]);
+    expect(expanded.results[1]?.body).toContain("### t01-parser - Parser");
+  });
+
+  test("indexes copied Aidea roadmap and plan sections without modifying originals", async () => {
+    if (!(await pathExists(path.join(AIDEA_ROADMAPS, "active.yml")))) return;
+
+    const copiedCwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-aidea-copy-"));
+    try {
+      await fs.cp(AIDEA_ROADMAPS, path.join(copiedCwd, ".roadmaps"), { recursive: true });
+
+      const roadmap = await searchContext(copiedCwd, {
+        artifacts: ["roadmap"],
+        query: "StepResultEnvelope",
+        maxResults: 5,
+      });
+      expect(roadmap.total).toBeGreaterThan(0);
+      expect(roadmap.results[0]?.id.startsWith("roadmap:")).toBe(true);
+      expect(roadmap.results[0]?.body).toBeUndefined();
+
+      const plan = await searchContext(copiedCwd, {
+        artifacts: ["plan"],
+        query: "T1-model-migration",
+        maxResults: 5,
+      });
+      expect(plan.total).toBeGreaterThan(0);
+      expect(plan.results[0]?.id.startsWith("plan:contract-model-validation:")).toBe(true);
+      expect(plan.results[0]?.body).toBeUndefined();
+
+      const expanded = await readContext(copiedCwd, {
+        ids: [roadmap.results[0]?.id ?? "", plan.results[0]?.id ?? ""],
+        maxBodyChars: 320,
+      });
+      expect(expanded.found).toBe(2);
+      expect(expanded.results.every((entry) => (entry.body?.length ?? 0) <= 320)).toBe(true);
+      expect(expanded.results.some((entry) => entry.bodyTruncated)).toBe(true);
+    } finally {
+      await fs.rm(copiedCwd, { recursive: true, force: true });
+    }
   });
 });

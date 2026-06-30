@@ -3,7 +3,15 @@ import * as path from "node:path";
 import { parseMarkdownDocument } from "./frontmatter";
 import { fileExists, readText } from "./files";
 import { loadActive } from "./store";
-import { decisionsPath, milestoneNotesPath, roadmapDir, risksPath } from "./paths";
+import {
+  changeRequestPath,
+  decisionsPath,
+  milestoneNotesPath,
+  milestonePlanPath,
+  roadmapDir,
+  roadmapDocPath,
+  risksPath,
+} from "./paths";
 import type { ContextArtifact, ContextEntry } from "./context-types";
 
 function titleFromBody(body: string): string {
@@ -38,27 +46,53 @@ function parseNoteEntries(filePath: string, milestoneId: string, text: string, s
   return entries;
 }
 
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "section";
+}
+
 function parseHeadingEntries(
-  artifact: "decisions" | "risks",
+  artifact: Exclude<ContextArtifact, "notes">,
   filePath: string,
   text: string,
   startOrder: number,
+  idParts: string[] = [],
 ): ContextEntry[] {
   const matches = Array.from(text.matchAll(/^(#{1,6})\s+(.+)$/gm));
   const entries: ContextEntry[] = [];
+  const seenIds = new Map<string, number>();
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index];
     if (!match || match.index === undefined) continue;
     const level = match[1]?.length ?? 1;
     if (index === 0 && level === 1) continue;
 
-    const next = matches[index + 1];
-    const end = next?.index ?? text.length;
+    let end = text.length;
+    for (let nextIndex = index + 1; nextIndex < matches.length; nextIndex += 1) {
+      const nextMatch = matches[nextIndex];
+      if (!nextMatch || nextMatch.index === undefined) continue;
+      const nextLevel = nextMatch[1]?.length ?? 1;
+      if (nextLevel <= level) {
+        end = nextMatch.index;
+        break;
+      }
+    }
     const title = match[2]?.trim() || "(untitled)";
+    let id = `${artifact}:${entries.length + 1}`;
+    if (artifact === "roadmap" || artifact === "plan") {
+      const baseId = [artifact, ...idParts, slugify(title)].join(":");
+      const count = seenIds.get(baseId) ?? 0;
+      seenIds.set(baseId, count + 1);
+      id = count === 0 ? baseId : `${baseId}-${count + 1}`;
+    }
     entries.push({
-      id: `${artifact}:${entries.length + 1}`,
+      id,
       artifact,
       path: filePath,
+      ...(idParts[0] ? { milestoneId: idParts[0] } : {}),
       title,
       body: text.slice(match.index, end).trim(),
       metadata: { heading_level: level },
@@ -66,6 +100,30 @@ function parseHeadingEntries(
     });
   }
   return entries;
+}
+
+async function loadRoadmapEntries(cwd: string, roadmapId: string, startOrder: number): Promise<ContextEntry[]> {
+  const filePath = roadmapDocPath(cwd, roadmapId);
+  if (!(await fileExists(filePath))) return [];
+  const doc = parseMarkdownDocument<Record<string, unknown>>(await readText(filePath));
+  return parseHeadingEntries("roadmap", filePath, doc.body, startOrder);
+}
+
+async function loadPlanEntries(
+  cwd: string,
+  roadmapId: string,
+  milestoneId: string | undefined,
+  changeRequestId: string | undefined,
+  startOrder: number,
+): Promise<ContextEntry[]> {
+  if (!milestoneId) return [];
+  const filePath = changeRequestId
+    ? changeRequestPath(cwd, roadmapId, milestoneId, changeRequestId)
+    : milestonePlanPath(cwd, roadmapId, milestoneId);
+  if (!(await fileExists(filePath))) return [];
+  const doc = parseMarkdownDocument<Record<string, unknown>>(await readText(filePath));
+  const idParts = changeRequestId ? [milestoneId, changeRequestId] : [milestoneId];
+  return parseHeadingEntries("plan", filePath, doc.body, startOrder, idParts);
 }
 
 async function loadNoteEntries(cwd: string, roadmapId: string, startOrder: number): Promise<ContextEntry[]> {
@@ -100,6 +158,18 @@ export async function loadContextEntries(
   const entries: ContextEntry[] = [];
   if (artifacts.includes("notes")) {
     entries.push(...(await loadNoteEntries(cwd, active.roadmap_id, entries.length)));
+  }
+  if (artifacts.includes("roadmap")) {
+    entries.push(...(await loadRoadmapEntries(cwd, active.roadmap_id, entries.length)));
+  }
+  if (artifacts.includes("plan")) {
+    entries.push(...(await loadPlanEntries(
+      cwd,
+      active.roadmap_id,
+      active.milestone_id,
+      active.change_request_id,
+      entries.length,
+    )));
   }
   if (artifacts.includes("decisions")) {
     const filePath = decisionsPath(cwd, active.roadmap_id);

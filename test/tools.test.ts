@@ -33,8 +33,10 @@ describe("roadmap context tools", () => {
 
     registerRoadmapTools(api);
 
+    const readStateTool = tools.get("roadmap_engineer_read_state");
     const searchTool = tools.get("roadmap_engineer_search_context");
     const readTool = tools.get("roadmap_engineer_read_context");
+    expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
 
@@ -46,6 +48,20 @@ describe("roadmap context tools", () => {
         "# Decision Register\n\n## Compact context\n\nUse snippets before full bodies.\n",
         "utf8",
       );
+
+      const state = await readStateTool?.execute(
+        "state",
+        {},
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(state?.details).toMatchObject({
+        active: { roadmap_id: "tool-roadmap" },
+        roadmap: { roadmap_id: "tool-roadmap", title: "Tool Roadmap" },
+      });
+      expect(JSON.stringify(state?.details)).toContain("context_sections");
+      expect(JSON.stringify(state?.details)).not.toContain("success_criteria");
 
       const search = await searchTool?.execute(
         "search",
@@ -72,6 +88,18 @@ describe("roadmap context tools", () => {
         found: 1,
       });
       expect(JSON.stringify(read?.details)).toContain('"body":"## Compa"');
+
+      const roadmapSearch = await searchTool?.execute(
+        "search-roadmap",
+        { artifacts: ["roadmap"], query: "not finalized" },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(roadmapSearch?.details).toMatchObject({
+        total: 1,
+        returned: 1,
+      });
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
