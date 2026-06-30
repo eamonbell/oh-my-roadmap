@@ -22,6 +22,9 @@ List project docs, external docs, standards, or API references used while planni
 
 ## Milestones
 
+List concrete roadmap milestone outlines. Each milestone must group multiple meaningful deliverables or workstreams that belong together, while remaining an outline rather than a milestone implementation plan.
+For each milestone include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
+
 ## Risks
 
 ## Open Questions

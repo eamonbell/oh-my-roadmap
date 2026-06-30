@@ -32,6 +32,7 @@ Command-specific workflow for /milestone:plan:
 - If the roadmap phase is roadmap_approved, call roadmap_engineer_transition with operation start_milestone_planning before creating the milestone plan.
 - If the roadmap phase is complete and the roadmap has remaining planned or blocked milestone outlines, do not call reopen_roadmap. Call roadmap_engineer_transition with operation start_milestone_planning to advance from the completed milestone into planning for the next milestone.
 - If the roadmap phase is complete and there are no remaining planned or blocked milestone outlines, stop and ask whether the user wants a post-implementation change request or a new roadmap.
+- Do not pad the milestone plan with filler tasks; every task must directly implement the approved roadmap milestone scope.
 - After milestone planning is open, use roadmap_engineer_transition with operation create_milestone_plan for the selected roadmap milestone, then validate before asking for approval.`;
   }
   if (name === "milestone:implement") {
@@ -74,6 +75,7 @@ Follow the roadmap-engineer workflow strictly:
 - Use roadmap_engineer_search_context for roadmap sections, plan sections, decisions, risks, notes, issues, and review findings; use roadmap_engineer_read_context only for selected entries that need full detail. Do not read full roadmap.md or plan.md directly unless the section tools cannot answer the question.
 - Use roadmap_engineer_validate before asking for approval or opening implementation.
 - Use roadmap_engineer_update_roadmap to finalize a detailed generated roadmap before asking for roadmap approval.
+- For roadmap planning, each milestone outline must group multiple meaningful deliverables or workstreams that belong together; do not create a separate milestone for one small edit, isolated cleanup, or one narrow task.
 - Use roadmap_engineer_transition, roadmap_engineer_amend, roadmap_engineer_append_note, or roadmap_engineer_create_change_request for state changes.
 - Record discovery with roadmap_engineer_transition operation record_discovery before roadmap approval.
 - For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment.

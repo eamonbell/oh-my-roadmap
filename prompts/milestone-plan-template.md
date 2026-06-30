@@ -47,7 +47,7 @@ List project docs, external docs, standards, or API references used while planni
 
 ## Required Work
 
-Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment. Worker assignment must be one of `worker-light`, `worker`, or `worker-heavy`.
+Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment. Worker assignment must be one of `worker-light`, `worker`, or `worker-heavy`. Do not add filler tasks to justify the milestone; every task must directly implement the approved roadmap milestone scope.
 
 ## Dependency Analysis
 
