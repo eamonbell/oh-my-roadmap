@@ -9,6 +9,7 @@ import {
   appendNote,
   createChangeRequest,
   initRoadmap,
+  loadState,
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
@@ -267,5 +268,8 @@ describe("event ledger", () => {
     }
 
     expect((await readRoadmapEvents(cwd)).events.map((event) => event.type)).toEqual(["roadmap.initialized"]);
+    const state = await loadState(cwd);
+    expect(state.roadmap?.phase).toBe("discovery");
+    expect(state.roadmap?.discovery.recorded).toBe(false);
   });
 });
