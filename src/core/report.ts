@@ -1,4 +1,5 @@
 import { loadRoadmapBlockers, loadState, transition, type TransitionInput } from "./store";
+import { withDiagnosticTiming } from "../diagnostics";
 import type {
   ImplementationProgress,
   LoadedState,
@@ -223,7 +224,7 @@ function waveFlowCheckPlan(state: LoadedState, checkStatus: "pending" | "failed"
   });
 }
 
-export async function renderReport(cwd: string): Promise<string> {
+async function renderReportImpl(cwd: string): Promise<string> {
   const state = await loadState(cwd);
   if (!state.active || !state.roadmap) {
     return "No active roadmap. Run /roadmap:new to start a gated roadmap workflow.";
@@ -275,7 +276,16 @@ export async function renderReport(cwd: string): Promise<string> {
   return lines.join("\n");
 }
 
-export async function nextActionPlan(cwd: string): Promise<NextActionPlan> {
+export async function renderReport(cwd: string): Promise<string> {
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "report.renderReport",
+    cwd,
+    slowMs: 250,
+  }, async () => await renderReportImpl(cwd));
+}
+
+async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
   const state = await loadState(cwd);
   if (!state.active || !state.roadmap) {
     return plan({
@@ -460,7 +470,12 @@ export async function nextActionPlan(cwd: string): Promise<NextActionPlan> {
 }
 
 export async function nextAction(cwd: string): Promise<string> {
-  return (await nextActionPlan(cwd)).description;
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "report.nextAction",
+    cwd,
+    slowMs: 250,
+  }, async () => (await nextActionPlan(cwd)).description);
 }
 
 function progressNextActionPlan(state: LoadedState, progress: ImplementationProgress, waves: WavePlan[]): NextActionPlan {
@@ -587,21 +602,38 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 }
 
 export async function applyNextAction(cwd: string, actionId: string): Promise<{ action: string; plan: NextActionPlan; state: LoadedState }> {
-  const requestedId = actionId.trim();
-  if (!requestedId) throw new Error("apply_next_action requires actionId");
-  const current = await nextActionPlan(cwd);
-  if (current.id !== requestedId) {
-    throw new Error(`Refusing to apply action ${requestedId}: current next action is ${current.id}.`);
-  }
-  if (current.status !== "ready") {
-    throw new Error(`Refusing to apply ${current.id}: action status is ${current.status}. ${current.description}`);
-  }
-  if (!current.safe_to_apply) {
-    throw new Error(`Refusing to apply ${current.id}: action is not marked safe to apply. ${current.description}`);
-  }
-  if (!current.tool || current.tool.name !== "roadmap_engineer_transition") {
-    throw new Error(`Refusing to apply ${current.id}: action has no executable transition.`);
-  }
-  const state = await transition(cwd, current.tool.input as unknown as TransitionInput);
-  return { action: current.description, plan: current, state };
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "report.applyNextAction",
+    cwd,
+    slowMs: 250,
+    metadata: { action_id: actionId },
+  }, async () => {
+    const requestedId = actionId.trim();
+    if (!requestedId) throw new Error("apply_next_action requires actionId");
+    const current = await nextActionPlan(cwd);
+    if (current.id !== requestedId) {
+      throw new Error(`Refusing to apply action ${requestedId}: current next action is ${current.id}.`);
+    }
+    if (current.status !== "ready") {
+      throw new Error(`Refusing to apply ${current.id}: action status is ${current.status}. ${current.description}`);
+    }
+    if (!current.safe_to_apply) {
+      throw new Error(`Refusing to apply ${current.id}: action is not marked safe to apply. ${current.description}`);
+    }
+    if (!current.tool || current.tool.name !== "roadmap_engineer_transition") {
+      throw new Error(`Refusing to apply ${current.id}: action has no executable transition.`);
+    }
+    const state = await transition(cwd, current.tool.input as unknown as TransitionInput);
+    return { action: current.description, plan: current, state };
+  });
+}
+
+export async function nextActionPlan(cwd: string): Promise<NextActionPlan> {
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "report.nextActionPlan",
+    cwd,
+    slowMs: 250,
+  }, async () => await nextActionPlanImpl(cwd));
 }

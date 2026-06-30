@@ -34,6 +34,7 @@ import {
   type SearchContextInput,
 } from "../core/context";
 import { applyNextAction, nextActionPlan, renderReport } from "../core/report";
+import { withDiagnosticTiming } from "../diagnostics";
 import { summarizeState, type StateReadScope } from "../core/state-summary";
 import { validateRoadmapState } from "../core/validation";
 import {
@@ -50,9 +51,35 @@ function textResult<T>(text: string, details: T): AgentToolResult<T> {
   return { content: [{ type: "text", text }], details };
 }
 
+function toolMetadata(tool: ToolDefinition, toolCallId: string, params: unknown): Record<string, unknown> {
+  const raw = params && typeof params === "object" && !Array.isArray(params)
+    ? params as Record<string, unknown>
+    : {};
+  return {
+    tool_name: tool.name,
+    tool_call_id: toolCallId,
+    approval: tool.approval ?? "exec",
+    ...(typeof raw.operation === "string" ? { operation: raw.operation } : {}),
+    ...(typeof raw.scope === "string" ? { scope: raw.scope } : {}),
+    ...(typeof raw.actionId === "string" ? { action_id: raw.actionId } : {}),
+  };
+}
+
 export function registerRoadmapTools(api: ExtensionAPI): void {
   const z = api.zod.z;
-  const register = (tool: ToolDefinition) => api.registerTool(tool);
+  const register = (tool: ToolDefinition) =>
+    api.registerTool({
+      ...tool,
+      async execute(toolCallId, params, signal, update, ctx) {
+        return await withDiagnosticTiming({
+          component: "tool",
+          operation: tool.name,
+          cwd: ctx.cwd,
+          slowMs: 1000,
+          metadata: toolMetadata(tool, toolCallId, params),
+        }, async () => await tool.execute(toolCallId, params, signal, update, ctx));
+      },
+    } as ToolDefinition);
 
   const approvalSchema = z.object({
     approver: z.string().optional(),
