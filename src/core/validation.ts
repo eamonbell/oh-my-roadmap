@@ -3,10 +3,10 @@ import { milestoneNotesPath } from "./paths";
 import { readText } from "./files";
 import { parseMarkdownDocument } from "./frontmatter";
 import { roadmapDocPath } from "./paths";
-import { loadState, roadmapContentHash, renderRoadmapMarkdown } from "./store";
+import { loadRoadmapBlockers, loadState, roadmapContentHash, renderRoadmapMarkdown } from "./store";
 import { validateCloseoutEvidence } from "./closeout";
 import { issue, validateChangeRequest, validateMilestonePlan } from "./plan-validation";
-import { PHASES, type LoadedState, type RoadmapMilestoneOutline, type RoadmapState, type ValidationIssue, type ValidationResult } from "./types";
+import { PHASES, type LoadedState, type RoadmapBlocker, type RoadmapMilestoneOutline, type RoadmapState, type ValidationIssue, type ValidationResult } from "./types";
 
 const ROADMAP_APPROVED_INDEX = PHASES.indexOf("roadmap_approved");
 const MILESTONE_APPROVED_INDEX = PHASES.indexOf("milestone_approved");
@@ -170,6 +170,7 @@ async function validateRoadmapOutline(cwd: string, roadmap: RoadmapState, errors
 async function findOpenBlockingNotes(
   cwd: string,
   state: LoadedState,
+  canonicalBlockers: RoadmapBlocker[],
 ): Promise<ValidationIssue[]> {
   if (!state.active?.roadmap_id || !state.active.milestone_id) return [];
   const filePath = milestoneNotesPath(cwd, state.active.roadmap_id, state.active.milestone_id);
@@ -186,7 +187,12 @@ async function findOpenBlockingNotes(
     if (!entry.startsWith("---\n")) continue;
     try {
       const doc = parseMarkdownDocument<Record<string, unknown>>(entry);
-      if (doc.data.blocking === true && doc.data.status !== "resolved" && doc.data.status !== "deferred") {
+      if (
+        doc.data.blocking === true &&
+        doc.data.status !== "resolved" &&
+        doc.data.status !== "deferred" &&
+        !hasCanonicalBlockerForNote(doc.data, canonicalBlockers)
+      ) {
         errors.push(issue("notes.blocking.open", "Open blocking note must be resolved or explicitly deferred"));
       }
     } catch {
@@ -194,6 +200,35 @@ async function findOpenBlockingNotes(
     }
   }
   return errors;
+}
+
+function hasCanonicalBlockerForNote(
+  metadata: Record<string, unknown>,
+  canonicalBlockers: RoadmapBlocker[],
+): boolean {
+  if (typeof metadata.blocker_id === "string") {
+    return canonicalBlockers.some((blocker) => blocker.id === metadata.blocker_id);
+  }
+
+  return canonicalBlockers.some((blocker) =>
+    blocker.roadmap_id === metadata.roadmap_id &&
+    blocker.milestone_id === metadata.milestone_id &&
+    (blocker.change_request_id ?? undefined) === (typeof metadata.change_request_id === "string" ? metadata.change_request_id : undefined) &&
+    (blocker.task_id ?? undefined) === (typeof metadata.task_id === "string" ? metadata.task_id : undefined) &&
+    (blocker.wave_id ?? undefined) === (typeof metadata.wave_id === "string" ? metadata.wave_id : undefined),
+  );
+}
+
+function openCanonicalBlockingIssues(blockers: RoadmapBlocker[]): ValidationIssue[] {
+  return blockers
+    .filter((blocker) => blocker.severity === "blocking" && blocker.status === "open")
+    .map((blocker) =>
+      issue(
+        "blockers.blocking.open",
+        `Open blocking blocker must be resolved or deferred: ${blocker.title}`,
+        blocker.note_path,
+      ),
+    );
 }
 
 export async function validateRoadmapState(cwd: string): Promise<ValidationResult> {
@@ -274,7 +309,9 @@ export async function validateRoadmapState(cwd: string): Promise<ValidationResul
       );
     }
   }
-  errors.push(...(await findOpenBlockingNotes(cwd, state)));
+  const canonicalBlockers = await loadRoadmapBlockers(cwd, roadmap.roadmap_id);
+  errors.push(...openCanonicalBlockingIssues(canonicalBlockers));
+  errors.push(...(await findOpenBlockingNotes(cwd, state, canonicalBlockers)));
 
   if (roadmap.bypass?.active) {
     warnings.push(issue("bypass.active", `Bypass is active: ${roadmap.bypass.reason}`));

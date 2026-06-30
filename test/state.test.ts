@@ -2,16 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readRoadmapEvents } from "../src/core/events";
 import { shouldBlockToolCall } from "../src/core/gate";
 import { renderReport } from "../src/core/report";
 import {
   appendNote,
   createChangeRequest,
+  deferBlocker,
   initRoadmap,
+  listBlockers,
+  loadRoadmapBlockers,
   loadState,
   listQualityGates,
+  openBlocker,
   renderRoadmapMarkdown,
   resetRoadmapStateForTest,
+  resolveBlocker,
   transition,
   updateRoadmap,
   writeRoadmapState,
@@ -25,6 +31,7 @@ import {
   milestoneNotesPath,
   milestonePlanPath,
   milestoneRuntimePath,
+  roadmapBlockersPath,
   roadmapDocPath,
   storeLockPath,
 } from "../src/core/paths";
@@ -930,32 +937,106 @@ describe("roadmap state lifecycle", () => {
     expect(validation.errors.map((error) => error.code)).toContain("wave.ownership.overlap");
   });
 
-  test("blocks open blocking notes until resolved or deferred", async () => {
+  test("blocks open canonical blockers until resolved or deferred", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });
-    await appendNote(cwd, {
+
+    const blocker = await openBlocker(cwd, {
+      title: "Blocking review finding",
+      description: "The wave changed unowned files.",
+      taskId: "t01-state",
+      waveId: "w01",
+      createdBy: "reviewer",
+    });
+
+    const closedGate = await validateImplementationGate(cwd);
+    expect(closedGate.valid).toBe(false);
+    expect(closedGate.errors.map((error) => error.code)).toContain("blockers.blocking.open");
+
+    await resolveBlocker(cwd, {
+      blockerId: blocker.id,
+      resolvedBy: "user",
+      resolution: "Worker reverted the unowned file change.",
+    });
+
+    const resolvedGate = await validateImplementationGate(cwd);
+    expect(resolvedGate.valid).toBe(true);
+
+    const deferred = await openBlocker(cwd, {
+      title: "External rollout approval",
+      description: "The rollout owner is out today.",
+      createdBy: "orchestrator",
+    });
+    await deferBlocker(cwd, {
+      blockerId: deferred.id,
+      deferredBy: "user",
+      deferReason: "Approval can happen after this milestone closes.",
+    });
+
+    const deferredGate = await validateImplementationGate(cwd);
+    expect(deferredGate.valid).toBe(true);
+
+    const events = await readRoadmapEvents(cwd, { blockerId: blocker.id, type: ["blocker.opened", "blocker.resolved"] });
+    expect(events.events.map((event) => event.type)).toEqual(["blocker.opened", "blocker.resolved"]);
+    expect(events.events[0]?.scope).toMatchObject({
+      blocker_id: blocker.id,
+      task_id: "t01-state",
+      wave_id: "w01",
+    });
+  });
+
+  test("append blocking note creates a canonical blocker and tags note metadata", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    const notePath = await appendNote(cwd, {
       kind: "review",
       title: "Blocking review finding",
       body: "The wave changed unowned files.",
       blocking: true,
       status: "open",
     });
+    const blockers = await loadRoadmapBlockers(cwd, "complex-refactor");
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]).toMatchObject({
+      roadmap_id: "complex-refactor",
+      milestone_id: "m01-core",
+      severity: "blocking",
+      status: "open",
+      title: "Blocking review finding",
+      note_path: notePath,
+    });
+    const noteText = await fs.readFile(notePath, "utf8");
+    expect(noteText).toContain(`blocker_id: ${blockers[0]?.id}`);
 
     const validation = await validateRoadmapState(cwd);
     expect(validation.valid).toBe(false);
-    expect(validation.errors.map((error) => error.code)).toContain("notes.blocking.open");
+    expect(validation.errors.map((error) => error.code)).toContain("blockers.blocking.open");
+    expect(validation.errors.map((error) => error.code)).not.toContain("notes.blocking.open");
   });
 
-  test("bypass opens implementation gate when only blocking notes are open", async () => {
+  test("legacy blocking notes without canonical blockers still validate as bypassable blockers", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });
-    await appendNote(cwd, {
-      kind: "worker",
-      title: "Stale worker blocker",
-      body: "Worker PATH did not include go; main reran verification with the assigned absolute Go binary.",
-      blocking: true,
-      status: "open",
-    });
+    await fs.appendFile(
+      milestoneNotesPath(cwd, "complex-refactor", "m01-core"),
+      [
+        "",
+        "---",
+        "kind: worker",
+        "roadmap_id: complex-refactor",
+        "milestone_id: m01-core",
+        "blocking: true",
+        "status: open",
+        "at: 2026-01-01T00:00:00.000Z",
+        "---",
+        "",
+        "## Stale worker blocker",
+        "",
+        "Worker PATH did not include go; main reran verification with the assigned absolute Go binary.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
     await transition(cwd, {
       operation: "request_bypass",
       reason: "Historical worker blocker was resolved by main verification.",
@@ -970,6 +1051,47 @@ describe("roadmap state lifecycle", () => {
     expect(gate.valid).toBe(true);
     expect(gate.errors).toEqual([]);
     expect(gate.warnings.map((warning) => warning.code)).toContain("bypass.active");
+  });
+
+  test("lists blockers by scope, status, and severity", async () => {
+    await approvedMilestone();
+    const blocking = await openBlocker(cwd, {
+      title: "Task blocker",
+      description: "Task t01 is waiting for review.",
+      taskId: "t01-state",
+      waveId: "w01",
+    });
+    const nonBlocking = await openBlocker(cwd, {
+      title: "FYI blocker",
+      description: "Track follow-up without closing gates.",
+      severity: "non_blocking",
+      taskId: "t02-report",
+    });
+    await resolveBlocker(cwd, {
+      blockerId: blocking.id,
+      resolution: "Review completed.",
+    });
+
+    const resolved = await listBlockers(cwd, {
+      status: "resolved",
+      severity: "blocking",
+      taskId: "t01-state",
+    });
+    expect(resolved.blockers.map((blocker) => blocker.id)).toEqual([blocking.id]);
+
+    const scoped = await listBlockers(cwd, {
+      status: "open",
+      severity: "non_blocking",
+      taskId: "t02-report",
+    });
+    expect(scoped).toMatchObject({
+      roadmapId: "complex-refactor",
+      total: 1,
+      returned: 1,
+      blockers: [{ id: nonBlocking.id, severity: "non_blocking", status: "open" }],
+    });
+
+    expect(await fs.readFile(roadmapBlockersPath(cwd, "complex-refactor"), "utf8")).toContain("blockers:");
   });
 
   test("requires structured closeout evidence before completing a milestone", async () => {

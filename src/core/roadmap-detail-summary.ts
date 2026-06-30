@@ -1,9 +1,10 @@
 import { nextAction } from "./report";
-import { loadState } from "./store";
+import { loadRoadmapBlockers, loadState } from "./store";
 import type {
   ChangeRequest,
   LoadedState,
   MilestonePlan,
+  RoadmapBlocker,
   TaskPlan,
   ValidationIssue,
   ValidationResult,
@@ -113,10 +114,12 @@ export interface RoadmapDetailTask {
 }
 
 export interface RoadmapDetailBlocker {
-  source: "progress" | "wave" | "task";
+  source: "canonical" | "progress" | "wave" | "task";
   label: string;
   message: string;
   id?: string;
+  status?: string;
+  severity?: string;
 }
 
 export interface RoadmapDetailUsage {
@@ -165,6 +168,7 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
   const validation = await validateRoadmapState(cwd);
   const gate = await validateImplementationGate(cwd);
   const context = activePlanContext(state);
+  const canonicalBlockers = await loadRoadmapBlockers(cwd, state.roadmap.roadmap_id);
 
   return {
     kind: "active",
@@ -185,7 +189,7 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
     nextAction: await nextAction(cwd),
     waves: wavesSummary(context),
     activeTasks: activeTasksSummary(context),
-    blockers: blockerSummary(context),
+    blockers: blockerSummary(context, canonicalBlockers),
     usage: usageSummary(state.usage, state.active.milestone_id, state.active.change_request_id),
   };
 }
@@ -317,10 +321,22 @@ function activeTasksSummary(context: PlanContext | undefined): RoadmapDetailTask
   });
 }
 
-function blockerSummary(context: PlanContext | undefined): RoadmapDetailBlocker[] {
-  if (!context) return [];
-
+function blockerSummary(context: PlanContext | undefined, canonicalBlockers: RoadmapBlocker[]): RoadmapDetailBlocker[] {
   const blockers: RoadmapDetailBlocker[] = [];
+  for (const blocker of canonicalBlockers) {
+    if (blocker.status !== "open") continue;
+    blockers.push({
+      source: "canonical",
+      id: blocker.id,
+      label: `Open ${blocker.severity} blocker ${blocker.id}`,
+      message: blocker.title,
+      status: blocker.status,
+      severity: blocker.severity,
+    });
+  }
+
+  if (!context) return blockers;
+
   if (context.plan.progress.blocked_reason) {
     blockers.push({
       source: "progress",

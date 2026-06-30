@@ -180,11 +180,11 @@ describe("roadmap detail summary", () => {
       requestedBy: "user",
     });
     expect(summary.validation.status).toBe("invalid");
-    expect(summary.validation.errors.map((issue) => issue.code)).toContain("notes.blocking.open");
-    expect(summary.gate.status).toBe("open");
+    expect(summary.validation.errors.map((issue) => issue.code)).toContain("blockers.blocking.open");
+    expect(summary.gate.status).toBe("closed");
     expect(summary.gate.warnings.map((issue) => issue.code)).toContain("bypass.active");
     expect(summary.qualityGate.status).toBe("passed");
-    expect(summary.nextAction).toBe("Resolve validation errors: Open blocking note must be resolved or explicitly deferred");
+    expect(summary.nextAction).toBe("Resolve validation errors: Open blocking blocker must be resolved or deferred: Blocking note");
     expect(summary.waves).toMatchObject({
       total: 1,
       counts: { blocked: 1 },
@@ -203,7 +203,8 @@ describe("roadmap detail summary", () => {
         label: "worker-light blocked: State task",
       },
     ]);
-    expect(summary.blockers.map((blocker) => blocker.label)).toEqual([
+    expect(summary.blockers.map((blocker) => blocker.label.replace(/blk_[^ ]+/, "blk_id"))).toEqual([
+      "Open blocking blocker blk_id",
       "Progress blocker",
       "Blocked wave w01",
       "Blocked task t01-state",

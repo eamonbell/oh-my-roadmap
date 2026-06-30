@@ -1,4 +1,4 @@
-import { loadState } from "./store";
+import { loadRoadmapBlockers, loadState } from "./store";
 import type { ImplementationProgress, RoadmapState, TaskPlan, WavePlan } from "./types";
 import type { RoadmapUsageSummary, UsageScopeSummary, UsageTotals } from "./usage";
 import { validateImplementationGate, validateRoadmapState } from "./validation";
@@ -119,6 +119,8 @@ export async function renderReport(cwd: string): Promise<string> {
 
   const validation = await validateRoadmapState(cwd);
   const gate = await validateImplementationGate(cwd);
+  const blockers = await loadRoadmapBlockers(cwd, state.roadmap.roadmap_id);
+  const openBlockers = blockers.filter((blocker) => blocker.status === "open");
   const lines = [
     `# roadmap-engineer status`,
     ``,
@@ -128,6 +130,7 @@ export async function renderReport(cwd: string): Promise<string> {
     `Active milestone: ${state.active.milestone_id ?? "none"}`,
     `Active change request: ${state.active.change_request_id ?? "none"}`,
     `Bypass: ${state.roadmap.bypass?.active ? state.roadmap.bypass.reason : "inactive"}`,
+    `Open blockers: ${openBlockers.length > 0 ? openBlockers.map((blocker) => `${blocker.id}:${blocker.severity}`).join(", ") : "none"}`,
   ];
 
   if (state.milestone) {
