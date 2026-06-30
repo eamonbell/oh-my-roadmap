@@ -14,6 +14,7 @@ import {
   resetRoadmapStateForTest,
   transition,
   updateRoadmap,
+  writeRoadmapState,
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
 } from "../src/core/store";
@@ -387,6 +388,46 @@ describe("roadmap state lifecycle", () => {
     expect(gates.current).toMatchObject({ status: "passed" });
     expect(gates.history.map((event) => event.details?.gate_status)).toEqual(["failed", "passed"]);
     expect(gates.history[0]?.details?.findings).toEqual(["m01-core lacks rollout evidence."]);
+  });
+
+  test("post-approval workflow transitions do not change roadmap definition revision or stale the gate", async () => {
+    await approvedRoadmap();
+    const approved = await loadState(cwd);
+    if (!approved.roadmap) throw new Error("Expected approved roadmap");
+    const revision = approved.roadmap.roadmap_revision;
+    const contentHash = approved.roadmap.roadmap_content_hash;
+    const checkedHash = approved.roadmap.roadmap_milestone_check.roadmap_content_hash;
+
+    await transition(cwd, { operation: "start_milestone_planning" });
+    await transition(cwd, {
+      operation: "create_milestone_plan",
+      milestone: { ...milestoneInput(), title: "Implementation plan title" },
+    });
+    await recordPassedWaveFlowCheck();
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    await transition(cwd, { operation: "start_implementation" });
+    await transition(cwd, { operation: "start_reviewing" });
+
+    const state = await loadState(cwd);
+    expect(state.roadmap?.roadmap_revision).toBe(revision);
+    expect(state.roadmap?.roadmap_content_hash).toBe(contentHash);
+    expect(state.roadmap?.roadmap_milestone_check.roadmap_content_hash).toBe(checkedHash);
+    expect((summarizeState(state, "roadmap").roadmap as Record<string, unknown>).roadmap_milestone_check_status).toBe("passed");
+    expect(await renderReport(cwd)).toContain("Roadmap milestone check: passed");
+    expect((await validateRoadmapState(cwd)).errors.map((error) => error.code)).not.toContain("roadmap.milestone_check.stale");
+  });
+
+  test("stale roadmap-milestone checks surface outside roadmap draft", async () => {
+    await approvedRoadmap();
+    const state = await loadState(cwd);
+    if (!state.roadmap) throw new Error("Expected approved roadmap");
+    state.roadmap.roadmap_milestone_check.roadmap_content_hash = "sha256:stale";
+    await writeRoadmapState(cwd, state.roadmap);
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.stale");
+    expect((summarizeState(await loadState(cwd), "roadmap").roadmap as Record<string, unknown>).roadmap_milestone_check_status).toBe("stale");
+    expect(await renderReport(cwd)).toContain("Roadmap milestone check: stale");
   });
 
   test("reopens an approved roadmap and requires regenerated approval", async () => {

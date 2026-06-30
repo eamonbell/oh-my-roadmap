@@ -193,7 +193,7 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
 function qualityGateSummary(roadmap: LoadedState["roadmap"]): RoadmapDetailQualityGate {
   if (!roadmap) throw new Error("Expected active roadmap");
   const check = roadmap.roadmap_milestone_check;
-  const stale = roadmap.phase === "roadmap_draft" && check.status !== "pending" && (
+  const stale = check.status !== "pending" && (
     check.roadmap_revision !== roadmap.roadmap_revision ||
     check.roadmap_content_hash !== roadmap.roadmap_content_hash
   );
