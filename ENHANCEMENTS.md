@@ -6,7 +6,7 @@ This document captures product and architecture enhancements for `roadmap-engine
 
 The goal is not documentation cleanup or test coverage. The goal is to make the extension better at what it is meant to do: help agents and users execute large, gated, multi-step roadmap work safely, resumably, and with less operator burden.
 
-## Included recommendations
+## Included approved recommendations
 
 The selected near-term recommendations are:
 
