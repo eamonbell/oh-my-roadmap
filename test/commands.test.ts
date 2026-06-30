@@ -37,6 +37,8 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:new.");
     expect(sent.content).toContain("User arguments:\nAdd billing workflows");
     expect(sent.content).toContain("No active roadmap. Run /roadmap:new to start a gated roadmap workflow.");
+    expect(sent.content).toContain("multiple meaningful deliverables or workstreams");
+    expect(sent.content).toContain("do not create a separate milestone for one small edit");
   });
 
   test("roadmap:reopen sends command-specific reopen instructions", async () => {
@@ -104,6 +106,8 @@ describe("roadmap commands", () => {
     expect(sent.content).toContain("roadmap sections, plan sections");
     expect(sent.content).toContain("do not call reopen_roadmap");
     expect(sent.content).toContain("start_milestone_planning to advance from the completed milestone");
+    expect(sent.content).toContain("Do not pad the milestone plan with filler tasks");
+    expect(sent.content).toContain("every task must directly implement the approved roadmap milestone scope");
   });
 
   test("milestone:implement keeps user questions in the orchestrator role", async () => {

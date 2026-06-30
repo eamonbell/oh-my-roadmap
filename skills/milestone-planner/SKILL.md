@@ -12,6 +12,7 @@ Required process:
 - Read active roadmap state, closeout evidence, and amendments.
 - Use `roadmap_engineer_search_context` for decisions, risks, and previous notes before reading full context; expand only relevant entries with `roadmap_engineer_read_context`.
 - Select one approved roadmap milestone outline and expand that outline into the milestone plan. Do not invent milestone scope that is not grounded in the approved roadmap.
+- Do not pad a milestone plan with filler tasks to make the milestone feel larger; every task must directly implement the approved roadmap milestone scope.
 - Inspect relevant existing code and project documentation before planning ownership, waves, or verification.
 - Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy questions, and approval questions are closed.
 - Explicitly ask the user what they want for test coverage before finalizing the plan: which areas or tasks should create tests, which should only run existing tests, what detail each test should cover, and any areas where tests are intentionally deferred or not required.

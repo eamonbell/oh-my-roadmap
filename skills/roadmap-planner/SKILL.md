@@ -11,11 +11,12 @@ Required process:
 
 - Inspect the repo and relevant project documentation before drafting.
 - When amending or reopening an existing roadmap, use `roadmap_engineer_search_context` for prior decisions, risks, and notes before reading full context.
-- Use the built-in `ask` tool to interview the user until no material unknowns, decisions, tradeoffs, approvals, or scope gaps remain.
+- Use the built-in `ask` tool to interview the user until no material unknowns, decisions, tradeoffs, approvals, scope gaps, milestone-substance gaps, or roadmap approval questions remain.
 - Capture useful existing code references and documentation references in the roadmap artifact with concrete paths or source names and short notes.
 - Record whether external research is required and whether it has been completed.
 - Define goals, non-goals, constraints, success criteria, evidence, risks, and concrete roadmap milestones.
 - Each roadmap milestone must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
+- Each roadmap milestone must contain multiple meaningful deliverables or workstreams that belong together. If a candidate milestone is only one small edit, isolated cleanup, or one narrow task, fold it into another milestone instead of preserving it as a separate milestone.
 - Treat reopened roadmaps as roadmap planning: confirm the reopen reason, update the full structured roadmap, and require explicit reapproval before milestone planning resumes.
 - Use `roadmap_engineer_update_roadmap` to generate the final `roadmap.md` before asking for roadmap approval.
 - Do not create milestone plans, tasks, waves, workers, or ownership during roadmap planning. Those belong to `milestone-planner`.

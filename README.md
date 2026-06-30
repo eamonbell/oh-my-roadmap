@@ -90,7 +90,7 @@ Both `model` and `thinking` are optional. Supported thinking values are `inherit
 
 `/roadmap:new` creates draft roadmap state, records discovery, then must finalize the generated roadmap with `roadmap_engineer_update_roadmap` before approval. Approval is blocked unless the roadmap includes concrete goals, success criteria, constraints, non-goals, context, evidence, risks, and at least one roadmap-level milestone outline.
 
-Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. `/milestone:plan` later expands one approved roadmap milestone into concrete implementation tasks, dependency analysis, waves, ownership, worker-light/worker/worker-heavy assignments, acceptance criteria, task-level verification, a wave-flow check, and the initial pause/resume progress cursor.
+Roadmap-level milestone outlines are not milestone plans. They describe each milestone's goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent. Each outline should group multiple meaningful deliverables or workstreams that belong together; a single small edit or one narrow task should be folded into a neighboring milestone instead of becoming its own roadmap gate. `/milestone:plan` later expands one approved roadmap milestone into concrete implementation tasks, dependency analysis, waves, ownership, worker-light/worker/worker-heavy assignments, acceptance criteria, task-level verification, a wave-flow check, and the initial pause/resume progress cursor.
 
 ## Pause And Resume
 

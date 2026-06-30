@@ -46,6 +46,7 @@ Config and state are stored under `.roadmaps`:
 - Roadmap approval requires a finalized generated `roadmap.md` from structured state.
 - Roadmaps define concrete milestone outlines, not full implementation plans.
 - Each roadmap milestone outline must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
+- Each roadmap milestone must contain multiple meaningful deliverables or workstreams that belong together; do not create a milestone for a single small edit, isolated cleanup, or one narrow task that should be folded into another milestone.
 - An approved roadmap can be reopened only from `roadmap_approved`, before any milestone or change request is active. Reopening records a required reason, returns to `roadmap_draft`, marks the roadmap not finalized, preserves approval history, and requires regeneration plus explicit reapproval.
 - Milestone plans must be decision-complete before implementation starts.
 - Milestone plans must include exact verification commands, acceptance criteria, concrete executable tasks, dependency analysis, execution waves, `worker-light`/`worker`/`worker-heavy` assignments, task-level verification, exclusive file/module ownership, and a passed wave-flow check before approval.
