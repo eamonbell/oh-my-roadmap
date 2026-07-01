@@ -11,6 +11,7 @@ import {
   loadRoadmapBlockers,
   loadState,
   openBlocker,
+  repairRoadmap,
   resolveBlocker,
   transition,
   updateRoadmap,
@@ -22,6 +23,7 @@ import {
   type ListBlockersInput,
   type ListQualityGatesInput,
   type OpenBlockerInput,
+  type RepairRoadmapInput,
   type ResolveBlockerInput,
   type TransitionInput,
   type UpdateRoadmapInput,
@@ -259,6 +261,28 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     async execute(_id, params, _signal, _update, ctx) {
       const state = await updateRoadmap(ctx.cwd, params as UpdateRoadmapInput);
       return textResult(`Updated roadmap ${state.roadmap_id}.`, state);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_repair_roadmap",
+    label: "Repair Roadmap",
+    description: "Repair generated roadmap hash, roadmap.md, and roadmap-milestone check drift after manual state recovery.",
+    approval: "write",
+    parameters: z.object({
+      reason: z.string(),
+      actor: z.string().optional(),
+      summary: z.string().optional(),
+      roadmapMilestoneCheck: z.object({
+        status: z.literal("passed"),
+        checkedBy: z.string().optional(),
+        summary: z.string(),
+        findings: z.array(z.string()).default([]),
+      }).optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await repairRoadmap(ctx.cwd, params as RepairRoadmapInput);
+      return textResult(`Repaired roadmap ${result.roadmap_id}.`, result);
     },
   } as ToolDefinition);
 

@@ -15,6 +15,7 @@ import {
   loadState,
   listQualityGates,
   openBlocker,
+  repairRoadmap,
   renderRoadmapMarkdown,
   resetRoadmapStateForTest,
   resolveBlocker,
@@ -33,11 +34,13 @@ import {
   milestoneRuntimePath,
   roadmapBlockersPath,
   roadmapDocPath,
+  roadmapStatePath,
   storeLockPath,
 } from "../src/core/paths";
-import type { CloseoutEvidence } from "../src/core/types";
+import type { CloseoutEvidence, RoadmapState } from "../src/core/types";
 import { validateImplementationGate, validateRoadmapState } from "../src/core/validation";
 import { summarizeState } from "../src/core/state-summary";
+import { readYamlFile, writeYamlFile } from "../src/core/files";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
@@ -230,6 +233,15 @@ async function approvedMilestone(): Promise<void> {
     approver: "user",
     summary: "Milestone approved",
   });
+}
+
+async function manuallyWriteRoadmapState(update: (roadmap: RoadmapState) => void): Promise<void> {
+  const state = await loadState(cwd);
+  if (!state.roadmap) throw new Error("Expected roadmap state");
+  const filePath = roadmapStatePath(cwd, state.roadmap.roadmap_id);
+  const roadmap = await readYamlFile<RoadmapState>(filePath);
+  update(roadmap);
+  await writeYamlFile(filePath, roadmap);
 }
 
 async function closeoutPhase(): Promise<void> {
@@ -559,6 +571,169 @@ describe("roadmap state lifecycle", () => {
     });
     expect(action.description).toContain("checked revision");
     await expect(applyNextAction(cwd, action.id)).rejects.toThrow("action status is stale");
+  });
+
+  test("repairs manually edited implementing roadmap state with a fresh checker result", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    const before = await loadState(cwd);
+    if (!before.roadmap || !before.active?.milestone_id) throw new Error("Expected active implementation state");
+    const runtimePath = milestoneRuntimePath(cwd, before.roadmap.roadmap_id, before.active.milestone_id);
+    const runtimeBefore = await fs.readFile(runtimePath, "utf8");
+    const previousRevision = before.roadmap.roadmap_revision;
+    const previousHash = before.roadmap.roadmap_content_hash;
+
+    await manuallyWriteRoadmapState((roadmap) => {
+      roadmap.context = ["Manual recovery removed incorrect discovery context."];
+    });
+
+    let validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.content_hash.stale");
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.doc.stale");
+
+    const result = await repairRoadmap(cwd, {
+      reason: "Manual state recovery changed roadmap context during implementation.",
+      actor: "repair-test",
+      roadmapMilestoneCheck: {
+        status: "passed",
+        checkedBy: "roadmap-milestone-checker",
+        summary: "Fresh roadmap-milestone checker pass after manual recovery.",
+        findings: [],
+      },
+    });
+
+    expect(result).toMatchObject({
+      previous_revision: previousRevision,
+      current_revision: previousRevision + 1,
+      previous_content_hash: previousHash,
+      content_hash_changed: true,
+      roadmap_doc_rewritten: true,
+      gate_action: "recorded_passed",
+    });
+    expect(result.current_content_hash).not.toBe(previousHash);
+    expect(result.repair_event_id).toMatch(/^evt_/);
+    expect(result.quality_gate_event_id).toMatch(/^evt_/);
+
+    const after = await loadState(cwd);
+    expect(after.roadmap?.phase).toBe("implementing");
+    expect(after.active).toEqual(before.active);
+    expect(after.milestone?.progress).toEqual(before.milestone?.progress);
+    expect(await fs.readFile(runtimePath, "utf8")).toBe(runtimeBefore);
+    expect(after.roadmap?.roadmap_milestone_check).toMatchObject({
+      status: "passed",
+      roadmap_revision: previousRevision + 1,
+      roadmap_content_hash: result.current_content_hash,
+      event_id: result.quality_gate_event_id,
+    });
+    validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(true);
+
+    const gates = await listQualityGates(cwd, { gate: "roadmap_milestone_check", limit: 1 });
+    expect(gates.history[0]).toMatchObject({
+      id: result.quality_gate_event_id,
+      type: "quality_gate.recorded",
+      operation: "repair_roadmap",
+      details: {
+        gate_status: "passed",
+        roadmap_revision: previousRevision + 1,
+        roadmap_content_hash: result.current_content_hash,
+        repair_event_id: result.repair_event_id,
+      },
+    });
+  });
+
+  test("repair resets the roadmap-milestone check when manual state edits have no fresh checker result", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    const before = await loadState(cwd);
+    if (!before.roadmap) throw new Error("Expected roadmap state");
+
+    await manuallyWriteRoadmapState((roadmap) => {
+      roadmap.evidence = ["Manual recovery removed incorrect evidence."];
+    });
+
+    const result = await repairRoadmap(cwd, {
+      reason: "Manual state recovery changed roadmap evidence without a checker rerun.",
+    });
+
+    expect(result).toMatchObject({
+      previous_revision: before.roadmap.roadmap_revision,
+      current_revision: before.roadmap.roadmap_revision + 1,
+      content_hash_changed: true,
+      roadmap_doc_rewritten: true,
+      gate_action: "reset_pending",
+    });
+    const repaired = await loadState(cwd);
+    expect(repaired.roadmap?.roadmap_milestone_check).toMatchObject({
+      status: "pending",
+      roadmap_revision: result.current_revision,
+      roadmap_content_hash: result.current_content_hash,
+      event_id: "",
+    });
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.errors.map((error) => error.code)).toContain("roadmap.milestone_check.pending");
+  });
+
+  test("repair rewrites stale roadmap markdown without bumping revision or invalidating the gate", async () => {
+    await approvedRoadmap();
+    const before = await loadState(cwd);
+    if (!before.roadmap) throw new Error("Expected roadmap state");
+    await fs.writeFile(roadmapDocPath(cwd, before.roadmap.roadmap_id), "# Hand edited\n", "utf8");
+
+    const result = await repairRoadmap(cwd, {
+      reason: "Generated roadmap markdown was hand edited.",
+    });
+
+    expect(result).toMatchObject({
+      previous_revision: before.roadmap.roadmap_revision,
+      current_revision: before.roadmap.roadmap_revision,
+      previous_content_hash: before.roadmap.roadmap_content_hash,
+      current_content_hash: before.roadmap.roadmap_content_hash,
+      content_hash_changed: false,
+      roadmap_doc_rewritten: true,
+      gate_action: "unchanged",
+    });
+    const after = await loadState(cwd);
+    expect(after.roadmap?.roadmap_milestone_check).toEqual(before.roadmap.roadmap_milestone_check);
+    expect(await fs.readFile(roadmapDocPath(cwd, before.roadmap.roadmap_id), "utf8")).toBe(
+      renderRoadmapMarkdown(after.roadmap!),
+    );
+    expect((await validateRoadmapState(cwd)).valid).toBe(true);
+  });
+
+  test("no-op repair records an audit event and leaves valid state unchanged", async () => {
+    await approvedRoadmap();
+    const before = await loadState(cwd);
+    if (!before.roadmap) throw new Error("Expected roadmap state");
+
+    const result = await repairRoadmap(cwd, {
+      reason: "Operator verified roadmap state after a manual recovery attempt.",
+      actor: "repair-test",
+    });
+
+    expect(result).toMatchObject({
+      previous_revision: before.roadmap.roadmap_revision,
+      current_revision: before.roadmap.roadmap_revision,
+      previous_content_hash: before.roadmap.roadmap_content_hash,
+      current_content_hash: before.roadmap.roadmap_content_hash,
+      content_hash_changed: false,
+      roadmap_doc_rewritten: false,
+      gate_action: "unchanged",
+    });
+    const after = await loadState(cwd);
+    expect(after.roadmap).toEqual(before.roadmap);
+    expect((await validateRoadmapState(cwd)).valid).toBe(true);
+    const events = await readRoadmapEvents(cwd, { type: ["roadmap.repaired"] });
+    expect(events.events).toHaveLength(1);
+    expect(events.events[0]).toMatchObject({
+      id: result.repair_event_id,
+      actor: "repair-test",
+      operation: "repair_roadmap",
+      details: {
+        reason: "Operator verified roadmap state after a manual recovery attempt.",
+        gate_action: "unchanged",
+      },
+    });
   });
 
   test("reopens an approved roadmap and requires regenerated approval", async () => {
