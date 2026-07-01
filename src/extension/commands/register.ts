@@ -1,12 +1,71 @@
 import type {ExtensionAPI} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {initProject} from '../../core/project-init'
 import {withDiagnosticTiming} from '../../diagnostics'
-import {BLOCKER_COMMANDS, COMMANDS, DETAILS_COMMAND, INIT_COMMAND} from './catalog'
-import {runBlockerCommand} from './blockers'
+import {COMMANDS, DETAILS_COMMAND, FINDINGS_CLEAR_COMMAND, INIT_COMMAND} from './catalog'
 import {showRoadmapDetails} from './details'
 import {sendCommandMessage, sendCommandPrompt} from './messages'
+import {clearFindingsReportTile} from '../../core/findings.ts'
+import {AutocompleteItem} from '@oh-my-pi/pi-tui'
 
 export function registerRoadmapCommands(api: ExtensionAPI): void {
+	/*api.registerCommand('omr-greet', {
+		description: 'greet the user x times',
+		getArgumentCompletions: (): AutocompleteItem[] => {
+			return [
+				{
+					label: 'one',
+					value: 'one',
+					description: 'one',
+					hint: 'one'
+				},
+				{
+					label: 'two',
+					value: 'two',
+					description: 'two',
+					hint: 'two'
+				}
+			]
+		},
+		handler: async (_args, ctx) => {
+			api.sendUserMessage(`Say hello to the user ${_args} time(s)`, {
+				deliverAs: ctx.isIdle() ? 'followUp' : 'steer'
+			})
+		},
+	})*/
+
+	api.registerCommand('omr-greet', {
+		description: 'greet the user x times',
+
+		getArgumentCompletions: () => [
+			{
+				label: 'one',
+				value: 'one',
+				description: 'one',
+				hint: 'one',
+			},
+			{
+				label: 'two',
+				value: 'two',
+				description: 'two',
+				hint: 'two',
+			},
+		],
+
+		handler: async (args, ctx) => {
+			const count = args.trim() || 'one'
+
+			await api.sendUserMessage(
+				`Say hello to the user ${count} time(s).`,
+				{
+					// Idle: send as a normal prompt now.
+					// Busy: queue it after the current run. Use "steer" instead if you want to interrupt.
+					deliverAs: ctx.isIdle() ? 'steer' : 'followUp',
+				},
+			)
+		}
+	})
+
+
 	api.registerCommand(INIT_COMMAND, {
 		description: 'Scaffold roadmap-engineer project config and local generated agents',
 		handler: async (_args, ctx) => {
@@ -45,6 +104,26 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
 		},
 	})
 
+	api.registerCommand(FINDINGS_CLEAR_COMMAND, {
+		description: 'Clear the active findings report tile',
+		handler: async (_args, ctx) => {
+			await withDiagnosticTiming({
+				component: 'command',
+				operation: FINDINGS_CLEAR_COMMAND,
+				cwd: ctx.cwd,
+				slowMs: 1000,
+			}, async () => {
+				const cleared = clearFindingsReportTile(ctx)
+				sendCommandMessage(
+					api,
+					cleared
+						? 'Findings report tile cleared.'
+						: 'Findings report tile not cleared: UI unavailable.',
+				)
+			})
+		},
+	})
+
 	for (const [name, description] of COMMANDS) {
 		api.registerCommand(name, {
 			description,
@@ -55,7 +134,6 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
 					cwd: ctx.cwd,
 					slowMs: 1000,
 				}, async () => {
-					if (BLOCKER_COMMANDS.has(name) && await runBlockerCommand(api, name, args, ctx)) return
 					await sendCommandPrompt(api, name, args, ctx)
 				})
 			},

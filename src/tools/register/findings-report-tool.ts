@@ -2,8 +2,7 @@ import {type AgentToolResult, type Theme} from '@oh-my-pi/pi-coding-agent'
 import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {Box, type Component, Markdown, type MarkdownTheme, Text} from '@oh-my-pi/pi-tui'
 import type {ToolRegistrationContext} from './shared'
-
-const WIDGET_KEY = 'findings-report-tile'
+import {clearFindingsReportTile, createReportTile, FINDINGS_REPORT_WIDGET_KEY} from '../../core/findings.ts'
 
 type SubmitFindingsReportParams = {
 	title: string
@@ -13,60 +12,6 @@ type SubmitFindingsReportParams = {
 type SubmitFindingsReportResult = {
 	success: boolean
 	error?: string
-}
-
-function createMarkdownTheme(theme: Theme): MarkdownTheme {
-	return {
-		heading: (text) => theme.fg('mdHeading', text),
-		link: (text) => theme.fg('mdLink', text),
-		linkUrl: (text) => theme.fg('mdLinkUrl', text),
-		code: (text) => theme.fg('mdCode', text),
-		codeBlock: (text) => theme.fg('mdCodeBlock', text),
-		codeBlockBorder: (text) => theme.fg('mdCodeBlockBorder', text),
-		quote: (text) => theme.fg('mdQuote', text),
-		quoteBorder: (text) => theme.fg('mdQuoteBorder', text),
-		hr: (text) => theme.fg('mdHr', text),
-		listBullet: (text) => theme.fg('mdListBullet', text),
-		bold: (text) => theme.bold(text),
-		italic: (text) => theme.italic(text),
-		strikethrough: (text) => theme.strikethrough(text),
-		underline: (text) => theme.underline(text),
-		symbols: {
-			cursor: theme.nav.cursor,
-			inputCursor: theme.getSymbolPreset() === 'ascii' ? '|' : '▏',
-			boxRound: theme.boxRound,
-			boxSharp: theme.boxSharp,
-			table: theme.boxSharp,
-			quoteBorder: theme.md.quoteBorder,
-			hrChar: theme.md.hrChar,
-			colorSwatch: theme.md.colorSwatch,
-			spinnerFrames: theme.getSpinnerFrames('activity'),
-		},
-	}
-}
-
-function createReportTile(title: string, markdown: string, theme: Theme): Component {
-	const tile = new Box(
-		1,
-		0,
-		(text) => theme.bg('customMessageBg', text),
-		{
-			chars: {
-				topLeft: '┌',
-				topRight: '┐',
-				bottomLeft: '└',
-				bottomRight: '┘',
-				horizontal: '─',
-				vertical: '│',
-			},
-			color: (text) => theme.fg('borderMuted', text),
-		},
-	)
-
-	tile.addChild(new Text(theme.fg('accent', theme.bold(title)), 0, 0))
-	tile.addChild(new Markdown(markdown, 0, 1, createMarkdownTheme(theme)))
-
-	return tile
 }
 
 function resultText(result: SubmitFindingsReportResult): string {
@@ -112,7 +57,7 @@ export function registerFindingsReportTool(ctx: ToolRegistrationContext): void {
 				}
 
 				ctx.ui.setWidget(
-					WIDGET_KEY,
+					FINDINGS_REPORT_WIDGET_KEY,
 					(_tui, theme) => createReportTile(input.title, input.markdown, theme),
 					{placement: 'aboveEditor'},
 				)
@@ -142,8 +87,8 @@ export function registerFindingsReportTool(ctx: ToolRegistrationContext): void {
 		},
 
 		onSession(event, ctx): void {
-			if (event.reason === 'shutdown' && ctx.hasUI) {
-				ctx.ui.setWidget(WIDGET_KEY, undefined)
+			if (event.reason === 'shutdown') {
+				clearFindingsReportTile(ctx)
 			}
 		},
 	} as ToolDefinition)

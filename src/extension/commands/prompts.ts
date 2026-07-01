@@ -47,7 +47,7 @@ Command-specific workflow for /roadmap:repair:
 	if (name === 'blocker:list' || name === 'blocker:status') {
 		return `
 Command-specific workflow for /${name}:
-- Call roadmap_engineer_list_blockers with status open first.
+- Call roadmap_engineer_list_blockers with status: 'open' first.
 - Report blocker ID, title, severity, status, scope, and concise description.
 - Show exact recovery commands:
   - /blocker:resolve <id> <resolution>
@@ -58,8 +58,8 @@ Command-specific workflow for /${name}:
 	if (name === 'blocker:resolve') {
 		return `
 Command-specific workflow for /blocker:resolve:
-- Parse the user arguments as <blocker-id> <resolution>.
-- If either value is missing, call roadmap_engineer_list_blockers with status open, show available blockers, and ask for the missing blocker ID or resolution.
+- Parse user arguments as <blocker-id> <resolution>.
+- If either value is missing, call roadmap_engineer_list_blockers with status: 'open', show available blockers, and ask for the missing blocker ID or resolution.
 - When both values are present, call roadmap_engineer_resolve_blocker with the blocker ID and resolution.
 - Call roadmap_engineer_validate after resolving the blocker.
 - Report the resolved blocker and tell the user to run /roadmap:resume.`
@@ -67,8 +67,8 @@ Command-specific workflow for /blocker:resolve:
 	if (name === 'blocker:defer') {
 		return `
 Command-specific workflow for /blocker:defer:
-- Parse the user arguments as <blocker-id> <reason>.
-- If either value is missing, call roadmap_engineer_list_blockers with status open, show available blockers, and ask for the missing blocker ID or defer reason.
+- Parse user arguments as <blocker-id> <reason>.
+- If either value is missing, call roadmap_engineer_list_blockers with status: 'open', show available blockers, and ask for the missing blocker ID or defer reason.
 - When both values are present, call roadmap_engineer_defer_blocker with the blocker ID and defer reason.
 - Call roadmap_engineer_validate after deferring the blocker.
 - Report the deferred blocker and tell the user to run /roadmap:resume.`
@@ -119,5 +119,10 @@ Follow the roadmap-engineer workflow strictly:
 - Before closing milestones or changes, record structured closeout evidence with record_closeout.
 - For milestone and change implementation, do not edit files yourself; call the wave orchestration tools, dispatch each returned task to the exact agent named by assignment.worker, dispatch reviewer for wave reviews, and collect evidence closeout.
 - If implementation is not legally open, do not edit files.
+
+Before finishing this slash-command turn:
+- Call roadmap_engineer_submit_findings_report exactly once after completing the command task or determining the terminal blocked/error/needs-input state, and before your final response.
+- Use title: "/${name} result".
+- Use markdown for the durable user-visible command result only: outcome, next commands/actions, and any blocker/error state. Do not include a tool-call audit trail unless it is part of the command result.
 ${commandSpecificInstructions(name)}`
 }

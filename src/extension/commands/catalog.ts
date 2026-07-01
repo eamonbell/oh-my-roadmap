@@ -22,7 +22,5 @@ export const COMMANDS = [
 
 export const INIT_COMMAND = 'roadmap:init'
 export const DETAILS_COMMAND = 'roadmap:details'
+export const FINDINGS_CLEAR_COMMAND = 'findings:clear'
 export const COMMAND_MESSAGE_TYPE = 'roadmap-engineer.command-result'
-export const BLOCKER_COMMANDS = new Set(['blocker:list', 'blocker:status', 'blocker:resolve', 'blocker:defer'])
-
-export const BLOCKER_COMMAND_REPORT_DELAY_MS = 40

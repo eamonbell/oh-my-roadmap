@@ -62,4 +62,25 @@ describe("findings report tool", () => {
     expect(lines.join("\n")).toContain("Findings");
     expect(lines.join("\n")).toContain("First finding");
   });
+
+  test("clears the widget on session shutdown", async () => {
+    const tools = registerTools();
+    const tool = registeredTool(tools, "roadmap_engineer_submit_findings_report");
+    const widgetCalls: Array<{ key: string; content: ExtensionWidgetContent | undefined }> = [];
+
+    function setWidget(key: string, content: ExtensionWidgetContent) {
+      widgetCalls.push({ key, content });
+    }
+
+    await tool?.onSession?.(
+      { reason: "shutdown" } as never,
+      {
+        cwd: "/tmp",
+        hasUI: true,
+        ui: { setWidget },
+      } as unknown as ExtensionContext,
+    );
+
+    expect(widgetCalls).toEqual([{ key: "findings-report-tile", content: undefined }]);
+  });
 });
