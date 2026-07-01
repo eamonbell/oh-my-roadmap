@@ -1,22 +1,45 @@
 import { describe, expect, test } from "bun:test";
 import { ScrollView } from "@oh-my-pi/pi-tui";
-import { renderRoadmapDetailsFrame, type RoadmapDetailSummary } from "../src/extension/report-ui.ts";
+import { RoadmapDetailsView, renderRoadmapDetailsFrame, type RoadmapDetailSummary } from "../src/extension/report-ui.ts";
 
 function text(lines: readonly string[]): string {
   return lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
-function renderedLines(summary: RoadmapDetailSummary, width: number, height = 80): string[] {
+function renderedLines(
+  summary: RoadmapDetailSummary,
+  width: number,
+  height = 80,
+  activeTabIndex = 0,
+  focus: "rail" | "main" = "rail",
+  message = "",
+): string[] {
   return renderRoadmapDetailsFrame({
     summary,
     width,
     height,
     scrollView: new ScrollView([], { height: 1, scrollbar: "auto" }),
+    activeTabIndex,
+    focus,
+    message,
   }).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
 }
 
-function render(summary: RoadmapDetailSummary, width: number): string {
-  return text(renderedLines(summary, width));
+function render(summary: RoadmapDetailSummary, width: number, activeTabIndex = 0): string {
+  return text(renderedLines(summary, width, 80, activeTabIndex));
+}
+
+function testTui(): { tui: { terminal: { rows: number; columns: number }; requestRender(): void }; renders: () => number } {
+  let renderCount = 0;
+  return {
+    tui: {
+      terminal: { rows: 24, columns: 100 },
+      requestRender() {
+        renderCount += 1;
+      },
+    },
+    renders: () => renderCount,
+  };
 }
 
 const summary: RoadmapDetailSummary = {
@@ -111,6 +134,11 @@ const summary: RoadmapDetailSummary = {
       wave_id: "w01",
     },
   },
+  nextCommand: {
+    command: "/milestone:implement",
+    description: "Collect worker notes for active tasks, then update progress to wave_review.",
+    label: "/milestone:implement - Collect worker notes",
+  },
   waves: {
     total: 2,
     counts: {
@@ -141,7 +169,7 @@ const summary: RoadmapDetailSummary = {
         worker: "worker-light",
         status: "started",
         title: "Build summary renderer",
-        label: "worker-light started: Build summary renderer",
+        label: "task-a [started, worker-light] Build summary renderer",
       },
     ],
     waveCounts: {
@@ -164,7 +192,41 @@ const summary: RoadmapDetailSummary = {
       worker: "worker-light",
       status: "started",
       title: "Build summary renderer",
-      label: "worker-light started: Build summary renderer",
+      label: "task-a [started, worker-light] Build summary renderer",
+    },
+  ],
+  milestones: [
+    {
+      id: "m01-core",
+      title: "Core milestone",
+      status: "implementing",
+      label: "m01-core - Core milestone (implementing)",
+      detail: "plan",
+      waves: [
+        {
+          id: "w01",
+          status: "running",
+          goal: "Build the UI",
+          label: "w01 (running)",
+          tasks: [
+            {
+              id: "task-a",
+              worker: "worker-light",
+              status: "started",
+              title: "Build summary renderer",
+              label: "task-a [started, worker-light] Build summary renderer",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "m02-followup",
+      title: "Follow-up milestone",
+      status: "planned",
+      label: "m02-followup - Follow-up milestone (planned)",
+      detail: "outline",
+      waves: [],
     },
   ],
   blockers: [],
@@ -253,78 +315,107 @@ const summary: RoadmapDetailSummary = {
 };
 
 describe("roadmap details renderer", () => {
-  test("renders structured sections in the expected stacked order", () => {
-    const output = render(summary, 80);
-
-    expect(output).toContain("Demo Roadmap");
-    expect(output).toContain("Roadmap   demo (Demo");
-    expect(output).toContain("Phase     implementing");
-    expect(output).toContain("↑/↓ scroll");
-
-    const nextAction = output.indexOf("Next Action");
-    const activeWork = output.indexOf("Active Work");
-    const controls = output.indexOf("Controls");
-    const qualityGate = output.indexOf("Quality Gate");
-    const blockers = output.indexOf(" Blockers", qualityGate);
-    const recentEvents = output.indexOf("Recent Events");
-    const issues = output.lastIndexOf("Issues");
-    const usage = output.indexOf("Usage");
-    const metadata = output.indexOf("Metadata");
-
-    expect(nextAction).toBeGreaterThan(-1);
-    expect(activeWork).toBeGreaterThan(nextAction);
-    expect(controls).toBeGreaterThan(activeWork);
-    expect(qualityGate).toBeGreaterThan(controls);
-    expect(blockers).toBeGreaterThan(qualityGate);
-    expect(recentEvents).toBeGreaterThan(blockers);
-    expect(issues).toBeGreaterThan(recentEvents);
-    expect(usage).toBeGreaterThan(issues);
-    expect(metadata).toBeGreaterThan(usage);
-    expect(output).toContain("Scope");
-    expect(output).toContain("Usage");
-    expect(output).toContain("Status    passed");
-    expect(output).toContain("Revision  1/1");
-    expect(output).toContain("Event     evt_test");
-    expect(output).toContain("[a] Apply safe next action");
-    expect(output).toContain("roadmap_engineer_prepare_wave_dispatch");
-    expect(output).toContain("Recent Events");
-    expect(output).toContain("implementation.progress.updated");
-    expect(output).toContain("implementation_orchestrator");
-  });
-
-  test("uses a two-column body on wide terminals", () => {
+  test("renders rail tabs with overview selected and focused by default", () => {
     const output = render(summary, 120);
 
-    expect(output).toContain("Health");
-    expect(output).toContain("Quality gate");
-    expect(output).toContain("Quality Gate");
-    expect(output).toContain("Active Work");
-    expect(output).toContain("Controls");
-    expect(output).toContain("Blockers");
-    expect(output).toContain("Recent Events");
-    expect(output).toContain("Issues");
-    expect(output).toContain("task-a [worker-light");
-    expect(output).toContain("Scope");
+    expect(output).toContain("Demo Roadmap");
+    expect(output).toContain("Tabs *");
+    expect(output).toContain("> Overview");
+    expect(output).toContain("Plan");
+    expect(output).toContain("Gates");
     expect(output).toContain("Usage");
+    expect(output).toContain("Activity");
+    expect(output).toContain("/milestone:implement - Collect worker notes");
+    expect(output).not.toContain("roadmap_engineer_prepare_wave_dispatch");
   });
 
-  test("stacks the rail above content when the terminal is narrow", () => {
-    const output = render(summary, 60);
+  test("renders the plan tab with all milestones and planned wave task rows", () => {
+    const output = render(summary, 120, 1);
 
-    expect(output).toContain("Health");
-    expect(output).toContain("Next Action");
-    expect(output.indexOf("Next Action")).toBeGreaterThan(output.indexOf("Health"));
-    expect(renderedLines(summary, 60).some((line) => line.includes("Health") && line.includes("Next Action"))).toBe(false);
+    expect(output).toContain("m01-core");
+    expect(output).toContain("Core milestone");
+    expect(output).toContain("w01 [running] Build the UI");
+    expect(output).toContain("task-a [started, worker-light] Build summary renderer");
+    expect(output).toContain("m02-followup");
+    expect(output).toContain("outline only; run /milestone:plan");
   });
 
-  test("uses the full usage table on ultra-wide terminals without capping column growth", () => {
-    const output = render(summary, 200);
+  test("renders organized usage detail without tool json", () => {
+    const output = render(summary, 120, 3);
 
+    expect(output).toContain("Roadmap");
     expect(output).toContain("Cost");
-    expect(output).toContain("Req");
+    expect(output).toContain("$0.0100");
+    expect(output).toContain("Requests");
     expect(output).toContain("Tokens");
-    expect(output).toContain("Top agents");
-    expect(output).toContain("roadmap_engineer_prepare_wave_dispatch");
+    expect(output).toContain("Input");
+    expect(output).toContain("Output");
+    expect(output).toContain("Cache");
+    expect(output).toContain("Reasoning");
+    expect(output).toContain("implementation_orchestrator");
+    expect(output).not.toContain("roadmap_engineer_apply_next_action");
+  });
+
+  test("rail arrow keys switch tabs before enter activates main scrolling", () => {
+    const { tui, renders } = testTui();
+    const view = new RoadmapDetailsView(summary, tui as never, () => {});
+
+    view.handleInput("\x1b[B");
+    expect(text(view.render(100))).toContain("m01-core");
+    expect(text(view.render(100))).toContain("> Plan");
+
+    view.handleInput("\n");
+    expect(text(view.render(100))).toContain("Main:");
+    view.handleInput("\x1b[B");
+    expect(text(view.render(100))).toContain("* Plan");
+    expect(renders()).toBeGreaterThan(0);
+  });
+
+  test("escape returns from main to rail, then closes from rail", () => {
+    const { tui } = testTui();
+    let closeCount = 0;
+    const view = new RoadmapDetailsView(summary, tui as never, () => {
+      closeCount += 1;
+    });
+
+    view.handleInput("\n");
+    expect(text(view.render(100))).toContain("Main:");
+    view.handleInput("\x1b");
+    expect(text(view.render(100))).toContain("Rail:");
+    expect(closeCount).toBe(0);
+    view.handleInput("\x1b");
+    expect(closeCount).toBe(1);
+  });
+
+  test("action shortcuts report disabled state and call enabled controls globally", () => {
+    const { tui } = testTui();
+    const calls: string[] = [];
+    const view = new RoadmapDetailsView(summary, tui as never, () => {}, (key: string) => {
+      calls.push(key);
+    });
+
+    view.handleInput("a");
+    expect(text(view.render(100))).toContain("[a] Apply safe next action disabled");
+    expect(calls).toEqual([]);
+
+    if (summary.kind !== "active") throw new Error("Expected active summary");
+    const enabledSummary: RoadmapDetailSummary = {
+      ...summary,
+      nextAction: {
+        ...summary.nextAction,
+        status: "ready",
+        safe_to_apply: true,
+      },
+      availableControls: summary.availableControls.map((control) => {
+        if (control.key !== "a") return control;
+        const { reason: _reason, ...rest } = control;
+        return { ...rest, enabled: true };
+      }),
+    };
+    view.setSummary(enabledSummary);
+    view.handleInput("\n");
+    view.handleInput("a");
+    expect(calls).toEqual(["a"]);
   });
 
   test("fits rendered lines to the requested terminal dimensions", () => {

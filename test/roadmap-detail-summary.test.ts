@@ -86,6 +86,19 @@ async function approvedMilestone(): Promise<void> {
         acceptance_intent: ["Summary exposes active task and usage display fields."],
         verification_intent: ["Run focused summary tests."],
       },
+      {
+        id: "m02-followup",
+        title: "Follow-up milestone",
+        status: "planned",
+        goal: "Exercise outline-only milestone display.",
+        scope: ["Show roadmap milestone without a plan file."],
+        non_goals: ["Do not create a second milestone plan."],
+        evidence: ["The detail summary marks this milestone outline-only."],
+        dependencies: ["m01-core"],
+        risks: ["Outline-only milestones could be mistaken for missing data."],
+        acceptance_intent: ["Summary includes every roadmap milestone."],
+        verification_intent: ["Run focused summary tests."],
+      },
     ],
   });
   await transition(cwd, {
@@ -194,6 +207,7 @@ describe("roadmap detail summary", () => {
     });
     expect(summary.nextAction.description).toMatch(/^Resolve or defer blocking blockers: blk_[^:]+: Blocking note$/);
     expect(summary.nextAction.status).toBe("blocked");
+    expect(summary.nextCommand.command).toBe("/blocker:list");
     expect(summary.waves).toMatchObject({
       total: 1,
       counts: { blocked: 1 },
@@ -214,9 +228,32 @@ describe("roadmap detail summary", () => {
         worker: "worker-light",
         status: "blocked",
         title: "State task",
-        label: "worker-light blocked: State task",
+        label: "t01-state [blocked, worker-light] State task",
       },
     ]);
+    expect(summary.milestones).toHaveLength(2);
+    expect(summary.milestones[0]).toMatchObject({
+      id: "m01-core",
+      detail: "plan",
+      waves: [
+        {
+          id: "w01",
+          tasks: [
+            {
+              id: "t01-state",
+              status: "blocked",
+              worker: "worker-light",
+              title: "State task",
+            },
+          ],
+        },
+      ],
+    });
+    expect(summary.milestones[1]).toMatchObject({
+      id: "m02-followup",
+      detail: "outline",
+      waves: [],
+    });
     expect(summary.blockers.map((blocker) => blocker.label.replace(/blk_[^ ]+/, "blk_id"))).toEqual([
       "Open blocking blocker blk_id",
       "Progress blocker",
@@ -316,6 +353,10 @@ describe("roadmap detail summary", () => {
         input: { actionId: before.nextAction.id },
       },
     });
+    expect(before.nextCommand).toMatchObject({
+      command: "/milestone:plan",
+      label: "/milestone:plan - Start milestone planning",
+    });
     expect(before.availableControls.find((control) => control.key === "d")).toMatchObject({
       enabled: false,
       reason: "No dispatchable active wave",
@@ -352,6 +393,7 @@ describe("roadmap detail summary", () => {
     expect(approval.kind).toBe("active");
     if (approval.kind !== "active") throw new Error("Expected active summary");
     expect(approval.nextAction.status).toBe("approval_required");
+    expect(approval.nextCommand.command).toBe("/milestone:plan");
     expect(approval.gate.status).toBe("closed");
     expect(approval.gate.issues).toEqual([]);
     expect(approval.roadmapHealth).toMatchObject({

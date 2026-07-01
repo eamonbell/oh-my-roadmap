@@ -607,7 +607,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   register({
     name: "roadmap_engineer_record_worker_abandoned",
     label: "Record Worker Abandoned",
-    description: "Mark an unreachable worker run abandoned after the 2-minute probe timeout or when the job/agent is absent from the current session.",
+    description: "Mark an unreachable worker run abandoned after the 5-minute probe timeout or when the job/agent is absent from the current session.",
     approval: "write",
     parameters: waveOrchestrationTargetSchema.extend({
       taskId: z.string(),
