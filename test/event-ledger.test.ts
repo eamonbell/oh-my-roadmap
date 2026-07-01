@@ -14,7 +14,7 @@ import {
   updateRoadmap,
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
-} from "../src/core/store";
+} from "../src/core/store/index";
 import type { CloseoutEvidence } from "../src/core/types";
 
 let cwd = "";

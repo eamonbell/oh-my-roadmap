@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { renderReport } from "../src/core/report";
-import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "../src/core/roadmap-detail-summary";
+import { renderReport } from "../src/core/report/index";
+import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "../src/core/roadmap-detail-summary/index";
 import {
   appendNote,
   initRoadmap,
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
-} from "../src/core/store";
+} from "../src/core/store/index";
 import { recordMainUsage } from "../src/core/usage";
 
 let cwd = "";

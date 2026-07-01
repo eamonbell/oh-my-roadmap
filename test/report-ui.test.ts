@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ScrollView } from "@oh-my-pi/pi-tui";
-import { RoadmapDetailsView, renderRoadmapDetailsFrame, type RoadmapDetailSummary } from "../src/extension/report-ui.ts";
+import { RoadmapDetailsView, renderRoadmapDetailsFrame, type RoadmapDetailSummary } from "../src/extension/report-ui/index";
 
 function text(lines: readonly string[]): string {
   return lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
