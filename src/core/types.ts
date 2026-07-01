@@ -1,343 +1,343 @@
-export const ROADMAP_ROOT = ".roadmaps";
+export const ROADMAP_ROOT = '.roadmaps'
 
 export const PHASES = [
-  "discovery",
-  "roadmap_draft",
-  "roadmap_approved",
-  "milestone_planning",
-  "milestone_approved",
-  "implementing",
-  "reviewing",
-  "closeout",
-  "complete",
-] as const;
+	'discovery',
+	'roadmap_draft',
+	'roadmap_approved',
+	'milestone_planning',
+	'milestone_approved',
+	'implementing',
+	'reviewing',
+	'closeout',
+	'complete',
+] as const
 
 export type Phase = (typeof PHASES)[number];
 
 export interface Approval {
-  by: string;
-  at: string;
-  summary: string;
+	by: string;
+	at: string;
+	summary: string;
 }
 
-export type EvidenceStatus = "open" | "passed" | "failed" | "deferred";
+export type EvidenceStatus = 'open' | 'passed' | 'failed' | 'deferred';
 
 export interface EvidenceResult {
-  item: string;
-  status: EvidenceStatus;
-  reason?: string;
-  approver?: string;
-  at?: string;
+	item: string;
+	status: EvidenceStatus;
+	reason?: string;
+	approver?: string;
+	at?: string;
 }
 
 export interface RiskDisposition {
-  risk: string;
-  disposition: "resolved" | "deferred";
-  reason?: string;
-  approver?: string;
+	risk: string;
+	disposition: 'resolved' | 'deferred';
+	reason?: string;
+	approver?: string;
 }
 
 export interface CloseoutEvidence {
-  roadmap_id: string;
-  milestone_id: string;
-  change_request_id?: string;
-  status: "open" | "recorded" | "closed";
-  acceptance_results: EvidenceResult[];
-  verification_results: EvidenceResult[];
-  worker_notes_reviewed: boolean;
-  review_summary: string;
-  unresolved_risks: RiskDisposition[];
-  closed_by?: string;
-  closed_at?: string;
+	roadmap_id: string;
+	milestone_id: string;
+	change_request_id?: string;
+	status: 'open' | 'recorded' | 'closed';
+	acceptance_results: EvidenceResult[];
+	verification_results: EvidenceResult[];
+	worker_notes_reviewed: boolean;
+	review_summary: string;
+	unresolved_risks: RiskDisposition[];
+	closed_by?: string;
+	closed_at?: string;
 }
 
 export interface ActivePointer {
-  roadmap_id: string;
-  milestone_id?: string;
-  change_request_id?: string;
-  updated_at: string;
+	roadmap_id: string;
+	milestone_id?: string;
+	change_request_id?: string;
+	updated_at: string;
 }
 
 export interface DiscoveryState {
-  recorded: boolean;
-  external_research_required: boolean;
-  external_research_recorded: boolean;
-  findings: string[];
+	recorded: boolean;
+	external_research_required: boolean;
+	external_research_recorded: boolean;
+	findings: string[];
 }
 
 export interface BypassState {
-  active: boolean;
-  reason: string;
-  requested_by: string;
-  requested_at: string;
+	active: boolean;
+	reason: string;
+	requested_by: string;
+	requested_at: string;
 }
 
 export interface MilestoneSummary {
-  id: string;
-  title: string;
-  status: Phase | "planned" | "blocked";
+	id: string;
+	title: string;
+	status: Phase | 'planned' | 'blocked';
 }
 
 export interface RoadmapMilestoneOutline extends MilestoneSummary {
-  goal: string;
-  scope: string[];
-  non_goals: string[];
-  evidence: string[];
-  dependencies: string[];
-  risks: string[];
-  acceptance_intent: string[];
-  verification_intent: string[];
+	goal: string;
+	scope: string[];
+	non_goals: string[];
+	evidence: string[];
+	dependencies: string[];
+	risks: string[];
+	acceptance_intent: string[];
+	verification_intent: string[];
 }
 
 export interface RoadmapState {
-  roadmap_id: string;
-  title: string;
-  phase: Phase;
-  created_at: string;
-  updated_at: string;
-  roadmap_finalized: boolean;
-  roadmap_revision: number;
-  roadmap_content_hash: string;
-  roadmap_milestone_check: RoadmapMilestoneCheck;
-  goal: string;
-  success_criteria: string[];
-  constraints: string[];
-  non_goals: string[];
-  context: string[];
-  evidence: string[];
-  risks: string[];
-  discovery: DiscoveryState;
-  approvals: Approval[];
-  open_questions: string[];
-  milestones: RoadmapMilestoneOutline[];
-  active_milestone_id?: string;
-  active_change_request_id?: string;
-  bypass?: BypassState;
+	roadmap_id: string;
+	title: string;
+	phase: Phase;
+	created_at: string;
+	updated_at: string;
+	roadmap_finalized: boolean;
+	roadmap_revision: number;
+	roadmap_content_hash: string;
+	roadmap_milestone_check: RoadmapMilestoneCheck;
+	goal: string;
+	success_criteria: string[];
+	constraints: string[];
+	non_goals: string[];
+	context: string[];
+	evidence: string[];
+	risks: string[];
+	discovery: DiscoveryState;
+	approvals: Approval[];
+	open_questions: string[];
+	milestones: RoadmapMilestoneOutline[];
+	active_milestone_id?: string;
+	active_change_request_id?: string;
+	bypass?: BypassState;
 }
 
-export type RoadmapBlockerSeverity = "blocking" | "non_blocking";
-export type RoadmapBlockerStatus = "open" | "resolved" | "deferred";
+export type RoadmapBlockerSeverity = 'blocking' | 'non_blocking';
+export type RoadmapBlockerStatus = 'open' | 'resolved' | 'deferred';
 
 export interface RoadmapBlocker {
-  id: string;
-  roadmap_id: string;
-  milestone_id?: string;
-  change_request_id?: string;
-  task_id?: string;
-  wave_id?: string;
-  severity: RoadmapBlockerSeverity;
-  status: RoadmapBlockerStatus;
-  title: string;
-  description: string;
-  created_by: string;
-  created_at: string;
-  resolved_by?: string;
-  resolved_at?: string;
-  resolution?: string;
-  deferred_by?: string;
-  deferred_at?: string;
-  defer_reason?: string;
-  note_path?: string;
+	id: string;
+	roadmap_id: string;
+	milestone_id?: string;
+	change_request_id?: string;
+	task_id?: string;
+	wave_id?: string;
+	severity: RoadmapBlockerSeverity;
+	status: RoadmapBlockerStatus;
+	title: string;
+	description: string;
+	created_by: string;
+	created_at: string;
+	resolved_by?: string;
+	resolved_at?: string;
+	resolution?: string;
+	deferred_by?: string;
+	deferred_at?: string;
+	defer_reason?: string;
+	note_path?: string;
 }
 
-export const IMPLEMENTATION_WORKER_NAMES = ["worker-light", "worker", "worker-heavy"] as const;
+export const IMPLEMENTATION_WORKER_NAMES = ['worker-light', 'worker', 'worker-heavy'] as const
 
 export type ImplementationWorkerName = (typeof IMPLEMENTATION_WORKER_NAMES)[number];
 
-export const WAVE_FLOW_CHECK_STATUSES = ["pending", "passed", "failed"] as const;
+export const WAVE_FLOW_CHECK_STATUSES = ['pending', 'passed', 'failed'] as const
 
 export type WaveFlowCheckStatus = (typeof WAVE_FLOW_CHECK_STATUSES)[number];
 
 export interface WaveFlowCheck {
-  status: WaveFlowCheckStatus;
-  checked_by: string;
-  checked_at: string;
-  summary: string;
-  findings: string[];
+	status: WaveFlowCheckStatus;
+	checked_by: string;
+	checked_at: string;
+	summary: string;
+	findings: string[];
 }
 
 export interface RoadmapMilestoneCheck extends WaveFlowCheck {
-  roadmap_revision: number;
-  roadmap_content_hash: string;
-  event_id: string;
+	roadmap_revision: number;
+	roadmap_content_hash: string;
+	event_id: string;
 }
 
 export interface TaskPlan {
-  id: string;
-  title: string;
-  objective: string;
-  implementation_notes: string[];
-  done_criteria: string[];
-  verification_commands: string[];
-  worker: ImplementationWorkerName;
-  status: "assigned" | "started" | "done" | "blocked";
-  depends_on: string[];
-  owned_files: string[];
-  owned_modules: string[];
-  shared_interfaces: string[];
+	id: string;
+	title: string;
+	objective: string;
+	implementation_notes: string[];
+	done_criteria: string[];
+	verification_commands: string[];
+	worker: ImplementationWorkerName;
+	status: 'assigned' | 'started' | 'done' | 'blocked';
+	depends_on: string[];
+	owned_files: string[];
+	owned_modules: string[];
+	shared_interfaces: string[];
 }
 
 export interface WavePlan {
-  id: string;
-  goal: string;
-  exit_criteria: string[];
-  review_checkpoint: string;
-  status: "pending" | "running" | "reviewing" | "blocked" | "complete";
-  tasks: string[];
+	id: string;
+	goal: string;
+	exit_criteria: string[];
+	review_checkpoint: string;
+	status: 'pending' | 'running' | 'reviewing' | 'blocked' | 'complete';
+	tasks: string[];
 }
 
 export const IMPLEMENTATION_PROGRESS_STEPS = [
-  "not_started",
-  "dispatching",
-  "workers_running",
-  "wave_review",
-  "resolving_blockers",
-  "ready_for_next_wave",
-  "closeout_ready",
-] as const;
+	'not_started',
+	'dispatching',
+	'workers_running',
+	'wave_review',
+	'resolving_blockers',
+	'ready_for_next_wave',
+	'closeout_ready',
+] as const
 
 export type ImplementationProgressStep = (typeof IMPLEMENTATION_PROGRESS_STEPS)[number];
 
 export const WORKER_RUN_STATUSES = [
-  "running",
-  "transport_failed",
-  "abandoned",
-  "completed",
-  "blocked",
-  "failed",
-  "cancelled",
-] as const;
+	'running',
+	'transport_failed',
+	'abandoned',
+	'completed',
+	'blocked',
+	'failed',
+	'cancelled',
+] as const
 
 export type WorkerRunStatus = (typeof WORKER_RUN_STATUSES)[number];
 
 export interface WorkerRun {
-  task_id: string;
-  wave_id: string;
-  worker: ImplementationWorkerName;
-  agent_id: string;
-  job_id: string;
-  owned_files: string[];
-  owned_modules: string[];
-  status: WorkerRunStatus;
-  started_at: string;
-  updated_at: string;
-  last_error?: string;
+	task_id: string;
+	wave_id: string;
+	worker: ImplementationWorkerName;
+	agent_id: string;
+	job_id: string;
+	owned_files: string[];
+	owned_modules: string[];
+	status: WorkerRunStatus;
+	started_at: string;
+	updated_at: string;
+	last_error?: string;
 }
 
 export interface ImplementationProgress {
-  active_wave_id?: string;
-  step: ImplementationProgressStep;
-  active_task_ids: string[];
-  worker_runs: WorkerRun[];
-  blocked_reason?: string;
-  updated_at: string;
+	active_wave_id?: string;
+	step: ImplementationProgressStep;
+	active_task_ids: string[];
+	worker_runs: WorkerRun[];
+	blocked_reason?: string;
+	updated_at: string;
 }
 
 export interface TaskRuntime {
-  id: string;
-  status: TaskPlan["status"];
+	id: string;
+	status: TaskPlan['status'];
 }
 
 export interface WaveRuntime {
-  id: string;
-  status: WavePlan["status"];
+	id: string;
+	status: WavePlan['status'];
 }
 
 export interface PlanRuntime {
-  tasks: TaskRuntime[];
-  waves: WaveRuntime[];
-  progress: ImplementationProgress;
-  wave_flow_check: WaveFlowCheck;
+	tasks: TaskRuntime[];
+	waves: WaveRuntime[];
+	progress: ImplementationProgress;
+	wave_flow_check: WaveFlowCheck;
 }
 
 export type MilestoneRuntime = PlanRuntime;
 export type ChangeRequestRuntime = PlanRuntime;
 
 export interface MilestonePlan {
-  roadmap_id: string;
-  milestone_id: string;
-  title: string;
-  status: Phase;
-  approvals: Approval[];
-  open_questions: string[];
-  verification_commands: string[];
-  acceptance_criteria: string[];
-  cleanup_policy: "approval-gated";
-  user_interview: string[];
-  relevant_existing_code: string[];
-  relevant_documentation: string[];
-  decisions: string[];
-  dependency_analysis: string[];
-  tasks: TaskPlan[];
-  waves: WavePlan[];
-  progress: ImplementationProgress;
-  wave_flow_check: WaveFlowCheck;
+	roadmap_id: string;
+	milestone_id: string;
+	title: string;
+	status: Phase;
+	approvals: Approval[];
+	open_questions: string[];
+	verification_commands: string[];
+	acceptance_criteria: string[];
+	cleanup_policy: 'approval-gated';
+	user_interview: string[];
+	relevant_existing_code: string[];
+	relevant_documentation: string[];
+	decisions: string[];
+	dependency_analysis: string[];
+	tasks: TaskPlan[];
+	waves: WavePlan[];
+	progress: ImplementationProgress;
+	wave_flow_check: WaveFlowCheck;
 }
 
 export interface ChangeRequest {
-  roadmap_id: string;
-  milestone_id: string;
-  change_request_id: string;
-  title: string;
-  status: "draft" | "approved" | "implementing" | "reviewing" | "closed";
-  requested_at: string;
-  request: string;
-  approvals: Approval[];
-  verification_commands: string[];
-  acceptance_criteria: string[];
-  user_interview: string[];
-  relevant_existing_code: string[];
-  relevant_documentation: string[];
-  decisions: string[];
-  dependency_analysis: string[];
-  tasks: TaskPlan[];
-  waves: WavePlan[];
-  progress: ImplementationProgress;
-  wave_flow_check: WaveFlowCheck;
-  closeout?: CloseoutEvidence;
+	roadmap_id: string;
+	milestone_id: string;
+	change_request_id: string;
+	title: string;
+	status: 'draft' | 'approved' | 'implementing' | 'reviewing' | 'closed';
+	requested_at: string;
+	request: string;
+	approvals: Approval[];
+	verification_commands: string[];
+	acceptance_criteria: string[];
+	user_interview: string[];
+	relevant_existing_code: string[];
+	relevant_documentation: string[];
+	decisions: string[];
+	dependency_analysis: string[];
+	tasks: TaskPlan[];
+	waves: WavePlan[];
+	progress: ImplementationProgress;
+	wave_flow_check: WaveFlowCheck;
+	closeout?: CloseoutEvidence;
 }
 
 export interface ValidationIssue {
-  code: string;
-  message: string;
-  path?: string;
+	code: string;
+	message: string;
+	path?: string;
 }
 
 export interface ValidationResult {
-  valid: boolean;
-  errors: ValidationIssue[];
-  warnings: ValidationIssue[];
+	valid: boolean;
+	errors: ValidationIssue[];
+	warnings: ValidationIssue[];
 }
 
 export interface LoadedState {
-  active?: ActivePointer;
-  roadmap?: RoadmapState;
-  milestone?: MilestonePlan;
-  changeRequest?: ChangeRequest;
-  closeout?: CloseoutEvidence;
-  usage?: import("./usage").RoadmapUsageSummary;
+	active?: ActivePointer;
+	roadmap?: RoadmapState;
+	milestone?: MilestonePlan;
+	changeRequest?: ChangeRequest;
+	closeout?: CloseoutEvidence;
+	usage?: import('./usage').RoadmapUsageSummary;
 }
 
 export interface RoadmapEventScope {
-  roadmap_id: string;
-  milestone_id?: string;
-  change_request_id?: string;
-  wave_id?: string;
-  task_id?: string;
-  blocker_id?: string;
-  gate?: string;
+	roadmap_id: string;
+	milestone_id?: string;
+	change_request_id?: string;
+	wave_id?: string;
+	task_id?: string;
+	blocker_id?: string;
+	gate?: string;
 }
 
 export interface RoadmapEvent {
-  id: string;
-  schema_version: 1;
-  at: string;
-  actor: string;
-  type: string;
-  operation?: string;
-  scope: RoadmapEventScope;
-  summary: string;
-  before?: Record<string, unknown>;
-  after?: Record<string, unknown>;
-  details?: Record<string, unknown>;
+	id: string;
+	schema_version: 1;
+	at: string;
+	actor: string;
+	type: string;
+	operation?: string;
+	scope: RoadmapEventScope;
+	summary: string;
+	before?: Record<string, unknown>;
+	after?: Record<string, unknown>;
+	details?: Record<string, unknown>;
 }

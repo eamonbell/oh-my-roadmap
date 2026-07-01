@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initRoadmap, writeActive } from "../src/core/store";
+import { initRoadmap, writeActive } from "../src/core/store/index";
 import { searchContext, readContext } from "../src/core/context";
 import { decisionsPath, milestoneNotesPath, milestonePlanPath, risksPath, roadmapDocPath } from "../src/core/paths";
 

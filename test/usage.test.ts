@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { registerRoadmapUsageTracking } from "../src/extension/usage-tracking";
 import { roadmapDocPath, roadmapUsagePath, milestonePlanPath } from "../src/core/paths";
-import { renderReport } from "../src/core/report";
+import { renderReport } from "../src/core/report/index";
 import {
   createChangeRequest,
   initRoadmap,
@@ -13,7 +13,7 @@ import {
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
-} from "../src/core/store";
+} from "../src/core/store/index";
 import { recordMainUsage, recordTaskUsage } from "../src/core/usage";
 import { validateRoadmapState } from "../src/core/validation";
 
