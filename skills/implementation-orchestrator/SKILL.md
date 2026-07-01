@@ -26,9 +26,9 @@ Required process:
 - Dispatch each task as a background job using the exact agent named in the task's `worker` field: `worker-light`, `worker`, or `worker-heavy`.
 - Immediately after each spawn, call `roadmap_engineer_record_worker_dispatch` with the task ID, returned `agentId`, and returned `jobId`.
 - Never redispatch a task until its prior worker run is terminal: `abandoned`, `completed`, `blocked`, `failed`, or `cancelled`.
-- If a current-session worker job reports socket-close or another transient transport failure, call `roadmap_engineer_record_worker_transport_failed`, probe the original worker via job/IRC, and wait up to 2 minutes.
+- If a current-session worker job reports socket-close or another transient transport failure, call `roadmap_engineer_record_worker_transport_failed`, probe the original worker via job/IRC, and wait up to 5 minutes.
 - If the original worker responds after a transport failure, collect its final result and call `roadmap_engineer_record_wave_result`.
-- If the original current-session worker does not respond after 2 minutes, call `roadmap_engineer_record_worker_abandoned`, then redispatch only that task.
+- If the original current-session worker does not respond after 5 minutes, call `roadmap_engineer_record_worker_abandoned`, then redispatch only that task.
 - Transport failures do not create canonical blockers unless the worker reports a real implementation blocker.
 - Stop a worker if it needs unowned files/modules.
 - Require every worker to append a scoped note before yielding.

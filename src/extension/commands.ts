@@ -172,7 +172,7 @@ async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContex
     .custom(
       (tui, _theme, _keybindings, done) => {
         const close = () => done(undefined);
-        return new RoadmapDetailsView(summary, tui, close, (key) => {
+        const view = new RoadmapDetailsView(summary, tui, close, (key, activeView) => {
           void withDiagnosticTiming({
             component: "command",
             operation: "roadmap:details.control",
@@ -180,19 +180,24 @@ async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContex
             slowMs: 1000,
             metadata: { control_key: key },
           }, async () => await applyRoadmapDetailControl(ctx.cwd, key))
-            .then((result) => {
+            .then(async (result) => {
               if (result.action === "applied_next_action") {
                 ctx.ui.notify(`Applied next action: ${result.result.plan.label}`, "info");
+                const refreshed = await buildRoadmapDetailSummary(ctx.cwd);
+                activeView.setSummary(refreshed);
+                activeView.showMessage(`Applied: ${result.result.plan.label}`);
               } else {
                 api.sendUserMessage(result.prompt);
+                close();
               }
-              close();
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               ctx.ui.notify(`roadmap:details control failed: ${message}`, "error");
+              activeView.showMessage(`Control failed: ${message}`);
             });
         });
+        return view;
       },
       { overlay: true },
     )

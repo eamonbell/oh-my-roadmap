@@ -1,6 +1,8 @@
 import { readRoadmapEvents } from "./events";
+import { fileExists } from "./files";
+import { milestonePlanPath } from "./paths";
 import { applyNextAction, nextActionPlan, type NextActionPlan } from "./report";
-import { listQualityGates, loadRoadmapBlockers, loadState } from "./store";
+import { listQualityGates, loadMilestonePlan, loadRoadmapBlockers, loadState } from "./store";
 import type {
   ChangeRequest,
   LoadedState,
@@ -49,9 +51,11 @@ export interface ActiveRoadmapDetailSummary {
   gate: RoadmapDetailCheck;
   roadmapHealth: RoadmapDetailHealth;
   nextAction: NextActionPlan;
+  nextCommand: RoadmapDetailNextCommand;
   waves: RoadmapDetailWaves;
   activeExecution: RoadmapDetailActiveExecution | null;
   activeTasks: RoadmapDetailTask[];
+  milestones: RoadmapDetailMilestone[];
   blockers: RoadmapDetailBlocker[];
   canonicalBlockers: RoadmapDetailCanonicalBlockers;
   recentEvents: RoadmapDetailEvent[];
@@ -63,6 +67,12 @@ export interface RoadmapDetailReference {
   id: string;
   title: string;
   status: string;
+  label: string;
+}
+
+export interface RoadmapDetailNextCommand {
+  command: string;
+  description: string;
   label: string;
 }
 
@@ -130,6 +140,23 @@ export interface RoadmapDetailTask {
   status: string;
   title: string;
   label: string;
+}
+
+export interface RoadmapDetailMilestone {
+  id: string;
+  title: string;
+  status: string;
+  label: string;
+  detail: "outline" | "plan";
+  waves: RoadmapDetailPlanWave[];
+}
+
+export interface RoadmapDetailPlanWave {
+  id: string;
+  status: string;
+  goal: string;
+  label: string;
+  tasks: RoadmapDetailTask[];
 }
 
 export interface RoadmapDetailActiveExecution {
@@ -281,6 +308,7 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
   const waves = wavesSummary(context);
   const activeTasks = activeTasksSummary(context);
   const canonicalBlockerDetails = canonicalBlockersSummary(canonicalBlockers);
+  const milestones = await milestoneDetails(cwd, state);
 
   const summary: ActiveRoadmapDetailSummary = {
     kind: "active",
@@ -300,9 +328,11 @@ export async function buildRoadmapDetailSummary(cwd: string): Promise<RoadmapDet
     gate: gateSummary,
     roadmapHealth: roadmapHealthSummary(state, qualityGate, validationSummary, gateSummary, openCanonicalBlockers.length),
     nextAction: next,
+    nextCommand: nextCommandSummary(next, state),
     waves,
     activeExecution: activeExecutionSummary(context, waves, activeTasks),
     activeTasks,
+    milestones,
     blockers: blockerSummary(context, canonicalBlockers),
     canonicalBlockers: canonicalBlockerDetails,
     recentEvents: events,
@@ -495,14 +525,53 @@ function activeTasksSummary(context: PlanContext | undefined): RoadmapDetailTask
   if (!context) return [];
   return context.plan.progress.active_task_ids.map((taskId) => {
     const task = context.tasks.find((candidate) => candidate.id === taskId);
-    return {
-      id: taskId,
-      worker: task?.worker ?? "unknown",
-      status: task?.status ?? "missing",
-      title: task?.title ?? taskId,
-      label: task ? `${task.worker} ${task.status}: ${task.title}` : `${taskId} (missing)`,
-    };
+    return taskDetail(taskId, task);
   });
+}
+
+async function milestoneDetails(cwd: string, state: LoadedState): Promise<RoadmapDetailMilestone[]> {
+  const roadmap = state.roadmap;
+  if (!roadmap) return [];
+
+  return await Promise.all(roadmap.milestones.map(async (milestone) => {
+    const planPath = milestonePlanPath(cwd, roadmap.roadmap_id, milestone.id);
+    if (!(await fileExists(planPath))) {
+      return {
+        id: milestone.id,
+        title: milestone.title,
+        status: milestone.status,
+        label: `${milestone.id} - ${milestone.title} (${milestone.status})`,
+        detail: "outline" as const,
+        waves: [],
+      };
+    }
+
+    const plan = await loadMilestonePlan(cwd, roadmap.roadmap_id, milestone.id);
+    return {
+      id: milestone.id,
+      title: milestone.title,
+      status: plan.status,
+      label: `${milestone.id} - ${milestone.title} (${plan.status})`,
+      detail: "plan" as const,
+      waves: plan.waves.map((wave) => ({
+        id: wave.id,
+        status: wave.status,
+        goal: wave.goal,
+        label: `${wave.id} (${wave.status})`,
+        tasks: wave.tasks.map((taskId) => taskDetail(taskId, plan.tasks.find((task) => task.id === taskId))),
+      })),
+    };
+  }));
+}
+
+function taskDetail(taskId: string, task: TaskPlan | undefined): RoadmapDetailTask {
+  return {
+    id: taskId,
+    worker: task?.worker ?? "unknown",
+    status: task?.status ?? "missing",
+    title: task?.title ?? taskId,
+    label: task ? `${task.id} [${task.status}, ${task.worker}] ${task.title}` : `${taskId} (missing)`,
+  };
 }
 
 function activeExecutionSummary(
@@ -613,6 +682,33 @@ function eventSummary(event: RoadmapEvent): RoadmapDetailEvent {
     summary: event.summary,
     label: `${event.type} ${event.id}: ${event.summary}`,
   };
+}
+
+function nextCommandSummary(next: NextActionPlan, state: LoadedState): RoadmapDetailNextCommand {
+  const command = nextCommandForAction(next, state);
+  return {
+    command,
+    description: next.description,
+    label: `${command} - ${next.label}`,
+  };
+}
+
+function nextCommandForAction(next: NextActionPlan, state: LoadedState): string {
+  const id = next.id;
+  if (id === "roadmap:create") return "/roadmap:new <goal>";
+  if (id.includes(":blockers:open") || next.blockers.length > 0) return "/blocker:list";
+  if (id.includes("milestone-check")) return "/roadmap:new";
+  if (id.includes("wave-flow-check")) return state.changeRequest ? "/change:request" : "/milestone:plan";
+  if (id.startsWith("change:") && id.includes(":approve")) return "/change:request";
+  if (id.startsWith("milestone:") && id.includes(":approve")) return "/milestone:plan";
+  if (id.includes(":record-discovery") || id.startsWith("roadmap:") && id.includes(":approve")) return "/roadmap:new";
+  if (id.includes(":start-milestone-planning") || id.includes(":start-next-milestone-planning")) return "/milestone:plan";
+  if (id.includes(":start-implementation") || id.startsWith("progress:")) return "/milestone:implement";
+  if (id.includes(":record-closeout") || id.includes(":start-closeout")) return "/milestone:close";
+  if (id.startsWith("change:") && (id.includes(":review") || id.includes(":closed"))) return "/change:close";
+  if (id.includes(":complete")) return "/change:request <requested change>";
+  if (id.includes(":validation:")) return "/roadmap:status";
+  return "/roadmap:resume";
 }
 
 function availableControls(summary: ActiveRoadmapDetailSummary): RoadmapDetailControl[] {
