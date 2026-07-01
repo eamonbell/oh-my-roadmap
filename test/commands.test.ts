@@ -182,14 +182,65 @@ describe("roadmap commands", () => {
     if (!sent) throw new Error("Expected a sent message");
     expect(sent.content).toContain("Use the built-in `ask` tool from the orchestrator/main-agent role");
     expect(sent.content).toContain("roadmap_engineer_prepare_wave_dispatch");
+    expect(sent.content).toContain("roadmap_engineer_record_worker_dispatch");
+    expect(sent.content).toContain("roadmap_engineer_record_worker_transport_failed");
+    expect(sent.content).toContain("roadmap_engineer_record_worker_abandoned");
     expect(sent.content).toContain("roadmap_engineer_record_wave_result");
     expect(sent.content).toContain("roadmap_engineer_prepare_wave_review");
     expect(sent.content).toContain("roadmap_engineer_record_wave_review");
     expect(sent.content).toContain("built-in task/subagent mechanism");
-    expect(sent.content).toContain("If workers or reviewers report blockers");
+    expect(sent.content).toContain("If workers or reviewers report real blockers");
+    expect(sent.content).toContain("Never redispatch a task until the prior worker run is completed");
+    expect(sent.content).toContain("If neither background jobs nor IRC peers list that run");
+    expect(sent.content).toContain("do not poll, probe, or wait");
+    expect(sent.content).toContain("wait up to 2 minutes");
     expect(sent.content).toContain("ask the user from the orchestrator/main-agent role");
     expect(sent.content).toContain("Do not write or modify code yourself");
     expect(sent.content).toContain("Never perform wave reviews yourself");
+  });
+
+  test("blocker commands send tool-backed recovery prompts", async () => {
+    const commands = new Map<string, RegisteredTestCommand>();
+    const sentMessages: Array<{ content: string; options: unknown }> = [];
+    const api = {
+      registerCommand(name: string, command: RegisteredTestCommand) {
+        commands.set(name, command);
+      },
+      sendUserMessage(content: string, options?: unknown) {
+        sentMessages.push({ content, options });
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapCommands(api);
+
+    for (const name of ["blocker:list", "blocker:status", "blocker:resolve", "blocker:defer"]) {
+      expect(commands.get(name)).toBeDefined();
+    }
+
+    await commands.get("blocker:list")?.handler(
+      "",
+      { cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)) } as unknown as ExtensionCommandContext,
+    );
+    await commands.get("blocker:resolve")?.handler(
+      "blk_123 Fixed by reverting unowned edits",
+      { cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)) } as unknown as ExtensionCommandContext,
+    );
+    await commands.get("blocker:defer")?.handler(
+      "blk_456 Accepted follow-up risk",
+      { cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)) } as unknown as ExtensionCommandContext,
+    );
+
+    expect(sentMessages).toHaveLength(3);
+    expect(sentMessages[0]?.content).toContain("roadmap_engineer_list_blockers");
+    expect(sentMessages[0]?.content).toContain("/blocker:resolve <id> <resolution>");
+    expect(sentMessages[0]?.content).toContain("/blocker:defer <id> <reason>");
+    expect(sentMessages[0]?.content).toContain("/roadmap:resume");
+    expect(sentMessages[1]?.content).toContain("roadmap_engineer_resolve_blocker");
+    expect(sentMessages[1]?.content).toContain("roadmap_engineer_validate");
+    expect(sentMessages[1]?.content).toContain("tell the user to run /roadmap:resume");
+    expect(sentMessages[2]?.content).toContain("roadmap_engineer_defer_blocker");
+    expect(sentMessages[2]?.content).toContain("roadmap_engineer_validate");
+    expect(sentMessages[2]?.content).toContain("tell the user to run /roadmap:resume");
   });
 
   test("roadmap:details renders local details without prompting the model", async () => {

@@ -1,8 +1,11 @@
 import {
   listBlockers,
   loadState,
+  nowIso,
   openBlocker,
   transition,
+  writeChangeRequestRuntime,
+  writeMilestoneRuntime,
   type OpenBlockerInput,
 } from "./store";
 import { withDiagnosticTiming } from "../diagnostics";
@@ -15,6 +18,8 @@ import type {
   RoadmapBlocker,
   TaskPlan,
   WavePlan,
+  WorkerRun,
+  WorkerRunStatus,
 } from "./types";
 import { IMPLEMENTATION_WORKER_NAMES } from "./types";
 import { validateImplementationGate } from "./validation";
@@ -44,7 +49,28 @@ export interface PrepareWaveDispatchResult {
   wave_goal: string;
   progress_step: ImplementationProgressStep;
   assignments: WaveWorkerAssignment[];
+  active_runs: WorkerRun[];
   instructions: string;
+}
+
+export interface RecordWorkerDispatchInput extends WaveOrchestrationTargetInput {
+  taskId: string;
+  agentId: string;
+  jobId: string;
+}
+
+export interface RecordWorkerRunStatusInput extends WaveOrchestrationTargetInput {
+  taskId: string;
+  agentId?: string;
+  jobId?: string;
+  lastError?: string;
+}
+
+export interface RecordWorkerRunResult {
+  task_id: string;
+  wave_id: string;
+  run: WorkerRun;
+  progress_step: ImplementationProgressStep;
 }
 
 export interface RecordWaveResultInput extends WaveOrchestrationTargetInput {
@@ -108,6 +134,35 @@ interface ActivePlanContext {
 }
 
 const WORKERS = new Set<string>(IMPLEMENTATION_WORKER_NAMES);
+const ACTIVE_WORKER_RUN_STATUSES = new Set<WorkerRunStatus>(["running", "transport_failed"]);
+
+function activeWorkerRuns(plan: MilestonePlan | ChangeRequest): WorkerRun[] {
+  return plan.progress.worker_runs.filter((run) => ACTIVE_WORKER_RUN_STATUSES.has(run.status));
+}
+
+function hasOverlap(left: string[], right: string[]): boolean {
+  const rightSet = new Set(right);
+  return left.some((item) => rightSet.has(item));
+}
+
+function updateTaskStatusLocal(tasks: TaskPlan[], taskId: string, status: TaskPlan["status"]): TaskPlan[] {
+  let found = false;
+  const updated = tasks.map((task) => {
+    if (task.id !== taskId) return task;
+    found = true;
+    return { ...task, status };
+  });
+  if (!found) throw new Error(`Unknown task: ${taskId}`);
+  return updated;
+}
+
+async function writePlanRuntime(cwd: string, plan: MilestonePlan | ChangeRequest): Promise<void> {
+  if ("change_request_id" in plan) {
+    await writeChangeRequestRuntime(cwd, plan);
+    return;
+  }
+  await writeMilestoneRuntime(cwd, plan);
+}
 
 async function assertImplementationReady(cwd: string): Promise<void> {
   const gate = await validateImplementationGate(cwd);
@@ -279,6 +334,22 @@ export async function prepareWaveDispatch(
       assertTaskDispatchFields(task);
       assertDependenciesComplete(ctx.plan, task);
     }
+    const activeRuns = activeWorkerRuns(ctx.plan).filter((run) => run.wave_id === ctx.activeWave.id);
+    if (activeRuns.length > 0) {
+      await setProgress(cwd, ctx, "workers_running", activeRuns.map((run) => run.task_id));
+      return {
+        roadmap_id: ctx.roadmapId,
+        milestone_id: ctx.milestoneId,
+        ...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
+        wave_id: ctx.activeWave.id,
+        wave_goal: ctx.activeWave.goal,
+        progress_step: "workers_running",
+        assignments: [],
+        active_runs: activeRuns,
+        instructions:
+          "Do not redispatch tasks with active worker runs. First check the current session's background jobs and IRC peers for each run's job_id or agent_id. If neither background jobs nor IRC peers list the run, record it abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session. If an existing current-session run has a transport failure, record transport_failed, wait up to 2 minutes for recovery, then record abandoned before redispatching only that task.",
+      };
+    }
 
     if (ctx.activeWave.status === "pending") {
       await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "running" });
@@ -293,8 +364,188 @@ export async function prepareWaveDispatch(
       wave_goal: ctx.activeWave.goal,
       progress_step: "dispatching",
       assignments: incompleteTasks.map((task) => assignment(ctx, task)),
+      active_runs: [],
       instructions:
-        "Dispatch each assignment with the built-in task/subagent mechanism using the assignment's exact worker and prompt. Do not spawn workers from extension code.",
+        "Dispatch each assignment as a background job using the assignment's exact worker and prompt. Immediately call roadmap_engineer_record_worker_dispatch with the returned agentId and jobId before polling workers.",
+    };
+  });
+}
+
+function requireTaskInActiveWave(ctx: ActivePlanContext, taskId: string): TaskPlan {
+  const task = ctx.activeTasks.find((candidate) => candidate.id === taskId);
+  if (!task) throw new Error(`Task ${taskId} is not in active wave ${ctx.activeWave.id}`);
+  return task;
+}
+
+function requireActiveWorkerRun(
+  ctx: ActivePlanContext,
+  input: RecordWorkerRunStatusInput,
+): WorkerRun {
+  const matches = activeWorkerRuns(ctx.plan).filter((run) =>
+    run.task_id === input.taskId &&
+    (input.agentId === undefined || run.agent_id === input.agentId) &&
+    (input.jobId === undefined || run.job_id === input.jobId)
+  );
+  if (matches.length === 0) throw new Error(`Task ${input.taskId} has no matching active worker run`);
+  if (matches.length > 1) throw new Error(`Task ${input.taskId} has multiple matching active worker runs; include agentId or jobId`);
+  const run = matches[0];
+  if (!run) throw new Error(`Task ${input.taskId} has no matching active worker run`);
+  return run;
+}
+
+function replaceWorkerRun(runs: WorkerRun[], replacement: WorkerRun): WorkerRun[] {
+  return runs.map((run) =>
+    run.task_id === replacement.task_id && run.agent_id === replacement.agent_id && run.job_id === replacement.job_id
+      ? replacement
+      : run
+  );
+}
+
+async function writeProgressWithRuns(
+  cwd: string,
+  ctx: ActivePlanContext,
+  workerRuns: WorkerRun[],
+  activeTaskIds: string[],
+  tasks: TaskPlan[] = ctx.plan.tasks,
+  step: ImplementationProgressStep = ctx.plan.progress.step,
+): Promise<void> {
+  await writePlanRuntime(cwd, {
+    ...ctx.plan,
+    tasks,
+    progress: {
+      ...ctx.plan.progress,
+      active_wave_id: ctx.activeWave.id,
+      step,
+      active_task_ids: activeTaskIds,
+      worker_runs: workerRuns,
+      updated_at: nowIso(),
+    },
+  });
+}
+
+function assertNoActiveOwnershipOverlap(ctx: ActivePlanContext, task: TaskPlan): void {
+  for (const run of activeWorkerRuns(ctx.plan)) {
+    if (run.task_id === task.id) throw new Error(`Task ${task.id} already has an active worker run`);
+    if (hasOverlap(task.owned_files, run.owned_files)) {
+      throw new Error(`Task ${task.id} overlaps active worker run ${run.task_id} owned files`);
+    }
+    if (hasOverlap(task.owned_modules, run.owned_modules)) {
+      throw new Error(`Task ${task.id} overlaps active worker run ${run.task_id} owned modules`);
+    }
+  }
+}
+
+export async function recordWorkerDispatch(
+  cwd: string,
+  input: RecordWorkerDispatchInput,
+): Promise<RecordWorkerRunResult> {
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.recordWorkerDispatch",
+    cwd,
+    slowMs: 250,
+    metadata: { task_id: input.taskId, agent_id: input.agentId, job_id: input.jobId },
+  }, async () => {
+    const ctx = await activePlanContext(cwd, input);
+    const task = requireTaskInActiveWave(ctx, input.taskId);
+    assertTaskDispatchFields(task);
+    assertDependenciesComplete(ctx.plan, task);
+    assertNoActiveOwnershipOverlap(ctx, task);
+
+    const now = nowIso();
+    const run: WorkerRun = {
+      task_id: task.id,
+      wave_id: ctx.activeWave.id,
+      worker: task.worker,
+      agent_id: input.agentId,
+      job_id: input.jobId,
+      owned_files: task.owned_files,
+      owned_modules: task.owned_modules,
+      status: "running",
+      started_at: now,
+      updated_at: now,
+    };
+    const tasks = updateTaskStatusLocal(ctx.plan.tasks, task.id, "started");
+    const activeTaskIds = Array.from(new Set([...ctx.plan.progress.active_task_ids, task.id]));
+    await writeProgressWithRuns(cwd, ctx, [...ctx.plan.progress.worker_runs, run], activeTaskIds, tasks, "workers_running");
+    return {
+      task_id: task.id,
+      wave_id: ctx.activeWave.id,
+      run,
+      progress_step: "workers_running",
+    };
+  });
+}
+
+export async function recordWorkerTransportFailed(
+  cwd: string,
+  input: RecordWorkerRunStatusInput,
+): Promise<RecordWorkerRunResult> {
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.recordWorkerTransportFailed",
+    cwd,
+    slowMs: 250,
+    metadata: { task_id: input.taskId },
+  }, async () => {
+    const ctx = await activePlanContext(cwd, input);
+    const current = requireActiveWorkerRun(ctx, input);
+    const run: WorkerRun = {
+      ...current,
+      status: "transport_failed",
+      updated_at: nowIso(),
+      ...(input.lastError ? { last_error: input.lastError } : {}),
+    };
+    await writeProgressWithRuns(
+      cwd,
+      ctx,
+      replaceWorkerRun(ctx.plan.progress.worker_runs, run),
+      Array.from(new Set([...ctx.plan.progress.active_task_ids, run.task_id])),
+      ctx.plan.tasks,
+      "workers_running",
+    );
+    return {
+      task_id: run.task_id,
+      wave_id: run.wave_id,
+      run,
+      progress_step: "workers_running",
+    };
+  });
+}
+
+export async function recordWorkerAbandoned(
+  cwd: string,
+  input: RecordWorkerRunStatusInput,
+): Promise<RecordWorkerRunResult> {
+  return await withDiagnosticTiming({
+    component: "core",
+    operation: "wave.recordWorkerAbandoned",
+    cwd,
+    slowMs: 250,
+    metadata: { task_id: input.taskId },
+  }, async () => {
+    const ctx = await activePlanContext(cwd, input);
+    const current = requireActiveWorkerRun(ctx, input);
+    const run: WorkerRun = {
+      ...current,
+      status: "abandoned",
+      updated_at: nowIso(),
+      ...(input.lastError ? { last_error: input.lastError } : current.last_error ? { last_error: current.last_error } : {}),
+    };
+    const activeTaskIds = ctx.plan.progress.active_task_ids.filter((taskId) => taskId !== run.task_id);
+    await writeProgressWithRuns(
+      cwd,
+      ctx,
+      replaceWorkerRun(ctx.plan.progress.worker_runs, run),
+      activeTaskIds,
+      ctx.plan.tasks,
+      activeTaskIds.length > 0 ? "workers_running" : "dispatching",
+    );
+    return {
+      task_id: run.task_id,
+      wave_id: run.wave_id,
+      run,
+      progress_step: activeTaskIds.length > 0 ? "workers_running" : "dispatching",
     };
   });
 }
@@ -323,6 +574,20 @@ function blockerInputForTask(
   };
 }
 
+function closeWorkerRunForTask(plan: MilestonePlan | ChangeRequest, taskId: string, status: WorkerRunStatus): WorkerRun[] {
+  const now = nowIso();
+  let closed = false;
+  return plan.progress.worker_runs.map((run) => {
+    if (closed || run.task_id !== taskId || !ACTIVE_WORKER_RUN_STATUSES.has(run.status)) return run;
+    closed = true;
+    return {
+      ...run,
+      status,
+      updated_at: now,
+    };
+  });
+}
+
 export async function recordWaveResult(
   cwd: string,
   input: RecordWaveResultInput,
@@ -348,8 +613,9 @@ export async function recordWaveResult(
       });
       const updated = await activePlanContext(cwd, input);
       const remaining = activeIncompleteTaskIds(updated.activeTasks);
+      const workerRuns = closeWorkerRunForTask(updated.plan, task.id, "completed");
       if (remaining.length === 0) {
-        await setProgress(cwd, updated, "wave_review", []);
+        await writeProgressWithRuns(cwd, updated, workerRuns, [], updated.plan.tasks, "wave_review");
         return {
           task_id: task.id,
           status: "done",
@@ -358,7 +624,7 @@ export async function recordWaveResult(
           progress_step: "wave_review",
         };
       }
-      await setProgress(cwd, updated, "workers_running", remaining);
+      await writeProgressWithRuns(cwd, updated, workerRuns, remaining, updated.plan.tasks, "workers_running");
       return {
         task_id: task.id,
         status: "done",
@@ -376,7 +642,20 @@ export async function recordWaveResult(
     });
     await transition(cwd, { operation: "update_wave_status", waveId: ctx.activeWave.id, waveStatus: "blocked" });
     const blocker = await openBlocker(cwd, blockerInputForTask(ctx, task, input));
-    await setProgress(cwd, ctx, "resolving_blockers", [task.id], blocker.title);
+    const updated = await activePlanContext(cwd, input);
+    const workerRuns = closeWorkerRunForTask(updated.plan, task.id, input.status === "failed" ? "failed" : "blocked");
+    await writePlanRuntime(cwd, {
+      ...updated.plan,
+      progress: {
+        ...updated.plan.progress,
+        active_wave_id: updated.activeWave.id,
+        step: "resolving_blockers",
+        active_task_ids: [task.id],
+        worker_runs: workerRuns,
+        blocked_reason: blocker.title,
+        updated_at: nowIso(),
+      },
+    });
     return {
       task_id: task.id,
       status: "blocked",
@@ -472,8 +751,40 @@ export async function prepareWaveReview(
   });
 }
 
-function reviewFindings(input: RecordWaveReviewInput): string[] {
-  return input.findings && input.findings.length > 0 ? input.findings : [input.summary];
+function normalizeReviewText(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function reviewBlockingFindings(input: RecordWaveReviewInput): string[] {
+  const findings = input.findings && input.findings.length > 0 ? input.findings : [input.summary];
+  return findings.flatMap((finding) => {
+    const normalized = normalizeReviewText(finding);
+    const upper = normalized.toUpperCase();
+    if (
+      upper.startsWith("PASS:") ||
+      upper.startsWith("INFO:") ||
+      upper.startsWith("NON_BLOCKING:") ||
+      upper.startsWith("NON-BLOCKING:")
+    ) {
+      return [];
+    }
+    if (upper.startsWith("BLOCKING:")) {
+      const stripped = normalizeReviewText(normalized.slice("BLOCKING:".length));
+      return stripped ? [stripped] : [];
+    }
+    return normalized ? [normalized] : [];
+  });
+}
+
+function sameReviewBlocker(blocker: RoadmapBlocker, ctx: ActivePlanContext, title: string, description: string): boolean {
+  return (
+    blocker.roadmap_id === ctx.roadmapId &&
+    blocker.milestone_id === ctx.milestoneId &&
+    blocker.change_request_id === ctx.changeRequestId &&
+    blocker.wave_id === ctx.activeWave.id &&
+    normalizeReviewText(blocker.title) === normalizeReviewText(title) &&
+    normalizeReviewText(blocker.description) === normalizeReviewText(description)
+  );
 }
 
 export async function recordWaveReview(
@@ -511,14 +822,26 @@ export async function recordWaveReview(
     }
 
     const blockers: RoadmapBlocker[] = [];
-    for (const finding of reviewFindings(input)) {
+    const existingBlockers = await listBlockers(cwd, {
+      roadmapId: ctx.roadmapId,
+      milestoneId: ctx.milestoneId,
+      ...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
+      waveId: ctx.activeWave.id,
+    });
+    for (const finding of reviewBlockingFindings(input)) {
+      const title = `Wave ${ctx.activeWave.id} review failed`;
+      const existing = existingBlockers.blockers.find((blocker) => sameReviewBlocker(blocker, ctx, title, finding));
+      if (existing) {
+        blockers.push(existing);
+        continue;
+      }
       blockers.push(await openBlocker(cwd, {
         roadmapId: ctx.roadmapId,
         milestoneId: ctx.milestoneId,
         ...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
         waveId: ctx.activeWave.id,
         severity: "blocking",
-        title: `Wave ${ctx.activeWave.id} review failed`,
+        title,
         description: finding,
         createdBy: "reviewer",
       }));

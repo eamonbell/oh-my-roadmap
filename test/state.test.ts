@@ -44,6 +44,9 @@ import { readYamlFile, writeYamlFile } from "../src/core/files";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
+  recordWorkerAbandoned,
+  recordWorkerDispatch,
+  recordWorkerTransportFailed,
   recordWaveResult,
   recordWaveReview,
 } from "../src/core/wave-orchestration";
@@ -1437,6 +1440,133 @@ describe("roadmap state lifecycle", () => {
     });
   });
 
+  test("records worker dispatch leases and refuses active redispatch", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+
+    const dispatch = await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+
+    expect(dispatch).toMatchObject({
+      task_id: "t01-state",
+      wave_id: "w01",
+      progress_step: "workers_running",
+      run: {
+        task_id: "t01-state",
+        wave_id: "w01",
+        worker: "worker-light",
+        agent_id: "agent-store",
+        job_id: "job-store",
+        owned_files: ["src/core/store.ts"],
+        status: "running",
+      },
+    });
+    const state = await loadState(cwd);
+    expect(state.milestone?.tasks.find((task) => task.id === "t01-state")?.status).toBe("started");
+    expect(state.milestone?.progress.worker_runs).toHaveLength(1);
+
+    const redispatch = await prepareWaveDispatch(cwd);
+    expect(redispatch.assignments).toEqual([]);
+    expect(redispatch.active_runs).toMatchObject([
+      { task_id: "t01-state", agent_id: "agent-store", job_id: "job-store", status: "running" },
+    ]);
+    expect(redispatch.instructions).toContain("Do not redispatch");
+    expect(redispatch.instructions).toContain("First check the current session's background jobs and IRC peers");
+    expect(redispatch.instructions).toContain("record it abandoned immediately");
+    expect(redispatch.instructions).toContain("do not poll, probe, or wait");
+  });
+
+  test("refuses overlapping active worker ownership", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    const runtimePath = milestoneRuntimePath(cwd, "complex-refactor", "m01-core");
+    const runtime = await readYamlFile<Record<string, any>>(runtimePath);
+    runtime.progress.worker_runs = [
+      {
+        task_id: "other-task",
+        wave_id: "w01",
+        worker: "worker",
+        agent_id: "agent-other",
+        job_id: "job-other",
+        owned_files: ["src/core/store.ts"],
+        owned_modules: [],
+        status: "running",
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+    await writeYamlFile(runtimePath, runtime);
+
+    await expect(recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    })).rejects.toThrow("overlaps active worker run other-task owned files");
+  });
+
+  test("transport-failed runs block redispatch until abandoned", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+
+    const failed = await recordWorkerTransportFailed(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "socket closed",
+    });
+    expect(failed.run).toMatchObject({
+      status: "transport_failed",
+      last_error: "socket closed",
+    });
+    const blocked = await prepareWaveDispatch(cwd);
+    expect(blocked.assignments).toEqual([]);
+    expect(blocked.active_runs).toMatchObject([{ task_id: "t01-state", status: "transport_failed" }]);
+
+    const abandoned = await recordWorkerAbandoned(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "probe timed out after 2 minutes",
+    });
+    expect(abandoned.run).toMatchObject({
+      status: "abandoned",
+      last_error: "probe timed out after 2 minutes",
+    });
+    const redispatch = await prepareWaveDispatch(cwd);
+    expect(redispatch.assignments.map((assignment) => assignment.task_id)).toEqual(["t01-state"]);
+    expect(redispatch.active_runs).toEqual([]);
+  });
+
+  test("records wave results as terminal worker runs", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+
+    const state = await loadState(cwd);
+    expect(state.milestone?.progress.worker_runs).toMatchObject([
+      { task_id: "t01-state", agent_id: "agent-store", job_id: "job-store", status: "completed" },
+    ]);
+  });
+
   test("refuses dispatch when active-wave dependencies are incomplete", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });
@@ -1562,6 +1692,76 @@ describe("roadmap state lifecycle", () => {
       step: "resolving_blockers",
       blocked_reason: "Review found ownership drift.",
     });
+  });
+
+  test("filters prefixed review findings and deduplicates blocking blockers", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+    await prepareWaveReview(cwd);
+
+    const first = await recordWaveReview(cwd, {
+      status: "failed",
+      summary: "Review found one real blocker.",
+      findings: [
+        "PASS: Existing behavior still works.",
+        "INFO: Reviewer inspected the runtime file.",
+        "NON_BLOCKING: Add a follow-up note later.",
+        "NON-BLOCKING: Documentation can improve later.",
+        "BLOCKING: The worker modified an unowned report file.",
+      ],
+    });
+
+    expect(first.blockers).toMatchObject([
+      {
+        title: "Wave w01 review failed",
+        description: "The worker modified an unowned report file.",
+        wave_id: "w01",
+      },
+    ]);
+    const blockersAfterFirst = await listBlockers(cwd, { waveId: "w01", status: "open" });
+    expect(blockersAfterFirst.blockers).toHaveLength(1);
+
+    const second = await recordWaveReview(cwd, {
+      status: "failed",
+      summary: "Review found one real blocker again.",
+      findings: ["BLOCKING: The worker modified an unowned report file."],
+    });
+
+    expect(second.blockers).toHaveLength(1);
+    expect(second.blockers[0]?.id).toBe(first.blockers[0]?.id);
+    const blockersAfterSecond = await listBlockers(cwd, { waveId: "w01", status: "open" });
+    expect(blockersAfterSecond.blockers).toHaveLength(1);
+  });
+
+  test("keeps unclassified failed-review findings blocking", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+    await prepareWaveReview(cwd);
+
+    const result = await recordWaveReview(cwd, {
+      status: "failed",
+      summary: "Review found unclassified issue.",
+      findings: ["The worker changed an unowned file."],
+    });
+
+    expect(result.blockers).toMatchObject([
+      {
+        description: "The worker changed an unowned file.",
+        severity: "blocking",
+      },
+    ]);
   });
 
   test("append blocking note creates a canonical blocker and tags note metadata", async () => {

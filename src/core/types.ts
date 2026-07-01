@@ -198,10 +198,37 @@ export const IMPLEMENTATION_PROGRESS_STEPS = [
 
 export type ImplementationProgressStep = (typeof IMPLEMENTATION_PROGRESS_STEPS)[number];
 
+export const WORKER_RUN_STATUSES = [
+  "running",
+  "transport_failed",
+  "abandoned",
+  "completed",
+  "blocked",
+  "failed",
+  "cancelled",
+] as const;
+
+export type WorkerRunStatus = (typeof WORKER_RUN_STATUSES)[number];
+
+export interface WorkerRun {
+  task_id: string;
+  wave_id: string;
+  worker: ImplementationWorkerName;
+  agent_id: string;
+  job_id: string;
+  owned_files: string[];
+  owned_modules: string[];
+  status: WorkerRunStatus;
+  started_at: string;
+  updated_at: string;
+  last_error?: string;
+}
+
 export interface ImplementationProgress {
   active_wave_id?: string;
   step: ImplementationProgressStep;
   active_task_ids: string[];
+  worker_runs: WorkerRun[];
   blocked_reason?: string;
   updated_at: string;
 }
