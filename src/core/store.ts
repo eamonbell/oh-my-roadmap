@@ -154,6 +154,26 @@ export interface ListQualityGatesResult {
   history: RoadmapEvent[];
 }
 
+export interface RepairRoadmapInput {
+  reason: string;
+  actor?: string;
+  summary?: string;
+  roadmapMilestoneCheck?: WaveFlowCheckInput;
+}
+
+export interface RepairRoadmapResult {
+  roadmap_id: string;
+  previous_revision: number;
+  current_revision: number;
+  previous_content_hash: string;
+  current_content_hash: string;
+  content_hash_changed: boolean;
+  roadmap_doc_rewritten: boolean;
+  gate_action: "unchanged" | "reset_pending" | "recorded_passed";
+  repair_event_id: string;
+  quality_gate_event_id?: string;
+}
+
 export interface OpenBlockerInput {
   roadmapId?: string;
   milestoneId?: string;
@@ -666,6 +686,19 @@ function recordedRoadmapMilestoneCheck(input: WaveFlowCheckInput, roadmap: Roadm
     roadmap_content_hash: roadmap.roadmap_content_hash,
     event_id: "",
   };
+}
+
+function requirePassedRepairRoadmapMilestoneCheck(input: WaveFlowCheckInput, roadmap: RoadmapState): RoadmapMilestoneCheck {
+  if (!roadmap.roadmap_finalized) {
+    throw new Error("repair_roadmap can record a roadmap-milestone check only for a finalized roadmap");
+  }
+  if (input.status !== "passed") {
+    throw new Error("repair_roadmap roadmapMilestoneCheck must have status passed");
+  }
+  if (!input.summary || input.summary.trim() === "") {
+    throw new Error("repair_roadmap roadmapMilestoneCheck requires a non-empty summary");
+  }
+  return recordedRoadmapMilestoneCheck(input, roadmap);
 }
 
 function normalizeWaveFlowCheck(value: unknown): WaveFlowCheck {
@@ -1518,6 +1551,135 @@ async function initRoadmapImpl(cwd: string, input: InitRoadmapInput): Promise<Ro
     },
   });
   return state;
+  });
+  });
+}
+
+async function repairRoadmapImpl(cwd: string, input: RepairRoadmapInput): Promise<RepairRoadmapResult> {
+  return await withStoreWriteLock(cwd, async () => {
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("repair_roadmap requires a reason");
+
+  const loaded = await loadState(cwd);
+  if (!loaded.active || !loaded.roadmap) {
+    throw new Error("No active roadmap. Run /roadmap:new first.");
+  }
+
+  return await withStoreMutationRollback(cwd, loaded.roadmap.roadmap_id, async () => {
+  const roadmap = loaded.roadmap!;
+  const actor = input.actor?.trim() || "roadmap-repair";
+  const previousRevision = roadmap.roadmap_revision;
+  const previousContentHash = roadmap.roadmap_content_hash;
+  const beforeCheck = { ...roadmap.roadmap_milestone_check };
+  const computedContentHash = roadmapContentHash(roadmap);
+  const contentHashChanged = previousContentHash !== computedContentHash;
+  const expectedDoc = renderRoadmapMarkdown(roadmap);
+  let currentDoc = "";
+  let docMissing = false;
+  try {
+    currentDoc = await readText(roadmapDocPath(cwd, roadmap.roadmap_id));
+  } catch {
+    docMissing = true;
+  }
+  const docStale = docMissing || currentDoc !== expectedDoc;
+  const roadmapMilestoneCheckStale =
+    roadmap.roadmap_milestone_check.status !== "pending" &&
+    (roadmap.roadmap_milestone_check.roadmap_revision !== roadmap.roadmap_revision ||
+      roadmap.roadmap_milestone_check.roadmap_content_hash !== computedContentHash);
+
+  if (contentHashChanged) {
+    roadmap.roadmap_revision += 1;
+  }
+  roadmap.roadmap_content_hash = computedContentHash;
+
+  let gateAction: RepairRoadmapResult["gate_action"] = "unchanged";
+  let qualityGateEventId: string | undefined;
+  if (input.roadmapMilestoneCheck) {
+    qualityGateEventId = roadmapEventId();
+    roadmap.roadmap_milestone_check = requirePassedRepairRoadmapMilestoneCheck(input.roadmapMilestoneCheck, roadmap);
+    roadmap.roadmap_milestone_check.event_id = qualityGateEventId;
+    gateAction = "recorded_passed";
+  } else if (contentHashChanged || roadmapMilestoneCheckStale) {
+    roadmap.roadmap_milestone_check = pendingRoadmapMilestoneCheck(
+      roadmap.roadmap_revision,
+      roadmap.roadmap_content_hash,
+    );
+    gateAction = "reset_pending";
+  }
+
+  const stateChanged =
+    contentHashChanged ||
+    gateAction !== "unchanged" ||
+    previousContentHash !== roadmap.roadmap_content_hash;
+  const roadmapDocRewritten = contentHashChanged || docStale;
+  if (stateChanged) await writeRoadmapState(cwd, roadmap);
+  if (roadmapDocRewritten && !roadmap.roadmap_finalized) {
+    await writeText(roadmapDocPath(cwd, roadmap.roadmap_id), renderRoadmapMarkdown(roadmap));
+  } else if (roadmapDocRewritten && !stateChanged) {
+    await writeText(roadmapDocPath(cwd, roadmap.roadmap_id), renderRoadmapMarkdown(roadmap));
+  }
+
+  const repairEvent = await appendRoadmapEvent(cwd, {
+    actor,
+    type: "roadmap.repaired",
+    operation: "repair_roadmap",
+    scope: { roadmap_id: roadmap.roadmap_id },
+    summary: input.summary?.trim() || `Repaired roadmap ${roadmap.roadmap_id}.`,
+    before: {
+      roadmap_revision: previousRevision,
+      roadmap_content_hash: previousContentHash,
+      roadmap_milestone_check: beforeCheck,
+    },
+    after: {
+      roadmap_revision: roadmap.roadmap_revision,
+      roadmap_content_hash: roadmap.roadmap_content_hash,
+      roadmap_milestone_check: roadmap.roadmap_milestone_check,
+    },
+    details: {
+      reason,
+      content_hash_changed: contentHashChanged,
+      roadmap_doc_rewritten: roadmapDocRewritten,
+      gate_action: gateAction,
+      previous_content_hash: previousContentHash,
+      current_content_hash: roadmap.roadmap_content_hash,
+      previous_revision: previousRevision,
+      current_revision: roadmap.roadmap_revision,
+    },
+  });
+
+  if (qualityGateEventId) {
+    await appendRoadmapEvent(cwd, {
+      id: qualityGateEventId,
+      actor: roadmap.roadmap_milestone_check.checked_by,
+      type: "quality_gate.recorded",
+      operation: "repair_roadmap",
+      scope: { roadmap_id: roadmap.roadmap_id, gate: "roadmap_milestone_check" },
+      summary: "Roadmap milestone check recorded as passed during repair.",
+      before: beforeCheck,
+      after: { ...roadmap.roadmap_milestone_check },
+      details: {
+        summary: roadmap.roadmap_milestone_check.summary,
+        gate_status: roadmap.roadmap_milestone_check.status,
+        roadmap_revision: roadmap.roadmap_revision,
+        roadmap_content_hash: roadmap.roadmap_content_hash,
+        findings: roadmap.roadmap_milestone_check.findings,
+        repair_event_id: repairEvent.id,
+      },
+    });
+  }
+
+  return {
+    roadmap_id: roadmap.roadmap_id,
+    previous_revision: previousRevision,
+    current_revision: roadmap.roadmap_revision,
+    previous_content_hash: previousContentHash,
+    current_content_hash: roadmap.roadmap_content_hash,
+    content_hash_changed: contentHashChanged,
+    roadmap_doc_rewritten: roadmapDocRewritten,
+    gate_action: gateAction,
+    repair_event_id: repairEvent.id,
+    ...(qualityGateEventId ? { quality_gate_event_id: qualityGateEventId } : {}),
+  };
   });
   });
 }
@@ -2596,6 +2758,12 @@ export async function updateRoadmap(
   return await storeTiming("updateRoadmap", cwd, {
     milestone_count: input.milestones.length,
   }, async () => await updateRoadmapImpl(cwd, input));
+}
+
+export async function repairRoadmap(cwd: string, input: RepairRoadmapInput): Promise<RepairRoadmapResult> {
+  return await storeTiming("repairRoadmap", cwd, {
+    has_roadmap_milestone_check: input.roadmapMilestoneCheck !== undefined,
+  }, async () => await repairRoadmapImpl(cwd, input));
 }
 
 export async function createMilestonePlan(

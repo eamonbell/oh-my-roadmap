@@ -11,6 +11,7 @@ const COMMANDS = [
   ["roadmap:status", "Report active roadmap state, validation, and next action"],
   ["roadmap:amend", "Record an approved roadmap amendment"],
   ["roadmap:reopen", "Reopen the approved roadmap for pre-milestone changes"],
+  ["roadmap:repair", "Repair roadmap hash and generated-artifact drift"],
   ["milestone:plan", "Plan the next milestone with dependency waves"],
   ["milestone:implement", "Implement the approved milestone or active change plan"],
   ["milestone:status", "Report active milestone health"],
@@ -56,6 +57,16 @@ Command-specific workflow for /milestone:implement:
 - If workers or reviewers report blockers, rely on the record tools to update task/wave/progress state and open canonical blockers, then ask the user from the orchestrator/main-agent role when needed before redispatching or replanning.
 - Require worker results whose worker role matches each returned assignment before preparing review.
 - Never perform wave reviews yourself and never perform wave-flow checks during implementation.`;
+  }
+  if (name === "roadmap:repair") {
+    return `
+Command-specific workflow for /roadmap:repair:
+- Run roadmap_engineer_validate and inspect validation errors before changing state.
+- Use roadmap_engineer_read_state and roadmap_engineer_search_context to identify whether roadmap_content_hash, roadmap.md, or roadmap_milestone_check drifted after manual state recovery.
+- If the roadmap definition changed or the roadmap-milestone check is stale, rerun roadmap-milestone-checker before recording a passed checker result.
+- Call roadmap_engineer_repair_roadmap with a concrete reason, and include roadmapMilestoneCheck only when a fresh roadmap-milestone-checker pass is available.
+- Validate again after repair.
+- Do not call reopen_roadmap, approve_roadmap, update_roadmap, milestone planning, implementation progress tools, or bypass tools unless a separate validation error still requires that workflow.`;
   }
   if (name !== "roadmap:reopen") return "";
   return `

@@ -6,8 +6,10 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { registerRoadmapTools } from "../src/tools/register";
-import { initRoadmap, transition, updateRoadmap, type UpdateRoadmapInput } from "../src/core/store";
-import { decisionsPath } from "../src/core/paths";
+import { initRoadmap, loadState, transition, updateRoadmap, type UpdateRoadmapInput } from "../src/core/store";
+import { decisionsPath, roadmapStatePath } from "../src/core/paths";
+import { readYamlFile, writeYamlFile } from "../src/core/files";
+import type { RoadmapState } from "../src/core/types";
 
 interface RegisteredTool extends ToolDefinition {
   name: string;
@@ -75,6 +77,7 @@ describe("roadmap context tools", () => {
     const recordWaveReviewTool = tools.get("roadmap_engineer_record_wave_review");
     const nextActionTool = tools.get("roadmap_engineer_next_action");
     const applyNextActionTool = tools.get("roadmap_engineer_apply_next_action");
+    const repairRoadmapTool = tools.get("roadmap_engineer_repair_roadmap");
     expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
@@ -90,6 +93,7 @@ describe("roadmap context tools", () => {
     expect(recordWaveReviewTool?.approval).toBe("write");
     expect(nextActionTool?.approval).toBe("read");
     expect(applyNextActionTool?.approval).toBe("write");
+    expect(repairRoadmapTool?.approval).toBe("write");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -324,6 +328,98 @@ describe("roadmap context tools", () => {
             details: {
               gate_status: "passed",
               roadmap_revision: 2,
+            },
+          },
+        ],
+      });
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("repairs roadmap hash drift through the repair tool", async () => {
+    const tools = new Map<string, RegisteredTool>();
+    const api = {
+      zod: { z },
+      registerTool(tool: RegisteredTool) {
+        tools.set(tool.name, tool);
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapTools(api);
+    const repairRoadmapTool = tools.get("roadmap_engineer_repair_roadmap");
+    const listQualityGatesTool = tools.get("roadmap_engineer_list_quality_gates");
+    expect(repairRoadmapTool?.approval).toBe("write");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-repair-tool-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "tool-repair-roadmap", title: "Tool Repair Roadmap" });
+      await transition(cwd, {
+        operation: "record_discovery",
+        discovery: { findings: ["Inspected repair tool wiring."] },
+      });
+      await updateRoadmap(cwd, roadmapInput());
+      await transition(cwd, {
+        operation: "record_roadmap_milestone_check",
+        roadmapMilestoneCheck: {
+          status: "passed",
+          checkedBy: "roadmap-milestone-checker",
+          summary: "Initial milestone flow is coherent.",
+          findings: [],
+        },
+      });
+      await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+
+      const before = await loadState(cwd);
+      if (!before.roadmap) throw new Error("Expected roadmap state");
+      const statePath = roadmapStatePath(cwd, before.roadmap.roadmap_id);
+      const raw = await readYamlFile<RoadmapState>(statePath);
+      raw.context = ["Manual recovery changed context before tool repair."];
+      await writeYamlFile(statePath, raw);
+
+      const result = await repairRoadmapTool?.execute(
+        "repair",
+        {
+          reason: "Manual state recovery changed roadmap context.",
+          actor: "repair-tool-test",
+          roadmapMilestoneCheck: {
+            status: "passed",
+            checkedBy: "roadmap-milestone-checker",
+            summary: "Fresh checker pass after repair.",
+            findings: [],
+          },
+        },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+
+      expect(result?.details).toMatchObject({
+        previous_revision: before.roadmap.roadmap_revision,
+        current_revision: before.roadmap.roadmap_revision + 1,
+        content_hash_changed: true,
+        roadmap_doc_rewritten: true,
+        gate_action: "recorded_passed",
+      });
+
+      const gates = await listQualityGatesTool?.execute(
+        "quality-gates",
+        { gate: "roadmap_milestone_check", status: "passed", limit: 1 },
+        new AbortController().signal,
+        undefined,
+        { cwd } as ExtensionContext,
+      );
+      expect(gates?.details).toMatchObject({
+        current: {
+          status: "passed",
+          roadmap_revision: before.roadmap.roadmap_revision + 1,
+        },
+        history: [
+          {
+            operation: "repair_roadmap",
+            details: {
+              gate_status: "passed",
+              repair_event_id: (result?.details as { repair_event_id?: string } | undefined)?.repair_event_id,
             },
           },
         ],

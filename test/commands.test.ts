@@ -84,6 +84,41 @@ describe("roadmap commands", () => {
     );
   });
 
+  test("roadmap:repair sends command-specific repair instructions", async () => {
+    const commands = new Map<string, RegisteredTestCommand>();
+    const sentMessages: Array<{ content: string; options: unknown }> = [];
+    const api = {
+      registerCommand(name: string, command: RegisteredTestCommand) {
+        commands.set(name, command);
+      },
+      sendUserMessage(content: string, options?: unknown) {
+        sentMessages.push({ content, options });
+      },
+    } as unknown as ExtensionAPI;
+
+    registerRoadmapCommands(api);
+
+    const command = commands.get("roadmap:repair");
+    expect(command).toBeDefined();
+
+    await command?.handler(
+      "State hash drift after manual recovery",
+      { cwd: await Bun.fileURLToPath(new URL(".", import.meta.url)) } as unknown as ExtensionCommandContext,
+    );
+
+    expect(sentMessages).toHaveLength(1);
+    const sent = sentMessages[0];
+    if (!sent) throw new Error("Expected a sent message");
+    expect(sent.content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:repair.");
+    expect(sent.content).toContain("roadmap_engineer_validate");
+    expect(sent.content).toContain("roadmap_content_hash");
+    expect(sent.content).toContain("roadmap.md");
+    expect(sent.content).toContain("roadmap_milestone_check");
+    expect(sent.content).toContain("rerun roadmap-milestone-checker");
+    expect(sent.content).toContain("roadmap_engineer_repair_roadmap");
+    expect(sent.content).toContain("Do not call reopen_roadmap");
+  });
+
   test("milestone:plan prompts for detailed test coverage decisions", async () => {
     const commands = new Map<string, RegisteredTestCommand>();
     const sentMessages: Array<{ content: string; options: unknown }> = [];
