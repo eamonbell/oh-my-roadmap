@@ -1,8 +1,8 @@
-import { describe, expect, test, vi } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionWidgetContent } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { registerRoadmapCommands } from "../src/extension/commands";
 import { initRoadmap, openBlocker } from "../src/core/store/index";
 
@@ -37,6 +37,10 @@ const PROMPT_COMMANDS = [
   "change:request",
   "change:status",
   "change:close",
+  "blocker:list",
+  "blocker:status",
+  "blocker:resolve",
+  "blocker:defer",
 ] as const;
 
 function createHarness(): {
@@ -66,9 +70,10 @@ function createHarness(): {
   return { commands, sentMessages, customMessages, api };
 }
 
-function testContext(cwd: string, idle = true, ui: Record<string, unknown> = {}): ExtensionCommandContext {
+function testContext(cwd: string, idle = true, ui: Record<string, unknown> = {}, hasUI = true): ExtensionCommandContext {
   return {
     cwd,
+    hasUI,
     isIdle: () => idle,
     waitForIdle: async () => {},
     ui: {
@@ -84,9 +89,11 @@ async function testCwd(): Promise<string> {
   return await Bun.fileURLToPath(new URL(".", import.meta.url));
 }
 
-async function flushDeferredBlockerCommandMessages(): Promise<void> {
-  vi.advanceTimersByTime(50);
-  await Promise.resolve();
+function expectFindingsReportInstruction(content: string, commandName: string): void {
+  expect(content).toContain("Before finishing this slash-command turn:");
+  expect(content).toContain("roadmap_engineer_submit_findings_report exactly once");
+  expect(content).toContain(`Use title: "/${commandName} result".`);
+  expect(content).toContain("outcome, next commands/actions, and any blocker/error state");
 }
 
 describe("roadmap commands", () => {
@@ -104,7 +111,7 @@ describe("roadmap commands", () => {
     expect(customMessages).toHaveLength(0);
     const sent = sentMessages[0];
     if (!sent) throw new Error("Expected a sent message");
-    expect(sent.options).toEqual({ deliverAs: "steer" });
+    expect(sent.options).toBeUndefined();
     const content = sent.content;
     expect(content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:new.");
     expect(content).toContain("User arguments:\nAdd billing workflows");
@@ -116,6 +123,7 @@ describe("roadmap commands", () => {
     expect(content).toContain(
       "Only call roadmap_engineer_validate and ask for roadmap approval after the recorded roadmap-milestone check has passed",
     );
+    expectFindingsReportInstruction(content, "roadmap:new");
   });
 
   test("roadmap:reopen sends command-specific reopen instructions", async () => {
@@ -132,7 +140,7 @@ describe("roadmap commands", () => {
     expect(customMessages).toHaveLength(0);
     const sent = sentMessages[0];
     if (!sent) throw new Error("Expected a sent message");
-    expect(sent.options).toEqual({ deliverAs: "steer" });
+    expect(sent.options).toBeUndefined();
     const content = sent.content;
     expect(content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:reopen.");
     expect(content).toContain("operation reopen_roadmap");
@@ -145,6 +153,7 @@ describe("roadmap commands", () => {
     expect(content).toContain(
       "Only call roadmap_engineer_validate and ask for roadmap approval after the recorded roadmap-milestone check has passed",
     );
+    expectFindingsReportInstruction(content, "roadmap:reopen");
   });
 
   test("roadmap:repair sends command-specific repair instructions", async () => {
@@ -161,7 +170,7 @@ describe("roadmap commands", () => {
     expect(customMessages).toHaveLength(0);
     const sent = sentMessages[0];
     if (!sent) throw new Error("Expected a sent message");
-    expect(sent.options).toEqual({ deliverAs: "steer" });
+    expect(sent.options).toBeUndefined();
     const content = sent.content;
     expect(content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:repair.");
     expect(content).toContain("roadmap_engineer_validate");
@@ -171,6 +180,7 @@ describe("roadmap commands", () => {
     expect(content).toContain("rerun roadmap-milestone-checker");
     expect(content).toContain("roadmap_engineer_repair_roadmap");
     expect(content).toContain("Do not call reopen_roadmap");
+    expectFindingsReportInstruction(content, "roadmap:repair");
   });
 
   test("milestone:plan prompts for detailed test coverage decisions", async () => {
@@ -187,7 +197,7 @@ describe("roadmap commands", () => {
     expect(customMessages).toHaveLength(0);
     const sent = sentMessages[0];
     if (!sent) throw new Error("Expected a sent message");
-    expect(sent.options).toEqual({ deliverAs: "steer" });
+    expect(sent.options).toBeUndefined();
     const content = sent.content;
     expect(content).toContain("what test coverage they want");
     expect(content).toContain("which areas should create tests");
@@ -198,6 +208,7 @@ describe("roadmap commands", () => {
     expect(content).toContain("start_milestone_planning to advance from the completed milestone");
     expect(content).toContain("Do not pad the milestone plan with filler tasks");
     expect(content).toContain("every task must directly implement the approved roadmap milestone scope");
+    expectFindingsReportInstruction(content, "milestone:plan");
   });
 
   test("milestone:implement keeps user questions in the orchestrator role", async () => {
@@ -214,7 +225,7 @@ describe("roadmap commands", () => {
     expect(customMessages).toHaveLength(0);
     const sent = sentMessages[0];
     if (!sent) throw new Error("Expected a sent message");
-    expect(sent.options).toEqual({ deliverAs: "steer" });
+    expect(sent.options).toBeUndefined();
     const content = sent.content;
     expect(content).toContain("Use the built-in `ask` tool from the orchestrator/main-agent role");
     expect(content).toContain("roadmap_engineer_prepare_wave_dispatch");
@@ -233,68 +244,64 @@ describe("roadmap commands", () => {
     expect(content).toContain("ask the user from the orchestrator/main-agent role");
     expect(content).toContain("Do not write or modify code yourself");
     expect(content).toContain("Never perform wave reviews yourself");
+    expectFindingsReportInstruction(content, "milestone:implement");
   });
 
-  test("blocker commands report through visible transcript messages", async () => {
+  test("blocker commands queue prompt-backed routing instructions", async () => {
     const { commands, sentMessages, customMessages } = createHarness();
-    vi.useFakeTimers();
+    const cwd = await testCwd();
     for (const name of ["blocker:list", "blocker:status", "blocker:resolve", "blocker:defer"]) {
       expect(commands.get(name)).toBeDefined();
     }
 
-    try {
-      await commands.get("blocker:list")?.handler("", testContext(await testCwd()));
+    await commands.get("blocker:list")?.handler("", testContext(cwd));
+    await commands.get("blocker:status")?.handler("", testContext(cwd));
+    await commands.get("blocker:resolve")?.handler(
+      "blk_123 Fixed by reverting unowned edits",
+      testContext(cwd),
+    );
+    await commands.get("blocker:defer")?.handler(
+      "blk_456 Accepted follow-up risk",
+      testContext(cwd),
+    );
 
-      expect(sentMessages).toHaveLength(0);
-      expect(customMessages).toHaveLength(0);
-
-      await flushDeferredBlockerCommandMessages();
-
-      expect(sentMessages).toHaveLength(0);
-      expect(customMessages).toHaveLength(1);
-      expect(customMessages[0]?.message).toMatchObject({
-        customType: "roadmap-engineer.command-result",
-        display: true,
-        attribution: "agent",
-      });
-      expect(JSON.stringify(customMessages[0]?.message)).toContain("No open blockers");
-      expect(JSON.stringify(customMessages[0]?.message)).toContain("/blocker:resolve <id> <resolution>");
-    } finally {
-      vi.useRealTimers();
+    expect(sentMessages).toHaveLength(4);
+    expect(customMessages).toHaveLength(0);
+    for (const message of sentMessages) {
+      expect(message.options).toBeUndefined();
     }
-  });
 
-  test("blocker:list reports open blockers through the deferred transcript message", async () => {
-    const { commands, sentMessages, customMessages } = createHarness();
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-command-blocker-list-"));
-    vi.useFakeTimers();
-    try {
-      await initRoadmap(cwd, { roadmapId: "blocker-list-roadmap", title: "Blocker List Roadmap" });
-      await openBlocker(cwd, {
-        roadmapId: "blocker-list-roadmap",
-        title: "Needs decision",
-        description: "The user needs to resolve or defer this blocker.",
-      });
-
-      await commands.get("blocker:list")?.handler("", testContext(cwd));
-
-      expect(customMessages).toHaveLength(0);
-
-      await flushDeferredBlockerCommandMessages();
-
-      expect(sentMessages).toHaveLength(0);
-      expect(customMessages).toHaveLength(1);
-      const messageJson = JSON.stringify(customMessages[0]?.message);
-      expect(messageJson).toContain("Open blockers:");
-      expect(messageJson).toContain("Needs decision");
-      expect(messageJson).toContain("The user needs to resolve or defer this blocker.");
-      expect(messageJson).toContain("/blocker:resolve <id> <resolution>");
-      expect(messageJson).toContain("/blocker:defer <id> <reason>");
-      expect(messageJson).toContain("/roadmap:resume");
-    } finally {
-      vi.useRealTimers();
-      await fs.rm(cwd, { recursive: true, force: true });
+    const [listPrompt, statusPrompt, resolvePrompt, deferPrompt] = sentMessages.map(
+      (message) => message.content,
+    );
+    if (!listPrompt || !statusPrompt || !resolvePrompt || !deferPrompt) {
+      throw new Error("Expected blocker command prompts");
     }
+
+    for (const [prompt, name] of [
+      [listPrompt, "blocker:list"],
+      [statusPrompt, "blocker:status"],
+    ] as const) {
+      expect(prompt).toContain("roadmap_engineer_list_blockers");
+      expect(prompt).toContain("/blocker:resolve <id> <resolution>");
+      expect(prompt).toContain("/blocker:defer <id> <reason>");
+      expect(prompt).toContain("/roadmap:resume");
+      expectFindingsReportInstruction(prompt, name);
+    }
+
+    expect(resolvePrompt).toContain("Parse user arguments as <blocker-id> <resolution>");
+    expect(resolvePrompt).toContain("roadmap_engineer_resolve_blocker");
+    expect(resolvePrompt).toContain("roadmap_engineer_validate");
+    expect(resolvePrompt).toContain("tell the user to run /roadmap:resume");
+    expect(resolvePrompt).toContain("blk_123 Fixed by reverting unowned edits");
+    expectFindingsReportInstruction(resolvePrompt, "blocker:resolve");
+
+    expect(deferPrompt).toContain("Parse user arguments as <blocker-id> <reason>");
+    expect(deferPrompt).toContain("roadmap_engineer_defer_blocker");
+    expect(deferPrompt).toContain("roadmap_engineer_validate");
+    expect(deferPrompt).toContain("tell the user to run /roadmap:resume");
+    expect(deferPrompt).toContain("blk_456 Accepted follow-up risk");
+    expectFindingsReportInstruction(deferPrompt, "blocker:defer");
   });
 
   test("all prompt-backed commands queue agent command prompts while idle", async () => {
@@ -309,12 +316,15 @@ describe("roadmap commands", () => {
 
     expect(sentMessages).toHaveLength(PROMPT_COMMANDS.length);
     expect(customMessages).toHaveLength(0);
-    expect(sentMessages.map((message) => message.options)).toEqual(
-      PROMPT_COMMANDS.map(() => ({ deliverAs: "steer" })),
-    );
+    for (const message of sentMessages) {
+      expect(message.options).toBeUndefined();
+    }
     for (const [index, name] of PROMPT_COMMANDS.entries()) {
-      expect(sentMessages[index]?.content).toContain(`You are operating the roadmap-engineer OMP extension command /${name}.`);
-      expect(sentMessages[index]?.content).toContain("User arguments:\ntest args");
+      const content = sentMessages[index]?.content;
+      expect(content).toContain(`You are operating the roadmap-engineer OMP extension command /${name}.`);
+      expect(content).toContain("User arguments:\ntest args");
+      if (!content) throw new Error(`Expected prompt content for ${name}`);
+      expectFindingsReportInstruction(content, name);
     }
   });
 
@@ -327,6 +337,7 @@ describe("roadmap commands", () => {
     expect(customMessages).toHaveLength(0);
     expect(sentMessages[0]?.options).toEqual({ deliverAs: "followUp" });
     expect(sentMessages[0]?.content).toContain("You are operating the roadmap-engineer OMP extension command /roadmap:status.");
+    expectFindingsReportInstruction(sentMessages[0]?.content ?? "", "roadmap:status");
   });
 
   test("roadmap:init reports local success as a visible transcript message", async () => {
@@ -346,6 +357,52 @@ describe("roadmap commands", () => {
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("findings:clear clears the active findings report tile without prompting the model", async () => {
+    const { commands, sentMessages, customMessages } = createHarness();
+    const widgetCalls: Array<{ key: string; content: ExtensionWidgetContent | undefined }> = [];
+    const widgetOptions: unknown[] = [];
+    const setWidget = (key: string, content: ExtensionWidgetContent | undefined, options?: unknown) => {
+      widgetCalls.push({ key, content });
+      widgetOptions.push(options);
+    };
+
+    const command = commands.get("findings:clear");
+    expect(command).toBeDefined();
+    await command?.handler("", testContext(await testCwd(), true, { setWidget }));
+
+    expect(commands.has("findings:clear")).toBe(true);
+    expect(sentMessages).toHaveLength(0);
+    expect(customMessages).toHaveLength(1);
+    expect(customMessages[0]?.message).toMatchObject({
+      customType: "roadmap-engineer.command-result",
+      display: true,
+      attribution: "agent",
+    });
+    expect(JSON.stringify(customMessages[0]?.message)).toContain("Findings report tile cleared.");
+    expect(widgetCalls).toEqual([{ key: "findings-report-tile", content: undefined }]);
+    expect(widgetOptions).toEqual([undefined]);
+  });
+
+  test("findings:clear reports unavailable UI without clearing a widget", async () => {
+    const { commands, sentMessages, customMessages } = createHarness();
+    const setWidget = () => {
+      throw new Error("setWidget should not be called when UI is unavailable");
+    };
+
+    const command = commands.get("findings:clear");
+    expect(command).toBeDefined();
+    await command?.handler("", testContext(await testCwd(), true, { setWidget }, false));
+
+    expect(sentMessages).toHaveLength(0);
+    expect(customMessages).toHaveLength(1);
+    expect(customMessages[0]?.message).toMatchObject({
+      customType: "roadmap-engineer.command-result",
+      display: true,
+      attribution: "agent",
+    });
+    expect(JSON.stringify(customMessages[0]?.message)).toContain("Findings report tile not cleared: UI unavailable.");
   });
 
   test("roadmap:details renders local details without prompting the model", async () => {
@@ -436,9 +493,10 @@ describe("roadmap commands", () => {
 
       expect(sentMessages).toHaveLength(1);
       expect(customMessages).toHaveLength(0);
-      expect(sentMessages[0]?.options).toEqual({ deliverAs: "steer" });
+      expect(sentMessages[0]?.options).toBeUndefined();
       expect(sentMessages[0]?.content).toContain("roadmap_engineer_resolve_blocker");
       expect(sentMessages[0]?.content).toContain("roadmap_engineer_defer_blocker");
+      expect(sentMessages[0]?.content).not.toContain("roadmap_engineer_submit_findings_report");
       expect(closeCount).toBe(1);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });

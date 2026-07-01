@@ -47,6 +47,9 @@ omp -p '/extensions'
 - `/change:request`
 - `/change:status`
 - `/change:close`
+- `/findings:clear`
+
+Run `/findings:clear` to dismiss the active findings report tile; it does not change roadmap state.
 
 ## Project Init
 

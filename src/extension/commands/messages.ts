@@ -9,9 +9,11 @@ export async function sendCommandPrompt(api: ExtensionAPI, name: string, args: s
 }
 
 export function queueCommandPrompt(api: ExtensionAPI, ctx: ExtensionCommandContext, prompt: string): void {
-	api.sendUserMessage(prompt, {
-		deliverAs: ctx.isIdle() ? 'steer' : 'followUp',
-	})
+	if (ctx.isIdle()) {
+		api.sendUserMessage(prompt)
+		return
+	}
+	api.sendUserMessage(prompt, {deliverAs: 'followUp'})
 }
 
 export function sendCommandMessage(api: ExtensionAPI, content: string): void {
