@@ -40,6 +40,7 @@ import {
   writeMilestoneCloseout,
 } from "./closeout";
 import { appendRoadmapEvent, readRoadmapEvents, roadmapEventId } from "./events";
+import { WORKER_RUN_STATUSES } from "./types";
 import type {
   ActivePointer,
   Approval,
@@ -65,6 +66,7 @@ import type {
   WaveFlowCheck,
   WaveFlowCheckStatus,
   WavePlan,
+  WorkerRun,
 } from "./types";
 
 export interface InitRoadmapInput {
@@ -325,6 +327,13 @@ function progressSnapshot(loaded: LoadedState): Record<string, unknown> {
     active_wave_id: progress?.active_wave_id ?? null,
     step: progress?.step ?? null,
     active_task_ids: progress?.active_task_ids ?? [],
+    worker_runs: progress?.worker_runs.map((run) => ({
+      task_id: run.task_id,
+      wave_id: run.wave_id,
+      agent_id: run.agent_id,
+      job_id: run.job_id,
+      status: run.status,
+    })) ?? [],
     blocked_reason: progress?.blocked_reason ?? null,
   };
 }
@@ -518,6 +527,7 @@ function initialProgress(waves: WavePlan[]): ImplementationProgress {
     ...(waves[0] ? { active_wave_id: waves[0].id } : {}),
     step: "not_started",
     active_task_ids: [],
+    worker_runs: [],
     updated_at: nowIso(),
   };
 }
@@ -755,6 +765,45 @@ function normalizeWave(wave: WavePlan): WavePlan {
   };
 }
 
+const WORKER_RUN_STATUS_SET = new Set<string>(WORKER_RUN_STATUSES);
+
+function normalizeWorkerRun(value: unknown): WorkerRun | undefined {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const taskId = valueString(raw.task_id);
+  const waveId = valueString(raw.wave_id);
+  const worker = valueString(raw.worker);
+  const agentId = valueString(raw.agent_id);
+  const jobId = valueString(raw.job_id);
+  const status = valueString(raw.status);
+  if (!taskId || !waveId || !worker || !agentId || !jobId || !WORKER_RUN_STATUS_SET.has(status)) {
+    return undefined;
+  }
+  if (!["worker-light", "worker", "worker-heavy"].includes(worker)) return undefined;
+  return {
+    task_id: taskId,
+    wave_id: waveId,
+    worker: worker as WorkerRun["worker"],
+    agent_id: agentId,
+    job_id: jobId,
+    owned_files: valueList(raw.owned_files),
+    owned_modules: valueList(raw.owned_modules),
+    status: status as WorkerRun["status"],
+    started_at: valueString(raw.started_at) || nowIso(),
+    updated_at: valueString(raw.updated_at) || nowIso(),
+    ...(valueString(raw.last_error) ? { last_error: valueString(raw.last_error) } : {}),
+  };
+}
+
+function normalizeWorkerRuns(value: unknown): WorkerRun[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const run = normalizeWorkerRun(item);
+    return run ? [run] : [];
+  });
+}
+
 function normalizeProgress(value: unknown, waves: WavePlan[]): ImplementationProgress {
   const raw = value && typeof value === "object" && !Array.isArray(value)
     ? value as Partial<ImplementationProgress>
@@ -767,6 +816,7 @@ function normalizeProgress(value: unknown, waves: WavePlan[]): ImplementationPro
         : {}),
     step: raw.step ?? "not_started",
     active_task_ids: valueList(raw.active_task_ids),
+    worker_runs: normalizeWorkerRuns(raw.worker_runs),
     ...(typeof raw.blocked_reason === "string" ? { blocked_reason: raw.blocked_reason } : {}),
     updated_at: raw.updated_at ?? nowIso(),
   };
@@ -2244,10 +2294,12 @@ async function transitionImpl(cwd: string, input: TransitionInput): Promise<Load
     }
     case "update_implementation_progress": {
       if (!input.progress) throw new Error("update_implementation_progress requires progress input");
+      const existingProgress = loaded.changeRequest?.progress ?? loaded.milestone?.progress;
       const progress = {
         ...(input.progress.activeWaveId ? { active_wave_id: input.progress.activeWaveId } : {}),
         step: input.progress.step,
         active_task_ids: input.progress.activeTaskIds ?? [],
+        worker_runs: existingProgress?.worker_runs ?? [],
         ...(input.progress.blockedReason ? { blocked_reason: input.progress.blockedReason } : {}),
         updated_at: nowIso(),
       } satisfies ImplementationProgress;

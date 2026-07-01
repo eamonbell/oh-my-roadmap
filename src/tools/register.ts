@@ -42,8 +42,13 @@ import { validateRoadmapState } from "../core/validation";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
+  recordWorkerAbandoned,
+  recordWorkerDispatch,
+  recordWorkerTransportFailed,
   recordWaveResult,
   recordWaveReview,
+  type RecordWorkerDispatchInput,
+  type RecordWorkerRunStatusInput,
   type RecordWaveResultInput,
   type RecordWaveReviewInput,
   type WaveOrchestrationTargetInput,
@@ -563,6 +568,56 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
     async execute(_id, params, _signal, _update, ctx) {
       const result = await prepareWaveDispatch(ctx.cwd, params as WaveOrchestrationTargetInput);
       return textResult(JSON.stringify(result, null, 2), result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_record_worker_dispatch",
+    label: "Record Worker Dispatch",
+    description: "Persist an active worker-run lease immediately after spawning a background worker job.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema.extend({
+      taskId: z.string(),
+      agentId: z.string(),
+      jobId: z.string(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await recordWorkerDispatch(ctx.cwd, params as RecordWorkerDispatchInput);
+      return textResult(`Recorded worker dispatch for ${result.task_id}.`, result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_record_worker_transport_failed",
+    label: "Record Worker Transport Failed",
+    description: "Mark an active worker run as transport_failed while the orchestrator probes the original worker.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema.extend({
+      taskId: z.string(),
+      agentId: z.string().optional(),
+      jobId: z.string().optional(),
+      lastError: z.string().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await recordWorkerTransportFailed(ctx.cwd, params as RecordWorkerRunStatusInput);
+      return textResult(`Recorded worker transport failure for ${result.task_id}.`, result);
+    },
+  } as ToolDefinition);
+
+  register({
+    name: "roadmap_engineer_record_worker_abandoned",
+    label: "Record Worker Abandoned",
+    description: "Mark an unreachable worker run abandoned after the 2-minute probe timeout or when the job/agent is absent from the current session.",
+    approval: "write",
+    parameters: waveOrchestrationTargetSchema.extend({
+      taskId: z.string(),
+      agentId: z.string().optional(),
+      jobId: z.string().optional(),
+      lastError: z.string().optional(),
+    }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await recordWorkerAbandoned(ctx.cwd, params as RecordWorkerRunStatusInput);
+      return textResult(`Recorded worker abandoned for ${result.task_id}.`, result);
     },
   } as ToolDefinition);
 

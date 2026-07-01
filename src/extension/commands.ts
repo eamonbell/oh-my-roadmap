@@ -12,6 +12,10 @@ const COMMANDS = [
   ["roadmap:amend", "Record an approved roadmap amendment"],
   ["roadmap:reopen", "Reopen the approved roadmap for pre-milestone changes"],
   ["roadmap:repair", "Repair roadmap hash and generated-artifact drift"],
+  ["blocker:list", "List active roadmap blockers and recovery commands"],
+  ["blocker:status", "Report blocker state and recovery commands"],
+  ["blocker:resolve", "Resolve an open canonical blocker"],
+  ["blocker:defer", "Defer an open canonical blocker"],
   ["milestone:plan", "Plan the next milestone with dependency waves"],
   ["milestone:implement", "Implement the approved milestone or active change plan"],
   ["milestone:status", "Report active milestone health"],
@@ -50,13 +54,47 @@ Command-specific workflow for /milestone:plan:
 Command-specific workflow for /milestone:implement:
 - Use the built-in \`ask\` tool from the orchestrator/main-agent role if implementation uncovers missing decisions, ownership gaps, unplanned files, acceptance ambiguity, cleanup scope questions, or approval needs.
 - Do not write or modify code yourself.
-- Call roadmap_engineer_prepare_wave_dispatch before dispatching implementation work. Dispatch only the returned active-wave assignments with the built-in task/subagent mechanism, using each assignment's exact worker and prompt.
+- Call roadmap_engineer_prepare_wave_dispatch before dispatching implementation work. If it returns active_runs, do not redispatch those tasks.
+- For each active run, first check the current session's background jobs and IRC peers for the run's jobId/job_id or agentId/agent_id. If neither background jobs nor IRC peers list that run, call roadmap_engineer_record_worker_abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session.
+- Dispatch returned active-wave assignments as background jobs using each assignment's exact worker and prompt.
+- Immediately after each spawn, call roadmap_engineer_record_worker_dispatch with the returned agentId and jobId.
+- Never redispatch a task until the prior worker run is completed, blocked, failed, cancelled, or abandoned.
+- If a current-session worker job reports socket-close or another transient transport failure, call roadmap_engineer_record_worker_transport_failed, probe the original worker via job/IRC, and wait up to 2 minutes. If the original worker responds, collect its final result and call roadmap_engineer_record_wave_result. If it does not respond, call roadmap_engineer_record_worker_abandoned, then redispatch only that task.
 - After each worker returns, call roadmap_engineer_record_wave_result with completed, failed, or blocked status before taking any next orchestration step.
 - When all active-wave workers are completed, call roadmap_engineer_prepare_wave_review and dispatch the returned reviewer package with the built-in task/subagent mechanism.
 - After the reviewer returns, call roadmap_engineer_record_wave_review with passed or failed status.
-- If workers or reviewers report blockers, rely on the record tools to update task/wave/progress state and open canonical blockers, then ask the user from the orchestrator/main-agent role when needed before redispatching or replanning.
+- If workers or reviewers report real blockers, rely on the record tools to update task/wave/progress state and open canonical blockers, cancel sibling active runs, pause, ask the user from the orchestrator/main-agent role when needed, and report /blocker:list, /blocker:resolve <id> <resolution> or /blocker:defer <id> <reason>, then /roadmap:resume.
 - Require worker results whose worker role matches each returned assignment before preparing review.
 - Never perform wave reviews yourself and never perform wave-flow checks during implementation.`;
+  }
+  if (name === "blocker:list" || name === "blocker:status") {
+    return `
+Command-specific workflow for /${name}:
+- Call roadmap_engineer_list_blockers with status open first.
+- Report blocker ID, title, severity, status, scope, and concise description.
+- Show exact recovery commands:
+  - /blocker:resolve <id> <resolution>
+  - /blocker:defer <id> <reason>
+  - /roadmap:resume
+- Do not resolve or defer blockers unless the user provided an explicit blocker ID and resolution or defer reason.`;
+  }
+  if (name === "blocker:resolve") {
+    return `
+Command-specific workflow for /blocker:resolve:
+- Parse user arguments as <blocker-id> <resolution>.
+- If either value is missing, call roadmap_engineer_list_blockers with status open and ask for the missing blocker ID or resolution.
+- Call roadmap_engineer_resolve_blocker with the blocker ID and resolution.
+- Call roadmap_engineer_validate after resolving.
+- Report the result and tell the user to run /roadmap:resume.`;
+  }
+  if (name === "blocker:defer") {
+    return `
+Command-specific workflow for /blocker:defer:
+- Parse user arguments as <blocker-id> <reason>.
+- If either value is missing, call roadmap_engineer_list_blockers with status open and ask for the missing blocker ID or defer reason.
+- Call roadmap_engineer_defer_blocker with the blocker ID and defer reason.
+- Call roadmap_engineer_validate after deferring.
+- Report the result and tell the user to run /roadmap:resume.`;
   }
   if (name === "roadmap:repair") {
     return `
