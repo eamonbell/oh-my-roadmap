@@ -2,6 +2,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-
 import { initProject } from "../core/project-init";
 import { applyRoadmapDetailControl, buildRoadmapDetailSummary } from "../core/roadmap-detail-summary";
 import { renderReport } from "../core/report";
+import { deferBlocker, listBlockers, resolveBlocker } from "../core/store";
+import type { RoadmapBlocker } from "../core/types";
+import { validateRoadmapState } from "../core/validation";
 import { withDiagnosticTiming } from "../diagnostics";
 import { RoadmapDetailsView } from "./report-ui.ts";
 
@@ -12,10 +15,6 @@ const COMMANDS = [
   ["roadmap:amend", "Record an approved roadmap amendment"],
   ["roadmap:reopen", "Reopen the approved roadmap for pre-milestone changes"],
   ["roadmap:repair", "Repair roadmap hash and generated-artifact drift"],
-  ["blocker:list", "List active roadmap blockers and recovery commands"],
-  ["blocker:status", "Report blocker state and recovery commands"],
-  ["blocker:resolve", "Resolve an open canonical blocker"],
-  ["blocker:defer", "Defer an open canonical blocker"],
   ["milestone:plan", "Plan the next milestone with dependency waves"],
   ["milestone:implement", "Implement the approved milestone or active change plan"],
   ["milestone:status", "Report active milestone health"],
@@ -25,11 +24,16 @@ const COMMANDS = [
   ["change:request", "Plan a post-implementation change request"],
   ["change:status", "Report active change-request state"],
   ["change:close", "Close an active change request with evidence"],
+  ["blocker:list", "List open roadmap blockers and recovery commands"],
+  ["blocker:status", "Report current blocker state and next recovery step"],
+  ["blocker:resolve", "Resolve a blocker by id with a resolution"],
+  ["blocker:defer", "Defer a blocker by id with a reason"],
 ] as const;
 
 const INIT_COMMAND = "roadmap:init";
 const DETAILS_COMMAND = "roadmap:details";
-
+const COMMAND_MESSAGE_TYPE = "roadmap-engineer.command-result";
+const BLOCKER_COMMANDS = new Set(["blocker:list", "blocker:status", "blocker:resolve", "blocker:defer"]);
 
 function commandSpecificInstructions(name: string): string {
   if (name === "roadmap:new") {
@@ -67,6 +71,16 @@ Command-specific workflow for /milestone:implement:
 - Require worker results whose worker role matches each returned assignment before preparing review.
 - Never perform wave reviews yourself and never perform wave-flow checks during implementation.`;
   }
+  if (name === "roadmap:repair") {
+    return `
+Command-specific workflow for /roadmap:repair:
+- Run roadmap_engineer_validate and inspect validation errors before changing state.
+- Use roadmap_engineer_read_state and roadmap_engineer_search_context to identify whether roadmap_content_hash, roadmap.md, or roadmap_milestone_check drifted after manual state recovery.
+- If the roadmap definition changed or the roadmap-milestone check is stale, rerun roadmap-milestone-checker before recording a passed checker result.
+- Call roadmap_engineer_repair_roadmap with a concrete reason, and include roadmapMilestoneCheck only when a fresh roadmap-milestone-checker pass is available.
+- Validate again after repair.
+- Do not call reopen_roadmap, approve_roadmap, update_roadmap, milestone planning, implementation progress tools, or bypass tools unless a separate validation error still requires that workflow.`;
+  }
   if (name === "blocker:list" || name === "blocker:status") {
     return `
 Command-specific workflow for /${name}:
@@ -81,30 +95,20 @@ Command-specific workflow for /${name}:
   if (name === "blocker:resolve") {
     return `
 Command-specific workflow for /blocker:resolve:
-- Parse user arguments as <blocker-id> <resolution>.
-- If either value is missing, call roadmap_engineer_list_blockers with status open and ask for the missing blocker ID or resolution.
-- Call roadmap_engineer_resolve_blocker with the blocker ID and resolution.
-- Call roadmap_engineer_validate after resolving.
-- Report the result and tell the user to run /roadmap:resume.`;
+- Parse the user arguments as <blocker-id> <resolution>.
+- If either value is missing, call roadmap_engineer_list_blockers with status open, show available blockers, and ask for the missing blocker ID or resolution.
+- When both values are present, call roadmap_engineer_resolve_blocker with the blocker ID and resolution.
+- Call roadmap_engineer_validate after resolving the blocker.
+- Report the resolved blocker and tell the user to run /roadmap:resume.`;
   }
   if (name === "blocker:defer") {
     return `
 Command-specific workflow for /blocker:defer:
-- Parse user arguments as <blocker-id> <reason>.
-- If either value is missing, call roadmap_engineer_list_blockers with status open and ask for the missing blocker ID or defer reason.
-- Call roadmap_engineer_defer_blocker with the blocker ID and defer reason.
-- Call roadmap_engineer_validate after deferring.
-- Report the result and tell the user to run /roadmap:resume.`;
-  }
-  if (name === "roadmap:repair") {
-    return `
-Command-specific workflow for /roadmap:repair:
-- Run roadmap_engineer_validate and inspect validation errors before changing state.
-- Use roadmap_engineer_read_state and roadmap_engineer_search_context to identify whether roadmap_content_hash, roadmap.md, or roadmap_milestone_check drifted after manual state recovery.
-- If the roadmap definition changed or the roadmap-milestone check is stale, rerun roadmap-milestone-checker before recording a passed checker result.
-- Call roadmap_engineer_repair_roadmap with a concrete reason, and include roadmapMilestoneCheck only when a fresh roadmap-milestone-checker pass is available.
-- Validate again after repair.
-- Do not call reopen_roadmap, approve_roadmap, update_roadmap, milestone planning, implementation progress tools, or bypass tools unless a separate validation error still requires that workflow.`;
+- Parse the user arguments as <blocker-id> <reason>.
+- If either value is missing, call roadmap_engineer_list_blockers with status open, show available blockers, and ask for the missing blocker ID or defer reason.
+- When both values are present, call roadmap_engineer_defer_blocker with the blocker ID and defer reason.
+- Call roadmap_engineer_validate after deferring the blocker.
+- Report the deferred blocker and tell the user to run /roadmap:resume.`;
   }
   if (name !== "roadmap:reopen") return "";
   return `
@@ -157,7 +161,123 @@ ${commandSpecificInstructions(name)}`;
 
 async function sendCommandPrompt(api: ExtensionAPI, name: string, args: string, ctx: ExtensionCommandContext): Promise<void> {
   const report = await renderReport(ctx.cwd);
-  api.sendUserMessage(commandPrompt(name, args, report));
+  queueCommandPrompt(api, ctx, commandPrompt(name, args, report));
+}
+
+function queueCommandPrompt(api: ExtensionAPI, ctx: ExtensionCommandContext, prompt: string): void {
+  api.sendUserMessage(prompt, {
+    deliverAs: ctx.isIdle() ? "steer" : "followUp",
+  });
+}
+
+function sendCommandMessage(api: ExtensionAPI, content: string): void {
+  api.sendMessage({
+    customType: COMMAND_MESSAGE_TYPE,
+    content,
+    display: true,
+    attribution: "agent",
+  });
+}
+
+const BLOCKER_COMMAND_REPORT_DELAY_MS = 40;
+
+function sendBlockerCommandMessage(api: ExtensionAPI, content: string): void {
+  setTimeout(() => sendCommandMessage(api, content), BLOCKER_COMMAND_REPORT_DELAY_MS);
+}
+
+function blockerScope(blocker: RoadmapBlocker): string {
+  return [
+    blocker.roadmap_id ? `roadmap=${blocker.roadmap_id}` : undefined,
+    blocker.milestone_id ? `milestone=${blocker.milestone_id}` : undefined,
+    blocker.change_request_id ? `change=${blocker.change_request_id}` : undefined,
+    blocker.task_id ? `task=${blocker.task_id}` : undefined,
+    blocker.wave_id ? `wave=${blocker.wave_id}` : undefined,
+  ].filter(Boolean).join(", ") || "project";
+}
+
+function blockerLine(blocker: RoadmapBlocker): string {
+  return `- ${blocker.id}: ${blocker.title} (${blocker.severity}, ${blocker.status}, ${blockerScope(blocker)}) - ${blocker.description}`;
+}
+
+function blockerRecoveryCommands(): string {
+  return [
+    "Recovery commands:",
+    "```text",
+    "/blocker:resolve <id> <resolution>",
+    "/blocker:defer <id> <reason>",
+    "/roadmap:resume",
+    "```",
+  ].join("\n");
+}
+
+async function reportOpenBlockers(api: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  const result = await listBlockers(ctx.cwd, { status: "open" });
+  if (result.blockers.length === 0) {
+    sendBlockerCommandMessage(api, `No open blockers.\n\n${blockerRecoveryCommands()}`);
+    return;
+  }
+  sendBlockerCommandMessage(api, `Open blockers:\n${result.blockers.map(blockerLine).join("\n")}\n\n${blockerRecoveryCommands()}`);
+}
+
+function splitBlockerActionArgs(args: string, valueLabel: string): { blockerId?: string; value?: string; error?: string } {
+  const trimmed = args.trim();
+  if (!trimmed) return { error: `Missing blocker ID and ${valueLabel}.` };
+  const firstSpace = trimmed.search(/\s/);
+  if (firstSpace === -1) return { blockerId: trimmed, error: `Missing ${valueLabel}.` };
+  const blockerId = trimmed.slice(0, firstSpace).trim();
+  const value = trimmed.slice(firstSpace + 1).trim();
+  if (!blockerId || !value) return { blockerId, value, error: `Missing blocker ID or ${valueLabel}.` };
+  return { blockerId, value };
+}
+
+async function validateSummary(cwd: string): Promise<string> {
+  const validation = await validateRoadmapState(cwd);
+  if (validation.valid) return "Validation: passed.";
+  return `Validation: ${validation.errors.length} error(s).\n${validation.errors.map(error => `- ${error.code}: ${error.message}`).join("\n")}`;
+}
+
+async function resolveBlockerCommand(api: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const parsed = splitBlockerActionArgs(args, "resolution");
+  if (parsed.error || !parsed.blockerId || !parsed.value) {
+    const result = await listBlockers(ctx.cwd, { status: "open" });
+    sendBlockerCommandMessage(
+      api,
+      `${parsed.error}\n\nOpen blockers:\n${result.blockers.length > 0 ? result.blockers.map(blockerLine).join("\n") : "(none)"}\n\nUsage: /blocker:resolve <id> <resolution>`,
+    );
+    return;
+  }
+  const blocker = await resolveBlocker(ctx.cwd, { blockerId: parsed.blockerId, resolution: parsed.value });
+  sendBlockerCommandMessage(api, `Resolved blocker:\n${blockerLine(blocker)}\n\n${await validateSummary(ctx.cwd)}\n\nRun /roadmap:resume to continue.`);
+}
+
+async function deferBlockerCommand(api: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const parsed = splitBlockerActionArgs(args, "defer reason");
+  if (parsed.error || !parsed.blockerId || !parsed.value) {
+    const result = await listBlockers(ctx.cwd, { status: "open" });
+    sendBlockerCommandMessage(
+      api,
+      `${parsed.error}\n\nOpen blockers:\n${result.blockers.length > 0 ? result.blockers.map(blockerLine).join("\n") : "(none)"}\n\nUsage: /blocker:defer <id> <reason>`,
+    );
+    return;
+  }
+  const blocker = await deferBlocker(ctx.cwd, { blockerId: parsed.blockerId, deferReason: parsed.value });
+  sendBlockerCommandMessage(api, `Deferred blocker:\n${blockerLine(blocker)}\n\n${await validateSummary(ctx.cwd)}\n\nRun /roadmap:resume to continue.`);
+}
+
+async function runBlockerCommand(api: ExtensionAPI, name: string, args: string, ctx: ExtensionCommandContext): Promise<boolean> {
+  if (name === "blocker:list" || name === "blocker:status") {
+    await reportOpenBlockers(api, ctx);
+    return true;
+  }
+  if (name === "blocker:resolve") {
+    await resolveBlockerCommand(api, args, ctx);
+    return true;
+  }
+  if (name === "blocker:defer") {
+    await deferBlockerCommand(api, args, ctx);
+    return true;
+  }
+  return false;
 }
 
 async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
@@ -182,18 +302,18 @@ async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContex
           }, async () => await applyRoadmapDetailControl(ctx.cwd, key))
             .then(async (result) => {
               if (result.action === "applied_next_action") {
-                ctx.ui.notify(`Applied next action: ${result.result.plan.label}`, "info");
+                sendCommandMessage(api, `Applied next action: ${result.result.plan.label}`);
                 const refreshed = await buildRoadmapDetailSummary(ctx.cwd);
                 activeView.setSummary(refreshed);
                 activeView.showMessage(`Applied: ${result.result.plan.label}`);
               } else {
-                api.sendUserMessage(result.prompt);
+                queueCommandPrompt(api, ctx, result.prompt);
                 close();
               }
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
-              ctx.ui.notify(`roadmap:details control failed: ${message}`, "error");
+              sendCommandMessage(api, `roadmap:details control failed: ${message}`);
               activeView.showMessage(`Control failed: ${message}`);
             });
         });
@@ -203,7 +323,7 @@ async function showRoadmapDetails(api: ExtensionAPI, ctx: ExtensionCommandContex
     )
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      ctx.ui.notify(`roadmap:details failed: ${message}`, "error");
+      sendCommandMessage(api, `roadmap:details failed: ${message}`);
     });
 }
 
@@ -219,13 +339,13 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
       }, async () => {
         try {
           const result = await initProject(ctx.cwd);
-          ctx.ui.notify(
+          sendCommandMessage(
+            api,
             `Initialized roadmap-engineer project files: ${result.configPath}, ${Object.values(result.agentPaths).join(", ")}`,
-            "info",
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          ctx.ui.notify(`roadmap:init failed: ${message}`, "error");
+          sendCommandMessage(api, `roadmap:init failed: ${message}`);
           throw error;
         }
       });
@@ -256,6 +376,7 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
           cwd: ctx.cwd,
           slowMs: 1000,
         }, async () => {
+          if (BLOCKER_COMMANDS.has(name) && await runBlockerCommand(api, name, args, ctx)) return;
           await sendCommandPrompt(api, name, args, ctx);
         });
       },
