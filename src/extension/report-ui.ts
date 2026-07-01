@@ -93,7 +93,7 @@ export function renderRoadmapDetailsFrame(options: RenderRoadmapDetailsFrameOpti
   const contentWidth = Math.max(1, safeWidth - 4);
   const headerLines = renderFixedHeader(summary, safeWidth);
   const footerLines = renderFixedFooter(safeWidth);
-  const scrollHeight = Math.max(1, safeHeight - headerLines.length - footerLines.length);
+  const scrollHeight = Math.max(1, safeHeight - headerLines.length - footerLines.length - 1);
 
   scrollView.setHeight(scrollHeight);
   scrollView.setLines(renderScrollableBody(summary, contentWidth, scrollHeight));
