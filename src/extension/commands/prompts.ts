@@ -21,18 +21,34 @@ Command-specific workflow for /milestone:plan:
 Command-specific workflow for /milestone:implement:
 - Use the built-in \`ask\` tool from the orchestrator/main-agent role if implementation uncovers missing decisions, ownership gaps, unplanned files, acceptance ambiguity, cleanup scope questions, or approval needs.
 - Do not write or modify code yourself.
+- Drive the whole milestone/change implementation in this turn: loop dispatch -> collect results -> review -> advance to the next wave, one wave at a time, until no waves remain or the run terminally pauses. Do not end the turn after a single wave when more waves remain.
 - Call roadmap_engineer_prepare_wave_dispatch before dispatching implementation work. If it returns active_runs, do not redispatch those tasks.
 - For each active run, first check the current session's background jobs and IRC peers for the run's jobId/job_id or agentId/agent_id. If neither background jobs nor IRC peers list that run, call roadmap_engineer_record_worker_abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session.
 - Dispatch returned active-wave assignments as background jobs using each assignment's exact worker and prompt.
 - Immediately after each spawn, call roadmap_engineer_record_worker_dispatch with the returned agentId and jobId.
 - Never redispatch a task until the prior worker run is completed, blocked, failed, cancelled, or abandoned.
-- If a current-session worker job reports socket-close or another transient transport failure, call roadmap_engineer_record_worker_transport_failed, probe the original worker via job/IRC, and wait up to 2 minutes. If the original worker responds, collect its final result and call roadmap_engineer_record_wave_result. If it does not respond, call roadmap_engineer_record_worker_abandoned, then redispatch only that task.
-- After each worker returns, call roadmap_engineer_record_wave_result with completed, failed, or blocked status before taking any next orchestration step.
+
+IRC recovery/rework pattern (prefer waking the existing worker over spawning a replacement):
+- Before recovering or reworking a run, use the built-in \`irc\` tool op:list to get the worker's exact peer id and status (running, idle, parked, or aborted).
+- Message the worker directly with op:send to that exact peer id; never broadcast with to:"all" (broadcast skips parked peers and can wake unrelated agents). Do not resend to a worker that is still running.
+- Interpret the delivery receipt: injected = the worker is running and will see the message at its next step boundary, so do not resend; woken = it was idle and a real turn started; revived = it was parked and OMP revived it; failed = it could not be delivered.
+- Use op:send await:true or op:wait only when you are blocked on the reply; do not treat a wait timeout as failure, because the worker may still be running.
+- Spawn a replacement only when the worker is aborted or non-revivable, when op:list does not list it (for example after resuming in a new session where the old subagent no longer exists), or when delivery returns failed. Use history://<agentId> to recover a worker's transcript when deciding whether a replacement is truly needed.
+
+Transient transport failure:
+- If a current-session worker job reports socket-close or another transient transport failure, call roadmap_engineer_record_worker_transport_failed, then op:list and, if the worker is still a peer, op:send it a narrow resume message: "You stopped after a transport error. Resume from your existing transcript, continue from the last completed step, retry only the interrupted operation, do not redo completed work, and report back." Then wait up to 2 minutes for a reply. If the original worker responds, collect its final result and call roadmap_engineer_record_wave_result with completed. If op:list does not list it, delivery fails, or it does not respond within 2 minutes, call roadmap_engineer_record_worker_abandoned, then redispatch only that task.
+- A transport, socket, or provider error is an orchestration interruption, not an implementation blocker. Never call roadmap_engineer_record_wave_result with failed or blocked for a transport error; that path opens a canonical blocking blocker. Route transport errors only through roadmap_engineer_record_worker_transport_failed and then resume-or-abandon. Reserve roadmap_engineer_record_wave_result with failed or blocked for a real implementation failure or blocker the worker itself reports.
+- After each worker returns real work, call roadmap_engineer_record_wave_result with completed, failed, or blocked status before taking any next orchestration step.
+
+Wave review and rework:
 - When all active-wave workers are completed, call roadmap_engineer_prepare_wave_review and dispatch the returned reviewer package with the built-in task/subagent mechanism.
-- After the reviewer returns, call roadmap_engineer_record_wave_review with passed or failed status.
+- When the reviewer returns findings, classify each blocking finding before recording the review: worker-fixable (a concrete code correction that needs no user decision) versus needs-user-decision (ambiguous acceptance, scope or approval, or risk disposition).
+- For worker-fixable findings do not open a blocker: op:list and, if the original worker is still a peer, op:send it (replyTo the finding) narrow rework instructions naming the exact file/symbol/test, what must change, what must not change, and the verification to run; wait for its rework note; then re-dispatch reviewer and repeat until the wave is clean. If op:list does not list the original worker (new session or aborted), spawn a fresh worker for that task seeded with the findings and the task's persisted worker notes (and history://<agentId> when reachable), then re-review.
+- Call roadmap_engineer_record_wave_review with passed only when the wave is clean, and with failed only for findings that genuinely need a user decision.
 - If workers or reviewers report real blockers, rely on the record tools to update task/wave/progress state and open canonical blockers, cancel sibling active runs, pause, ask the user from the orchestrator/main-agent role when needed, and report /blocker:list, /blocker:resolve <id> <resolution> or /blocker:defer <id> <reason>, then /roadmap:resume.
 - Require worker results whose worker role matches each returned assignment before preparing review.
-- Never perform wave reviews yourself and never perform wave-flow checks during implementation.`
+- Never perform wave reviews yourself and never perform wave-flow checks during implementation.
+- Submit roadmap_engineer_submit_findings_report exactly once at the terminal point of this implementation run: when the milestone/change reaches closeout_ready with all waves complete, or when the run terminally pauses on a real blocker, needs-input, or error. Do not submit a findings report after an individual wave when more waves remain; continue to the next wave in this same turn.`
 	}
 	if (name === 'roadmap:repair') {
 		return `

@@ -1,6 +1,6 @@
 {
 	"name":            "roadmap-engineer",
-	"version":         "0.6.0",
+	"version":         "0.7.0",
 	"description":     "OMP extension for roadmap-based planning, milestone orchestration, worker notes, and gated complex implementation workflows.",
 	"type":            "module",
 	"private":         true,

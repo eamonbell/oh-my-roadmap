@@ -167,6 +167,8 @@ describe("roadmap wave orchestration state", () => {
     expect(redispatch.instructions).toContain("First check the current session's background jobs and IRC peers");
     expect(redispatch.instructions).toContain("record it abandoned immediately");
     expect(redispatch.instructions).toContain("do not poll, probe, or wait");
+    expect(redispatch.instructions).toContain("prefer waking the existing worker");
+    expect(redispatch.instructions).toContain("Do not record a transport failure as a wave result");
   });
 
   test("refuses overlapping active worker ownership", async () => {
