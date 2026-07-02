@@ -1,0 +1,4 @@
+[install]
+# Hoist workspace + dependency packages into the root node_modules so that
+# tsc (root tsconfig covering all packages) and bun test resolve them uniformly.
+linker = "hoisted"
