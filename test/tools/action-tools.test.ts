@@ -2,26 +2,26 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decisionsPath } from "../../src/core/paths";
-import { initRoadmap, transition, updateRoadmap } from "../../src/core/store/index";
+import { decisionsPath } from "@oh-my-roadmap/core/paths";
+import { initRoadmap, transition, updateRoadmap } from "@oh-my-roadmap/core/store/index";
 import { registeredTool, registerTools, roadmapInput, toolContext } from "./helpers";
 
 describe("roadmap action tools", () => {
   test("registers action tools with expected approval modes", () => {
     const tools = registerTools();
 
-    const openBlockerTool = registeredTool(tools, "roadmap_engineer_open_blocker");
-    const resolveBlockerTool = registeredTool(tools, "roadmap_engineer_resolve_blocker");
-    const deferBlockerTool = registeredTool(tools, "roadmap_engineer_defer_blocker");
-    const listBlockersTool = registeredTool(tools, "roadmap_engineer_list_blockers");
-    const prepareWaveDispatchTool = registeredTool(tools, "roadmap_engineer_prepare_wave_dispatch");
-    const recordWorkerDispatchTool = registeredTool(tools, "roadmap_engineer_record_worker_dispatch");
-    const recordWorkerTransportFailedTool = registeredTool(tools, "roadmap_engineer_record_worker_transport_failed");
-    const recordWorkerAbandonedTool = registeredTool(tools, "roadmap_engineer_record_worker_abandoned");
-    const recordWaveResultTool = registeredTool(tools, "roadmap_engineer_record_wave_result");
-    const prepareWaveReviewTool = registeredTool(tools, "roadmap_engineer_prepare_wave_review");
-    const recordWaveReviewTool = registeredTool(tools, "roadmap_engineer_record_wave_review");
-    const applyNextActionTool = registeredTool(tools, "roadmap_engineer_apply_next_action");
+    const openBlockerTool = registeredTool(tools, "omr_open_blocker");
+    const resolveBlockerTool = registeredTool(tools, "omr_resolve_blocker");
+    const deferBlockerTool = registeredTool(tools, "omr_defer_blocker");
+    const listBlockersTool = registeredTool(tools, "omr_list_blockers");
+    const prepareWaveDispatchTool = registeredTool(tools, "omr_prepare_wave_dispatch");
+    const recordWorkerDispatchTool = registeredTool(tools, "omr_record_worker_dispatch");
+    const recordWorkerTransportFailedTool = registeredTool(tools, "omr_record_worker_transport_failed");
+    const recordWorkerAbandonedTool = registeredTool(tools, "omr_record_worker_abandoned");
+    const recordWaveResultTool = registeredTool(tools, "omr_record_wave_result");
+    const prepareWaveReviewTool = registeredTool(tools, "omr_prepare_wave_review");
+    const recordWaveReviewTool = registeredTool(tools, "omr_record_wave_review");
+    const applyNextActionTool = registeredTool(tools, "omr_apply_next_action");
     expect(openBlockerTool?.approval).toBe("write");
     expect(resolveBlockerTool?.approval).toBe("write");
     expect(deferBlockerTool?.approval).toBe("write");
@@ -39,10 +39,10 @@ describe("roadmap action tools", () => {
   test("opens, lists, resolves, and defers canonical blockers through tools", async () => {
     const tools = registerTools();
 
-    const openBlockerTool = registeredTool(tools, "roadmap_engineer_open_blocker");
-    const resolveBlockerTool = registeredTool(tools, "roadmap_engineer_resolve_blocker");
-    const deferBlockerTool = registeredTool(tools, "roadmap_engineer_defer_blocker");
-    const listBlockersTool = registeredTool(tools, "roadmap_engineer_list_blockers");
+    const openBlockerTool = registeredTool(tools, "omr_open_blocker");
+    const resolveBlockerTool = registeredTool(tools, "omr_resolve_blocker");
+    const deferBlockerTool = registeredTool(tools, "omr_defer_blocker");
+    const listBlockersTool = registeredTool(tools, "omr_list_blockers");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -129,8 +129,8 @@ describe("roadmap action tools", () => {
 
   test("applies the current safe next action through the apply tool", async () => {
     const tools = registerTools();
-    const nextActionTool = registeredTool(tools, "roadmap_engineer_next_action");
-    const applyNextActionTool = registeredTool(tools, "roadmap_engineer_apply_next_action");
+    const nextActionTool = registeredTool(tools, "omr_next_action");
+    const applyNextActionTool = registeredTool(tools, "omr_apply_next_action");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-apply-next-action-tool-"));
     try {

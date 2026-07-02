@@ -1,8 +1,8 @@
 import type { AgentToolResult } from "@oh-my-pi/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { z } from "zod";
-import { registerRoadmapTools } from "../../src/tools/register";
-import type { UpdateRoadmapInput } from "../../src/core/store/index";
+import { registerRoadmapTools } from "../../packages/extension/src/tools/register";
+import type { UpdateRoadmapInput } from "@oh-my-roadmap/core/store/index";
 
 export interface RegisteredTool extends ToolDefinition {
   name: string;
@@ -44,7 +44,7 @@ export function roadmapInput(): UpdateRoadmapInput {
     constraints: ["Keep tool behavior aligned with core state."],
     nonGoals: ["Do not approve the roadmap from this tool test."],
     context: ["The transition tool wraps core transition input."],
-    evidence: ["registerRoadmapTools exposes roadmap_engineer_transition."],
+    evidence: ["registerRoadmapTools exposes omr_transition."],
     risks: ["Schema drift could hide checker results from tool callers."],
     milestones: [
       {
@@ -52,7 +52,7 @@ export function roadmapInput(): UpdateRoadmapInput {
         title: "Core milestone",
         status: "planned",
         goal: "Record the roadmap milestone check through the tool.",
-        scope: ["Pass roadmapMilestoneCheck through roadmap_engineer_transition."],
+        scope: ["Pass roadmapMilestoneCheck through omr_transition."],
         non_goals: ["Do not run implementation."],
         evidence: ["src/tools/register.ts owns the tool schema."],
         dependencies: [],

@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { configureDiagnosticLogger, logDiagnostic, withDiagnosticTiming } from "../src/diagnostics";
+import { configureDiagnosticLogger, logDiagnostic, withDiagnosticTiming } from "@oh-my-roadmap/core/diagnostics";
 
 let homeDir = "";
 let originalLevel: string | undefined;
 
 async function logEntries(): Promise<Record<string, unknown>[]> {
-  const dir = path.join(homeDir, ".roadmap-engineer", "logs");
+  const dir = path.join(homeDir, ".oh-my-roadmap", "logs");
   const files = await fs.readdir(dir);
   const text = await fs.readFile(path.join(dir, files[0] ?? ""), "utf8");
   return text.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -16,14 +16,14 @@ async function logEntries(): Promise<Record<string, unknown>[]> {
 
 beforeEach(async () => {
   homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-diagnostics-"));
-  originalLevel = process.env.ROADMAP_ENGINEER_LOG_LEVEL;
-  delete process.env.ROADMAP_ENGINEER_LOG_LEVEL;
+  originalLevel = process.env.OH_MY_ROADMAP_LOG_LEVEL;
+  delete process.env.OH_MY_ROADMAP_LOG_LEVEL;
   configureDiagnosticLogger({ homeDir });
 });
 
 afterEach(async () => {
-  if (originalLevel === undefined) delete process.env.ROADMAP_ENGINEER_LOG_LEVEL;
-  else process.env.ROADMAP_ENGINEER_LOG_LEVEL = originalLevel;
+  if (originalLevel === undefined) delete process.env.OH_MY_ROADMAP_LOG_LEVEL;
+  else process.env.OH_MY_ROADMAP_LOG_LEVEL = originalLevel;
   configureDiagnosticLogger({});
   await fs.rm(homeDir, { recursive: true, force: true });
 });
@@ -33,12 +33,12 @@ describe("diagnostic logger", () => {
     await logDiagnostic({
       level: "info",
       component: "command",
-      operation: "roadmap:status",
+      operation: "omr:rm-status",
       cwd: "/workspace/project",
       durationMs: 12,
       success: true,
       metadata: {
-        tool_name: "roadmap_engineer_read_state",
+        tool_name: "omr_read_state",
         prompt: { nested: "ignored" },
         result: ["ignored"],
       },
@@ -50,18 +50,18 @@ describe("diagnostic logger", () => {
       schema_version: 1,
       level: "info",
       component: "command",
-      operation: "roadmap:status",
+      operation: "omr:rm-status",
       cwd: "/workspace/project",
       duration_ms: 12,
       success: true,
-      metadata: { tool_name: "roadmap_engineer_read_state" },
+      metadata: { tool_name: "omr_read_state" },
     });
     expect(JSON.stringify(entries[0])).not.toContain("nested");
     expect(JSON.stringify(entries[0])).not.toContain("ignored");
   });
 
   test("filters entries below the active log level", async () => {
-    process.env.ROADMAP_ENGINEER_LOG_LEVEL = "warn";
+    process.env.OH_MY_ROADMAP_LOG_LEVEL = "warn";
 
     await logDiagnostic({ level: "debug", component: "core", operation: "debuggable" });
     await logDiagnostic({ level: "info", component: "core", operation: "informative" });
@@ -72,20 +72,20 @@ describe("diagnostic logger", () => {
   });
 
   test("supports turning logging off", async () => {
-    process.env.ROADMAP_ENGINEER_LOG_LEVEL = "off";
+    process.env.OH_MY_ROADMAP_LOG_LEVEL = "off";
 
     await logDiagnostic({ level: "error", component: "core", operation: "failure" });
 
-    await expect(fs.readdir(path.join(homeDir, ".roadmap-engineer", "logs"))).rejects.toThrow();
+    await expect(fs.readdir(path.join(homeDir, ".oh-my-roadmap", "logs"))).rejects.toThrow();
   });
 
   test("includes error stacks only at debug level", async () => {
     const error = new Error("debug stack");
 
-    process.env.ROADMAP_ENGINEER_LOG_LEVEL = "debug";
+    process.env.OH_MY_ROADMAP_LOG_LEVEL = "debug";
     await logDiagnostic({ level: "error", component: "core", operation: "debug-error", error });
 
-    process.env.ROADMAP_ENGINEER_LOG_LEVEL = "error";
+    process.env.OH_MY_ROADMAP_LOG_LEVEL = "error";
     await logDiagnostic({ level: "error", component: "core", operation: "error-only", error });
 
     const entries = await logEntries();
@@ -119,7 +119,7 @@ describe("diagnostic logger", () => {
     })).resolves.toBeUndefined();
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]?.message).toBe("roadmap-engineer diagnostic logging failed");
+    expect(warnings[0]?.message).toBe("oh-my-roadmap diagnostic logging failed");
   });
 
   test("records duration and success for timed operations", async () => {

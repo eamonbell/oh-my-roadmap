@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { readRoadmapEvents } from "../../src/core/events";
-import { shouldBlockToolCall } from "../../src/core/gate";
-import { applyNextAction, nextActionPlan, renderReport } from "../../src/core/report/index";
+import { readRoadmapEvents } from "@oh-my-roadmap/core/events";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { applyNextAction, nextActionPlan, renderReport } from "@oh-my-roadmap/core/report/index";
 import {
   appendNote,
   createChangeRequest,
@@ -20,7 +20,7 @@ import {
   transition,
   updateRoadmap,
   writeRoadmapState,
-} from "../../src/core/store/index";
+} from "@oh-my-roadmap/core/store/index";
 import {
   changeRequestPath,
   changeRequestRuntimePath,
@@ -31,11 +31,11 @@ import {
   roadmapBlockersPath,
   roadmapDocPath,
   storeLockPath,
-} from "../../src/core/paths";
-import { validateImplementationGate, validateRoadmapState } from "../../src/core/validation";
-import { summarizeState } from "../../src/core/state-summary";
-import { searchContext } from "../../src/core/context";
-import { readYamlFile, writeYamlFile } from "../../src/core/files";
+} from "@oh-my-roadmap/core/paths";
+import { validateImplementationGate, validateRoadmapState } from "@oh-my-roadmap/core/validation";
+import { summarizeState } from "@oh-my-roadmap/core/state-summary";
+import { searchContext } from "@oh-my-roadmap/core/context";
+import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
@@ -45,7 +45,7 @@ import {
   recordWorkerTransportFailed,
   recordWaveResult,
   recordWaveReview,
-} from "../../src/core/wave-orchestration/index";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
 import {
   additionalMilestone,
   approvedMilestone as approvedMilestoneForCwd,
@@ -121,7 +121,7 @@ describe("roadmap wave orchestration state", () => {
     });
     expect(result.assignments.map((assignment) => assignment.task_id)).not.toContain("t02-report");
     expect(result.assignments[0]?.prompt).toContain("You are worker-light");
-    expect(result.assignments[0]?.prompt).toContain("roadmap_engineer_record_wave_result");
+    expect(result.assignments[0]?.prompt).toContain("omr_record_wave_result");
     const state = await loadState(cwd);
     expect(state.milestone?.waves.find((wave) => wave.id === "w01")?.status).toBe("running");
     expect(state.milestone?.progress).toMatchObject({
@@ -454,7 +454,7 @@ describe("roadmap wave orchestration state", () => {
       tasks: [{ task_id: "t01-state", worker: "worker-light" }],
     });
     expect(review.prompt).toContain("Review checkpoint");
-    expect(review.prompt).toContain("roadmap_engineer_record_wave_review");
+    expect(review.prompt).toContain("omr_record_wave_review");
 
     const result = await recordWaveReview(cwd, {
       status: "passed",

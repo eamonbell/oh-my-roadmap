@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ScrollView } from "@oh-my-pi/pi-tui";
-import { RoadmapDetailsView, renderRoadmapDetailsFrame, type RoadmapDetailSummary } from "../src/extension/report-ui/index";
+import { RoadmapDetailsView, renderRoadmapDetailsFrame, type RoadmapDetailSummary } from "../packages/extension/src/extension/report-ui/index";
 
 function text(lines: readonly string[]): string {
   return lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
@@ -135,9 +135,9 @@ const summary: RoadmapDetailSummary = {
     },
   },
   nextCommand: {
-    command: "/milestone:implement",
+    command: "/omr:ms-implement",
     description: "Collect worker notes for active tasks, then update progress to wave_review.",
-    label: "/milestone:implement - Collect worker notes",
+    label: "/omr:ms-implement - Collect worker notes",
   },
   waves: {
     total: 2,
@@ -256,10 +256,10 @@ const summary: RoadmapDetailSummary = {
       enabled: false,
       reason: "Next action is agent_required and safe_to_apply=false",
       tool: {
-        name: "roadmap_engineer_apply_next_action",
+        name: "omr_apply_next_action",
         input: { actionId: "progress:w01:collect-worker-notes" },
       },
-      prompt: "Call roadmap_engineer_apply_next_action with input:\n{}",
+      prompt: "Call omr_apply_next_action with input:\n{}",
     },
     {
       key: "d",
@@ -267,10 +267,10 @@ const summary: RoadmapDetailSummary = {
       action: "insert_tool_call",
       enabled: true,
       tool: {
-        name: "roadmap_engineer_prepare_wave_dispatch",
+        name: "omr_prepare_wave_dispatch",
         input: { roadmapId: "demo", milestoneId: "m01-core" },
       },
-      prompt: "Call roadmap_engineer_prepare_wave_dispatch with input:\n{}",
+      prompt: "Call omr_prepare_wave_dispatch with input:\n{}",
     },
   ],
   usage: {
@@ -325,8 +325,8 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("Gates");
     expect(output).toContain("Usage");
     expect(output).toContain("Activity");
-    expect(output).toContain("/milestone:implement - Collect worker notes");
-    expect(output).not.toContain("roadmap_engineer_prepare_wave_dispatch");
+    expect(output).toContain("/omr:ms-implement - Collect worker notes");
+    expect(output).not.toContain("omr_prepare_wave_dispatch");
   });
 
   test("renders the plan tab with all milestones and planned wave task rows", () => {
@@ -337,7 +337,7 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("w01 [running] Build the UI");
     expect(output).toContain("task-a [started, worker-light] Build summary renderer");
     expect(output).toContain("m02-followup");
-    expect(output).toContain("outline only; run /milestone:plan");
+    expect(output).toContain("outline only; run /omr:ms-plan");
   });
 
   test("renders organized usage detail without tool json", () => {
@@ -353,7 +353,7 @@ describe("roadmap details renderer", () => {
     expect(output).toContain("Cache");
     expect(output).toContain("Reasoning");
     expect(output).toContain("implementation_orchestrator");
-    expect(output).not.toContain("roadmap_engineer_apply_next_action");
+    expect(output).not.toContain("omr_apply_next_action");
   });
 
   test("rail arrow keys switch tabs before enter activates main scrolling", () => {
@@ -430,12 +430,12 @@ describe("roadmap details renderer", () => {
   test("renders empty summaries without parsing report text", () => {
     const output = render({
       kind: "empty",
-      message: "No active roadmap. Run /roadmap:new to start a gated roadmap workflow.",
+      message: "No active roadmap. Run /omr:rm-new to start a gated roadmap workflow.",
     }, 80);
 
     expect(output).toContain("Roadmap Details");
-    expect(output).toContain("Create a roadmap with /roadmap:new.");
+    expect(output).toContain("Create a roadmap with /omr:rm-new.");
     expect(output).toContain("No active roadmap");
-    expect(output).not.toContain("# roadmap-engineer status");
+    expect(output).not.toContain("# oh-my-roadmap status");
   });
 });

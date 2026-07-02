@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readYamlFile, writeYamlFile } from "../../src/core/files";
-import { roadmapStatePath } from "../../src/core/paths";
-import { initRoadmap, loadState, transition, updateRoadmap } from "../../src/core/store/index";
-import type { RoadmapState } from "../../src/core/types";
+import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
+import { roadmapStatePath } from "@oh-my-roadmap/core/paths";
+import { initRoadmap, loadState, transition, updateRoadmap } from "@oh-my-roadmap/core/store/index";
+import type { RoadmapState } from "@oh-my-roadmap/core/types";
 import { registeredTool, registerTools, roadmapInput, toolContext } from "./helpers";
 
 describe("roadmap lifecycle tools", () => {
   test("records roadmap milestone check through the transition tool", async () => {
     const tools = registerTools();
-    const transitionTool = registeredTool(tools, "roadmap_engineer_transition");
-    const listQualityGatesTool = registeredTool(tools, "roadmap_engineer_list_quality_gates");
+    const transitionTool = registeredTool(tools, "omr_transition");
+    const listQualityGatesTool = registeredTool(tools, "omr_list_quality_gates");
     expect(transitionTool?.approval).toBe("write");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-transition-tool-"));
@@ -81,8 +81,8 @@ describe("roadmap lifecycle tools", () => {
 
   test("repairs roadmap hash drift through the repair tool", async () => {
     const tools = registerTools();
-    const repairRoadmapTool = registeredTool(tools, "roadmap_engineer_repair_roadmap");
-    const listQualityGatesTool = registeredTool(tools, "roadmap_engineer_list_quality_gates");
+    const repairRoadmapTool = registeredTool(tools, "omr_repair_roadmap");
+    const listQualityGatesTool = registeredTool(tools, "omr_list_quality_gates");
     expect(repairRoadmapTool?.approval).toBe("write");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-repair-tool-"));

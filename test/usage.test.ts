@@ -3,9 +3,9 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent/e
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { registerRoadmapUsageTracking } from "../src/extension/usage-tracking";
-import { roadmapDocPath, roadmapUsagePath, milestonePlanPath } from "../src/core/paths";
-import { renderReport } from "../src/core/report/index";
+import { registerRoadmapUsageTracking } from "../packages/extension/src/extension/usage-tracking";
+import { roadmapDocPath, roadmapUsagePath, milestonePlanPath } from "@oh-my-roadmap/core/paths";
+import { renderReport } from "@oh-my-roadmap/core/report/index";
 import {
   createChangeRequest,
   initRoadmap,
@@ -13,11 +13,11 @@ import {
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
-} from "../src/core/store/index";
-import { recordMainUsage, recordTaskUsage } from "../src/core/usage";
-import { validateRoadmapState } from "../src/core/validation";
+} from "@oh-my-roadmap/core/store/index";
+import { recordMainUsage, recordTaskUsage } from "@oh-my-roadmap/core/usage";
+import { validateRoadmapState } from "@oh-my-roadmap/core/validation";
 import type { ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
-import { parseUsageArgs, renderUsageReport, showRoadmapUsage } from "../src/extension/commands/usage";
+import { parseUsageArgs, renderUsageReport, showRoadmapUsage } from "../packages/extension/src/extension/commands/usage";
 
 let cwd = "";
 
@@ -298,7 +298,7 @@ describe("roadmap usage summaries", () => {
   });
 });
 
-describe("roadmap:usage command", () => {
+describe("omr:rm-usage command", () => {
   function captureApi(): { api: ExtensionAPI; messages: string[] } {
     const messages: string[] = [];
     const api = {

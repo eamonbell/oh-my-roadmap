@@ -8,13 +8,13 @@ import {
   updateRoadmap,
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
-} from "../../src/core/store/index";
-import { roadmapStatePath } from "../../src/core/paths";
-import type { CloseoutEvidence, RoadmapState } from "../../src/core/types";
-import { readYamlFile, writeYamlFile } from "../../src/core/files";
+} from "@oh-my-roadmap/core/store/index";
+import { roadmapStatePath } from "@oh-my-roadmap/core/paths";
+import type { CloseoutEvidence, RoadmapState } from "@oh-my-roadmap/core/types";
+import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
 
 export async function createTempRoadmapCwd(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "roadmap-engineer-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-"));
 }
 
 export async function removeTempRoadmapCwd(cwd: string): Promise<void> {
@@ -124,7 +124,7 @@ export function closedEvidence(overrides: Partial<CloseoutEvidence> = {}): Close
 
 export function roadmapInput(overrides: Partial<UpdateRoadmapInput> = {}): UpdateRoadmapInput {
   return {
-    goal: "Refactor roadmap-engineer state safely.",
+    goal: "Refactor oh-my-roadmap state safely.",
     successCriteria: ["Roadmap approval requires concrete milestones."],
     constraints: ["Keep the implementation simple and direct."],
     nonGoals: ["Do not create milestone task plans during roadmap creation."],
@@ -154,7 +154,7 @@ export async function approvedRoadmap(cwd: string): Promise<void> {
   await initRoadmap(cwd, { roadmapId: "complex-refactor", title: "Complex Refactor" });
   await transition(cwd, {
     operation: "record_discovery",
-    discovery: { findings: ["Inspected local roadmap-engineer sources."] },
+    discovery: { findings: ["Inspected local oh-my-roadmap sources."] },
   });
   await updateRoadmap(cwd, roadmapInput());
   await recordPassedRoadmapMilestoneCheck(cwd);

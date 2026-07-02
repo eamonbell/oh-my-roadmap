@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { validateMilestonePlan } from "../../src/core/plan-validation";
-import { shouldBlockToolCall } from "../../src/core/gate";
-import { milestoneNotesPath } from "../../src/core/paths";
-import { appendNote, initRoadmap, loadState, transition } from "../../src/core/store/index";
+import { validateMilestonePlan } from "@oh-my-roadmap/core/plan-validation";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { milestoneNotesPath } from "@oh-my-roadmap/core/paths";
+import { appendNote, initRoadmap, loadState, transition } from "@oh-my-roadmap/core/store/index";
 import {
   prepareWaveDispatch,
   recordWaveResult,
   recordWorkerDispatch,
-} from "../../src/core/wave-orchestration/index";
-import type { CreateMilestonePlanInput } from "../../src/core/store/index";
-import type { ValidationIssue } from "../../src/core/types";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
+import type { CreateMilestonePlanInput } from "@oh-my-roadmap/core/store/index";
+import type { ValidationIssue } from "@oh-my-roadmap/core/types";
 import {
   approvedMilestone,
   approvedRoadmap,
@@ -141,7 +141,7 @@ describe("Code-review fixes", () => {
     expect(gate.reason).toContain("Open blocking blocker");
   });
 
-  // Fix 4 — /roadmap:new must never overwrite an existing roadmap directory (e.g. a just-archived
+  // Fix 4 — /omr:rm-new must never overwrite an existing roadmap directory (e.g. a just-archived
   // completed roadmap whose id is reused).
   test("initRoadmap rejects a roadmap id whose directory already exists", async () => {
     await initRoadmap(cwd, { roadmapId: "reused-id", title: "First" });

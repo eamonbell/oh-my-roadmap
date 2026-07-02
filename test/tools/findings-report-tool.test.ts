@@ -7,14 +7,14 @@ describe("findings report tool", () => {
   test("registers as a read-only roadmap tool", () => {
     const tools = registerTools();
 
-    const tool = registeredTool(tools, "roadmap_engineer_submit_findings_report");
+    const tool = registeredTool(tools, "omr_submit_findings_report");
 
     expect(tool?.approval).toBe("read");
   });
 
   test("returns failure details when UI is unavailable", async () => {
     const tools = registerTools();
-    const tool = registeredTool(tools, "roadmap_engineer_submit_findings_report");
+    const tool = registeredTool(tools, "omr_submit_findings_report");
 
     const result = await tool?.execute(
       "findings-report",
@@ -32,7 +32,7 @@ describe("findings report tool", () => {
 
   test("renders the widget with the active UI theme", async () => {
     const tools = registerTools();
-    const tool = registeredTool(tools, "roadmap_engineer_submit_findings_report");
+    const tool = registeredTool(tools, "omr_submit_findings_report");
     let widget: ExtensionWidgetContent;
 
     const result = await tool?.execute(
@@ -65,7 +65,7 @@ describe("findings report tool", () => {
 
   test("clears the widget on session shutdown", async () => {
     const tools = registerTools();
-    const tool = registeredTool(tools, "roadmap_engineer_submit_findings_report");
+    const tool = registeredTool(tools, "omr_submit_findings_report");
     const widgetCalls: Array<{ key: string; content: ExtensionWidgetContent | undefined }> = [];
 
     function setWidget(key: string, content: ExtensionWidgetContent) {

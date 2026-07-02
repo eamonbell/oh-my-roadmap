@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { shouldBlockToolCall } from "../../src/core/gate";
-import { searchContext } from "../../src/core/context";
-import { appendNote, loadState, transition } from "../../src/core/store/index";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { searchContext } from "@oh-my-roadmap/core/context";
+import { appendNote, loadState, transition } from "@oh-my-roadmap/core/store/index";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
   recordWaveResult,
   recordWaveReview,
   recordWorkerDispatch,
-} from "../../src/core/wave-orchestration/index";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
 import {
   approvedMilestone as approvedMilestoneForCwd,
   createTempRoadmapCwd,
