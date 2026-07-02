@@ -385,14 +385,14 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					setMilestoneStatus(roadmap, reviewingMilestoneId, 'reviewing')
 					break
 				case 'start_closeout':
-					requirePhase(roadmap.phase, 'reviewing', input.operation)
+					requirePhase(roadmap.phase, 'reviewing', input.operation, 'Call start_reviewing to enter the reviewing phase first.')
 					requireActiveMilestone(activeMilestoneId, loaded.milestone)
 					const closeoutMilestoneId = requireMilestoneId(activeMilestoneId)
 					roadmap.phase = 'closeout'
 					setMilestoneStatus(roadmap, closeoutMilestoneId, 'closeout')
 					break
 				case 'complete_milestone':
-					requirePhase(roadmap.phase, 'closeout', input.operation)
+					requirePhase(roadmap.phase, 'closeout', input.operation, 'Enter closeout via start_closeout and close the evidence (record_closeout with status "closed") first.')
 					requireActiveMilestone(activeMilestoneId, loaded.milestone)
 					const completedMilestoneId = requireMilestoneId(activeMilestoneId)
 					closeoutOrThrow(
@@ -549,6 +549,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						await writeChangeRequest(cwd, change)
 						break
 					}
+					requirePhase(roadmap.phase, 'closeout', input.operation, 'Advance the milestone through start_reviewing then start_closeout before recording closeout evidence.')
 					await writeMilestoneCloseout(cwd, evidence)
 					break
 				}

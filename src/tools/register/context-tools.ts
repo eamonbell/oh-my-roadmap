@@ -28,11 +28,20 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 			const planSections = ['compact', 'active_milestone', 'active_change'].includes(scope)
 				? (await searchContext(ctx.cwd, {artifacts: ['plan'], maxResults: 80, snippetChars: 1})).results
 				: undefined
-			const activeWaveId = scope === 'active_wave'
-				? (state.changeRequest ?? state.milestone)?.progress.active_wave_id
-				: undefined
+			const activePlan = state.changeRequest ?? state.milestone
+			const activeWaveId = scope === 'active_wave' ? activePlan?.progress.active_wave_id : undefined
+			const activeWaveTasks = activeWaveId
+				? activePlan?.waves.find((wave) => wave.id === activeWaveId)?.tasks ?? []
+				: []
+			// Worker notes are matched by the wave's task IDs (waveId is optional on
+			// append and often omitted); review notes are wave-level and matched by waveId.
 			const noteSections = activeWaveId
-				? (await searchContext(ctx.cwd, {artifacts: ['notes'], kinds: ['worker', 'review'], waveId: activeWaveId, maxResults: 80, snippetChars: 1})).results
+				? [
+					...(activeWaveTasks.length > 0
+						? (await searchContext(ctx.cwd, {artifacts: ['notes'], kinds: ['worker'], taskIds: activeWaveTasks, maxResults: 80, snippetChars: 1})).results
+						: []),
+					...(await searchContext(ctx.cwd, {artifacts: ['notes'], kinds: ['review'], waveId: activeWaveId, maxResults: 80, snippetChars: 1})).results,
+				]
 				: undefined
 			const summary = summarizeState(state, scope, {
 				...(roadmapSections !== undefined ? {roadmapSections} : {}),

@@ -140,6 +140,7 @@ function matchesFilters(entry: ContextEntry, input: SearchContextInput): boolean
 	if (input.blocking !== undefined && entry.metadata.blocking !== input.blocking) return false
 	if (input.waveId !== undefined && entry.metadata.wave_id !== input.waveId) return false
 	if (input.taskId !== undefined && entry.metadata.task_id !== input.taskId) return false
+	if (input.taskIds !== undefined && (typeof entry.metadata.task_id !== 'string' || !input.taskIds.includes(entry.metadata.task_id))) return false
 	if (input.workerId !== undefined && entry.metadata.worker_id !== input.workerId) return false
 	return true
 }

@@ -211,22 +211,42 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 				scope: scopeFromState(state),
 			})
 		case 'reviewing':
+			// Open blocking blockers and blocking validation findings are already
+			// handled by the early returns above, so entering closeout is safe here.
 			return plan({
 				id: `milestone:${state.active.milestone_id ?? 'none'}:start-closeout`,
 				label: 'Enter closeout',
-				description: 'Resolve or defer blocking findings, then continue or enter closeout.',
-				status: 'agent_required',
+				description: 'Enter the closeout phase (start_closeout), then record and close closeout evidence.',
+				status: 'ready',
+				safe_to_apply: true,
 				scope: scopeFromState(state),
+				tool: transitionTool({operation: 'start_closeout'}),
 			})
-		case 'closeout':
+		case 'closeout': {
+			const closeoutStatus = state.closeout?.status
+			if (closeoutStatus === 'closed') {
+				return plan({
+					id: `milestone:${state.active.milestone_id ?? 'none'}:complete`,
+					label: 'Complete milestone',
+					description: 'All evidence closed — complete the milestone (complete_milestone).',
+					status: 'ready',
+					safe_to_apply: true,
+					scope: scopeFromState(state),
+					tool: transitionTool({operation: 'complete_milestone'}),
+				})
+			}
+			const description = closeoutStatus === 'recorded'
+				? 'Re-record closeout evidence with status "closed" (record_closeout), then complete_milestone.'
+				: 'Record structured closeout evidence with status "closed" (record_closeout), then complete_milestone.'
 			return plan({
 				id: `milestone:${state.active.milestone_id ?? 'none'}:record-closeout`,
 				label: 'Record closeout evidence',
-				description: 'Record structured closeout evidence, then close the milestone with /milestone:close.',
+				description,
 				status: 'needs_input',
-				missing_inputs: ['structured closeout evidence'],
+				missing_inputs: ['structured closeout evidence with status "closed"'],
 				scope: scopeFromState(state),
 			})
+		}
 		case 'complete':
 			if (hasPlannableMilestone(state)) {
 				return plan({
@@ -373,7 +393,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 			return plan({
 				id: `implementation:${baseScope.milestone_id ?? baseScope.change_request_id ?? 'active'}:start-reviewing`,
 				label: 'Enter reviewing',
-				description: 'Enter closeout and record structured closeout evidence.',
+				description: 'Enter the reviewing phase (start_reviewing); record and close closeout evidence after start_closeout.',
 				status: 'ready',
 				safe_to_apply: true,
 				scope: baseScope,

@@ -17,6 +17,7 @@ export interface SearchContextInput {
 	blocking?: boolean;
 	waveId?: string;
 	taskId?: string;
+	taskIds?: string[];
 	workerId?: string;
 }
 

@@ -71,10 +71,14 @@ export async function prepareWaveReview(
 		}
 		await setProgress(cwd, ctx, 'wave_review', [])
 
+		// Match worker notes by the wave's task IDs rather than wave_id: waveId is an
+		// optional field on append_note and worker notes are sometimes written without
+		// it, which previously excluded them here. Task IDs are unique per wave and are
+		// reliably stamped on worker notes.
 		const workerNotes = await searchContext(cwd, {
 			artifacts: ['notes'],
 			kinds: ['worker'],
-			waveId: ctx.activeWave.id,
+			taskIds: ctx.activeTasks.map((task) => task.id),
 			includeBodies: true,
 			maxResults: 80,
 		})
