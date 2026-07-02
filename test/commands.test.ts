@@ -244,6 +244,22 @@ describe("roadmap commands", () => {
     expect(content).toContain("ask the user from the orchestrator/main-agent role");
     expect(content).toContain("Do not write or modify code yourself");
     expect(content).toContain("Never perform wave reviews yourself");
+    // IRC-first recovery/rework
+    expect(content).toContain("prefer waking the existing worker over spawning a replacement");
+    expect(content).toContain("op:list");
+    expect(content).toContain("op:send");
+    expect(content).toContain('never broadcast with to:"all"');
+    // Transport error must never become a blocker
+    expect(content).toContain("Never call roadmap_engineer_record_wave_result with failed or blocked for a transport error");
+    // Review rework classification
+    expect(content).toContain("worker-fixable");
+    expect(content).toContain("needs-user-decision");
+    expect(content).toContain("history://<agentId>");
+    // Findings report submitted once at the end of the run, not per wave
+    expect(content).toContain("Submit roadmap_engineer_submit_findings_report exactly once at the terminal point");
+    expect(content).toContain("Do not submit a findings report after an individual wave");
+    // Runtime agent cannot open the extension repo's docs
+    expect(content).not.toContain("docs/irc.md");
     expectFindingsReportInstruction(content, "milestone:implement");
   });
 

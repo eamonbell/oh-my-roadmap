@@ -67,6 +67,7 @@ Config and state are stored under `.roadmaps`:
 - Wave-flow checks run during planning before approval; implementation orchestrators do not perform wave-flow checks.
 - Review runs after every wave and at closeout.
 - Blocking review findings stop later waves until resolved or explicitly deferred.
+- Recovery and rework are IRC-first: the orchestrator prefers waking the existing worker (which still holds its transcript and context) over spawning a replacement. On a transient/transport failure it resumes the worker in place; for review findings the original worker can fix, it wakes the worker to rework in-context and re-reviews, reserving canonical blockers for findings that need a user decision. It spawns a replacement only when the worker is aborted/non-revivable, is no longer a live peer (e.g. a resumed session), or delivery fails. Transport/socket errors are recorded as `transport_failed`, never as blockers. See [`irc.md`](./irc.md) for the full IRC coordination playbook.
 
 Task, wave, and cursor progress is recorded with `roadmap_engineer_transition` operations `update_task_status`, `update_wave_status`, and `update_implementation_progress`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
 

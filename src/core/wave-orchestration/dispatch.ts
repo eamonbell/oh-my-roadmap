@@ -113,7 +113,7 @@ export async function prepareWaveDispatch(
 				assignments: [],
 				active_runs: activeRuns,
 				instructions:
-					'Do not redispatch tasks with active worker runs. First check the current session\'s background jobs and IRC peers for each run\'s job_id or agent_id. If neither background jobs nor IRC peers list the run, record it abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session. If an existing current-session run has a transport failure, record transport_failed, wait up to 2 minutes for recovery, then record abandoned before redispatching only that task.',
+					'Do not redispatch tasks with active worker runs. First check the current session\'s background jobs and IRC peers for each run\'s job_id or agent_id. If neither background jobs nor IRC peers list the run, record it abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session. If an existing current-session run has a transport failure, record transport_failed, then prefer waking the existing worker: irc op:list to find its peer, op:send it a narrow "resume from your existing transcript" message (never broadcast to:"all"), and wait up to 2 minutes for recovery. Do not record a transport failure as a wave result; that opens a blocker. If the worker is not listed, delivery fails, or it does not respond, record abandoned before redispatching only that task.',
 			}
 		}
 

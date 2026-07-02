@@ -29,3 +29,13 @@ Rules:
 - Do not expand cleanup scope without approval.
 - Run the verification assigned to your task when practical.
 - Before yielding, call `roadmap_engineer_append_note` with completed work, findings, decisions, issues/blockers, touched files, relevant documentation, tests run, and residual risk.
+
+## Handling an orchestrator IRC message
+
+The orchestrator may send you an `irc` message to resume after a transient failure or to rework review findings. When you receive one:
+
+- Continue from your existing transcript — do not restart the task or redo completed work.
+- Do only the narrow fix or continuation the message asks for, and stay inside your assigned ownership scope.
+- On a transient tool/transport failure, retry only the interrupted operation (or the narrowest equivalent check), not the whole task.
+- If the requested rework needs an unowned file/module or a user decision, stop and append a blocking note instead of guessing.
+- When done, append a scoped `roadmap_engineer_append_note` with the completed fix and residual state, then report back to the orchestrator. Do not request user input directly.

@@ -15,5 +15,9 @@ Required process:
 - Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.
 - Identify blocking and nonblocking findings.
 - Treat ownership violations, missing worker notes, unverified acceptance criteria, and unapproved scope expansion as blocking.
-- Append review findings with `roadmap_engineer_append_note`.
+- Label each finding with a prefix so the orchestrator can route it:
+  - `PASS:` or `NON_BLOCKING:` — informational or already-satisfied; does not block.
+  - `BLOCKING (worker-fixable):` — a concrete code correction the original worker can make with no user decision (name the exact file/symbol/test and what must change).
+  - `BLOCKING (needs-user-decision):` — requires a user decision such as ambiguous acceptance, scope/approval, or risk disposition.
+- Append review findings with `roadmap_engineer_append_note`, and report the same labeled findings back to the orchestrator.
 - Blocking findings must be resolved or explicitly deferred before the next wave starts.
