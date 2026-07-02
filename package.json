@@ -1,29 +1,32 @@
 {
-  "name": "roadmap-engineer",
-  "version": "0.2.0",
-  "description": "OMP extension for roadmap-based planning, milestone orchestration, worker notes, and gated complex implementation workflows.",
-  "type": "module",
-  "private": true,
-  "omp": {
-    "extensions": [
-      "./src/main.ts"
-    ]
-  },
-  "scripts": {
-    "check": "tsc --noEmit",
-    "test": "bun test",
-    "verify": "bun run check && bun test"
-  },
-  "dependencies": {
-    "@oh-my-pi/pi-coding-agent": "16.2.6",
-    "yaml": "^2.8.1",
-    "zod": "^4.1.13"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "typescript": "^5.9.3"
-  },
-  "engines": {
-    "bun": ">=1.3.14"
-  }
+	"name":            "roadmap-engineer",
+	"version":         "0.6.0",
+	"description":     "OMP extension for roadmap-based planning, milestone orchestration, worker notes, and gated complex implementation workflows.",
+	"type":            "module",
+	"private":         true,
+	"omp":             {
+		"extensions": [
+			"./src/main.ts"
+		],
+		"commands":   [
+			"./commands"
+		]
+	},
+	"scripts":         {
+		"check":  "tsc --noEmit",
+		"test":   "bun test",
+		"verify": "bun run check && bun test"
+	},
+	"dependencies":    {
+		"@oh-my-pi/pi-coding-agent": "16.2.6",
+		"yaml":                      "^2.9.0",
+		"zod":                       "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.14",
+		"typescript": "^5.9.3"
+	},
+	"engines":         {
+		"bun": ">=1.3.14"
+	}
 }

@@ -1,4 +1,4 @@
-import type {ExtensionAPI} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {initProject} from '../../core/project-init'
 import {withDiagnosticTiming} from '../../diagnostics'
 import {COMMANDS, DETAILS_COMMAND, FINDINGS_CLEAR_COMMAND, INIT_COMMAND} from './catalog'
@@ -7,65 +7,10 @@ import {sendCommandMessage, sendCommandPrompt} from './messages'
 import {clearFindingsReportTile} from '../../core/findings.ts'
 import {AutocompleteItem} from '@oh-my-pi/pi-tui'
 
+import type {CustomCommandAPI} from '@oh-my-pi/pi-coding-agent'
+
+
 export function registerRoadmapCommands(api: ExtensionAPI): void {
-	/*api.registerCommand('omr-greet', {
-		description: 'greet the user x times',
-		getArgumentCompletions: (): AutocompleteItem[] => {
-			return [
-				{
-					label: 'one',
-					value: 'one',
-					description: 'one',
-					hint: 'one'
-				},
-				{
-					label: 'two',
-					value: 'two',
-					description: 'two',
-					hint: 'two'
-				}
-			]
-		},
-		handler: async (_args, ctx) => {
-			api.sendUserMessage(`Say hello to the user ${_args} time(s)`, {
-				deliverAs: ctx.isIdle() ? 'followUp' : 'steer'
-			})
-		},
-	})*/
-
-	api.registerCommand('omr-greet', {
-		description: 'greet the user x times',
-
-		getArgumentCompletions: () => [
-			{
-				label: 'one',
-				value: 'one',
-				description: 'one',
-				hint: 'one',
-			},
-			{
-				label: 'two',
-				value: 'two',
-				description: 'two',
-				hint: 'two',
-			},
-		],
-
-		handler: async (args, ctx) => {
-			const count = args.trim() || 'one'
-
-			await api.sendUserMessage(
-				`Say hello to the user ${count} time(s).`,
-				{
-					// Idle: send as a normal prompt now.
-					// Busy: queue it after the current run. Use "steer" instead if you want to interrupt.
-					deliverAs: ctx.isIdle() ? 'steer' : 'followUp',
-				},
-			)
-		}
-	})
-
-
 	api.registerCommand(INIT_COMMAND, {
 		description: 'Scaffold roadmap-engineer project config and local generated agents',
 		handler: async (_args, ctx) => {
