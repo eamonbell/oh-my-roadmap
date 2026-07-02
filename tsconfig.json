@@ -12,5 +12,11 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "hooks/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "packages/core/src/**/*.ts",
+    "packages/extension/src/**/*.ts",
+    "packages/extension/hooks/**/*.ts",
+    "packages/cli/src/**/*.ts",
+    "test/**/*.ts"
+  ]
 }

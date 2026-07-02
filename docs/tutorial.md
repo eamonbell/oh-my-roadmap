@@ -1,8 +1,8 @@
 # TUI Tutorial
 
-This tutorial walks through using `roadmap-engineer` from the OMP TUI when you have never used it before.
+This tutorial walks through using `oh-my-roadmap` from the OMP TUI when you have never used it before.
 
-`roadmap-engineer` is for work that is too large or risky for one prompt. It turns the work into a gated lifecycle:
+`oh-my-roadmap` is for work that is too large or risky for one prompt. It turns the work into a gated lifecycle:
 
 ```text
 roadmap -> milestone plan -> implementation waves -> review -> closeout -> complete
@@ -16,7 +16,7 @@ Open OMP in the repository where you want the roadmap to live.
 
 ```sh
 cd /path/to/your/project
-omp --extension /path/to/roadmap-engineer
+omp --extension /path/to/oh-my-roadmap
 ```
 
 If the extension is installed another way in your environment, use that normal startup command instead.
@@ -27,14 +27,14 @@ Confirm the extension is loaded:
 /extensions
 ```
 
-You should see `roadmap-engineer` and its tools.
+You should see `oh-my-roadmap` and its tools.
 
 ## 2. Initialize Project Files
 
-Run this once per repository:
+Run this once per repository, from your shell (not the OMP TUI):
 
-```text
-/roadmap:init
+```sh
+omr-cli init
 ```
 
 This creates or refreshes:
@@ -49,14 +49,14 @@ This creates or refreshes:
 .omp/agents/roadmap-milestone-checker.md
 ```
 
-`/roadmap:init` does not start a roadmap. It only prepares the repo.
+`omr-cli init` does not start a roadmap. It only prepares the repo.
 
 ## 3. Create A Roadmap
 
 Start a new roadmap with a short description of the work:
 
 ```text
-/roadmap:new Replace the old workflow system with standalone workflows
+/omr:rm-new Replace the old workflow system with standalone workflows
 ```
 
 The agent should interview you. Answer until there are no open questions about:
@@ -72,7 +72,7 @@ The agent should interview you. Answer until there are no open questions about:
 
 The agent should inspect the repository before finalizing the roadmap.
 
-At the end of `/roadmap:new`, the agent should:
+At the end of `/omr:rm-new`, the agent should:
 
 - create `.roadmaps/active.yml`
 - create `.roadmaps/<roadmap-id>/state.yml`
@@ -88,7 +88,7 @@ Do not approve if the roadmap has vague milestones or unresolved decisions. Ask 
 Use:
 
 ```text
-/roadmap:status
+/omr:rm-status
 ```
 
 This reports the current roadmap phase, active milestone, blockers, validation state, and next legal action.
@@ -96,7 +96,7 @@ This reports the current roadmap phase, active milestone, blockers, validation s
 Use:
 
 ```text
-/roadmap:resume
+/omr:rm-resume
 ```
 
 This is for orientation after a pause, crash, context loss, or a new session. It should summarize state and propose the next legal action. It should not continue implementation automatically.
@@ -104,7 +104,7 @@ This is for orientation after a pause, crash, context loss, or a new session. It
 Optional dashboard:
 
 ```text
-/roadmap:details
+/omr:rm-details
 ```
 
 This shows a local TUI details view when available.
@@ -114,7 +114,7 @@ This shows a local TUI details view when available.
 After roadmap approval, create the detailed plan for the next roadmap milestone:
 
 ```text
-/milestone:plan
+/omr:ms-plan
 ```
 
 The agent should expand one approved roadmap milestone into:
@@ -145,13 +145,13 @@ Approve the milestone only after the plan is specific enough for workers to exec
 After milestone approval, run:
 
 ```text
-/milestone:implement
+/omr:ms-implement
 ```
 
 The orchestrator should not edit code directly. It should:
 
 1. Read the active progress cursor.
-2. Call `roadmap_engineer_prepare_wave_dispatch`.
+2. Call `omr_prepare_wave_dispatch`.
 3. Dispatch only the active wave assignments.
 4. Use each task's exact worker: `worker-light`, `worker`, or `worker-heavy`.
 5. Record each worker dispatch immediately.
@@ -181,19 +181,19 @@ Workers should stay inside their assigned ownership. If a worker needs unowned f
 If a session crashes or you return later, run:
 
 ```text
-/roadmap:resume
+/omr:rm-resume
 ```
 
 Read the reported next action.
 
 Common outcomes:
 
-- If it says a wave is ready to dispatch, run `/milestone:implement`.
+- If it says a wave is ready to dispatch, run `/omr:ms-implement`.
 - If it says workers are running, let the orchestrator poll or recover them.
-- If it says workers are running but the current session has no matching background job or IRC peer, run `/milestone:implement`; the orchestrator should mark the old run abandoned before redispatching.
-- If it says review is needed, run `/milestone:implement`.
+- If it says workers are running but the current session has no matching background job or IRC peer, run `/omr:ms-implement`; the orchestrator should mark the old run abandoned before redispatching.
+- If it says review is needed, run `/omr:ms-implement`.
 - If blockers are open, use the blocker commands below.
-- If closeout is ready, run `/milestone:close`.
+- If closeout is ready, run `/omr:ms-close`.
 
 The persisted progress cursor is authoritative. Notes are supporting evidence, not the source of truth.
 
@@ -202,43 +202,43 @@ The persisted progress cursor is authoritative. Notes are supporting evidence, n
 List blockers:
 
 ```text
-/blocker:list
+/omr:blk-list
 ```
 
 Check blocker state:
 
 ```text
-/blocker:status
+/omr:blk-status
 ```
 
 Resolve a blocker when the issue is fixed:
 
 ```text
-/blocker:resolve <blocker-id> <resolution>
+/omr:blk-resolve <blocker-id> <resolution>
 ```
 
 Example:
 
 ```text
-/blocker:resolve blk_123 Fixed the stale API route and reran go test ./actn/... -run '^$' -count=1.
+/omr:blk-resolve blk_123 Fixed the stale API route and reran go test ./actn/... -run '^$' -count=1.
 ```
 
 Defer a blocker only when you intentionally accept the risk:
 
 ```text
-/blocker:defer <blocker-id> <reason>
+/omr:blk-defer <blocker-id> <reason>
 ```
 
 Example:
 
 ```text
-/blocker:defer blk_456 User approved deferring artifact behavior coverage to the artifact integration milestone.
+/omr:blk-defer blk_456 User approved deferring artifact behavior coverage to the artifact integration milestone.
 ```
 
 After resolving or deferring blockers, run:
 
 ```text
-/roadmap:resume
+/omr:rm-resume
 ```
 
 Then continue with the reported next action.
@@ -274,7 +274,7 @@ When review finds problems the original worker can simply fix (a concrete code c
 A failed review only opens blockers for findings that genuinely need a user decision (ambiguous acceptance, scope/approval, or risk disposition). Positive findings such as `PASS:` or informational findings should not block. If blockers are opened, use:
 
 ```text
-/blocker:list
+/omr:blk-list
 ```
 
 Then resolve or defer them before continuing.
@@ -284,7 +284,7 @@ Then resolve or defer them before continuing.
 When all waves pass review, run:
 
 ```text
-/milestone:close
+/omr:ms-close
 ```
 
 The agent should inspect:
@@ -310,7 +310,7 @@ After closeout is recorded, the agent can complete the milestone.
 If the roadmap has more planned milestones, run:
 
 ```text
-/milestone:plan
+/omr:ms-plan
 ```
 
 The workflow repeats:
@@ -326,7 +326,7 @@ Continue until all roadmap milestones are complete.
 If implementation, review, or closeout reveals needed follow-up work, create a change request:
 
 ```text
-/change:request Add validation for missing workflow input mappings
+/omr:chg-request Add validation for missing workflow input mappings
 ```
 
 The agent should plan the change like a smaller milestone:
@@ -342,19 +342,19 @@ The agent should plan the change like a smaller milestone:
 Implement it with:
 
 ```text
-/milestone:implement
+/omr:ms-implement
 ```
 
 Check change status:
 
 ```text
-/change:status
+/omr:chg-status
 ```
 
 Close it with:
 
 ```text
-/change:close
+/omr:chg-close
 ```
 
 ## 15. Complete The Roadmap
@@ -362,7 +362,7 @@ Close it with:
 After every roadmap milestone is complete and no active change request remains, use:
 
 ```text
-/roadmap:status
+/omr:rm-status
 ```
 
 If the next action says the roadmap is complete or ready to finish, follow the reported instruction. The final state should have:
@@ -377,39 +377,39 @@ If the next action says the roadmap is complete or ready to finish, follow the r
 For a normal roadmap:
 
 ```text
-/roadmap:init
-/roadmap:new <goal>
-/roadmap:status
-/milestone:plan
-/milestone:implement
-/milestone:close
-/milestone:plan
-/milestone:implement
-/milestone:close
-/roadmap:status
+omr-cli init
+/omr:rm-new <goal>
+/omr:rm-status
+/omr:ms-plan
+/omr:ms-implement
+/omr:ms-close
+/omr:ms-plan
+/omr:ms-implement
+/omr:ms-close
+/omr:rm-status
 ```
 
 For recovery:
 
 ```text
-/roadmap:resume
-/blocker:list
-/blocker:resolve <id> <resolution>
-/roadmap:resume
-/milestone:implement
+/omr:rm-resume
+/omr:blk-list
+/omr:blk-resolve <id> <resolution>
+/omr:rm-resume
+/omr:ms-implement
 ```
 
 For a post-implementation change:
 
 ```text
-/change:request <requested change>
-/milestone:implement
-/change:close
+/omr:chg-request <requested change>
+/omr:ms-implement
+/omr:chg-close
 ```
 
 ## 17. What Good Output Looks Like
 
-Good `/roadmap:status` or `/roadmap:resume` output tells you:
+Good `/omr:rm-status` or `/omr:rm-resume` output tells you:
 
 - active roadmap
 - phase
@@ -421,7 +421,7 @@ Good `/roadmap:status` or `/roadmap:resume` output tells you:
 - implementation gate state
 - next legal action
 
-Good `/milestone:implement` behavior:
+Good `/omr:ms-implement` behavior:
 
 - uses the active wave from state
 - dispatches only current-wave tasks
@@ -448,50 +448,50 @@ Keep these rules in mind:
 - Do not start later waves while the current wave has blockers.
 - Do not dispatch duplicate workers for the same active task.
 - Do not use bypasses casually. A bypass should have a clear reason, scope, risk, and approval.
-- Treat `/roadmap:resume` as orientation. Use `/milestone:implement` to continue implementation.
+- Treat `/omr:rm-resume` as orientation. Use `/omr:ms-implement` to continue implementation.
 
 ## 19. Quick Troubleshooting
 
 No active roadmap:
 
 ```text
-/roadmap:new <goal>
+/omr:rm-new <goal>
 ```
 
 Roadmap exists but you are unsure what to do:
 
 ```text
-/roadmap:resume
+/omr:rm-resume
 ```
 
 Implementation gate is closed by blockers:
 
 ```text
-/blocker:list
-/blocker:resolve <id> <resolution>
-/roadmap:resume
+/omr:blk-list
+/omr:blk-resolve <id> <resolution>
+/omr:rm-resume
 ```
 
 A worker transport failed:
 
 ```text
-/roadmap:resume
+/omr:rm-resume
 ```
 
-Then let `/milestone:implement` recover through the recorded worker-run flow.
+Then let `/omr:ms-implement` recover through the recorded worker-run flow.
 
 A milestone needs more work after review:
 
 ```text
-/change:request <what needs to change>
+/omr:chg-request <what needs to change>
 ```
 
-The agent tries to continue implementation during `/roadmap:resume`:
+The agent tries to continue implementation during `/omr:rm-resume`:
 
 Stop it and run:
 
 ```text
-/milestone:implement
+/omr:ms-implement
 ```
 
-`/roadmap:resume` should report the next legal action; `/milestone:implement` should perform it.
+`/omr:rm-resume` should report the next legal action; `/omr:ms-implement` should perform it.

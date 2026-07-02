@@ -2,20 +2,20 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decisionsPath } from "../../src/core/paths";
-import { initRoadmap } from "../../src/core/store/index";
+import { decisionsPath } from "@oh-my-roadmap/core/paths";
+import { initRoadmap } from "@oh-my-roadmap/core/store/index";
 import { registeredTool, registerTools, toolContext } from "./helpers";
 
 describe("roadmap context tools", () => {
   test("registers search and read context tools as read-only tools", () => {
     const tools = registerTools();
 
-    const readStateTool = registeredTool(tools, "roadmap_engineer_read_state");
-    const searchTool = registeredTool(tools, "roadmap_engineer_search_context");
-    const readTool = registeredTool(tools, "roadmap_engineer_read_context");
-    const readEventsTool = registeredTool(tools, "roadmap_engineer_read_events");
-    const listQualityGatesTool = registeredTool(tools, "roadmap_engineer_list_quality_gates");
-    const nextActionTool = registeredTool(tools, "roadmap_engineer_next_action");
+    const readStateTool = registeredTool(tools, "omr_read_state");
+    const searchTool = registeredTool(tools, "omr_search_context");
+    const readTool = registeredTool(tools, "omr_read_context");
+    const readEventsTool = registeredTool(tools, "omr_read_events");
+    const listQualityGatesTool = registeredTool(tools, "omr_list_quality_gates");
+    const nextActionTool = registeredTool(tools, "omr_next_action");
     expect(readStateTool?.approval).toBe("read");
     expect(searchTool?.approval).toBe("read");
     expect(readTool?.approval).toBe("read");
@@ -26,8 +26,8 @@ describe("roadmap context tools", () => {
 
   test("serializes agent-facing tool text compactly while details stay structured", async () => {
     const tools = registerTools();
-    const readStateTool = registeredTool(tools, "roadmap_engineer_read_state");
-    const searchTool = registeredTool(tools, "roadmap_engineer_search_context");
+    const readStateTool = registeredTool(tools, "omr_read_state");
+    const searchTool = registeredTool(tools, "omr_search_context");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-compact-"));
     try {
@@ -69,11 +69,11 @@ describe("roadmap context tools", () => {
   test("reads and searches compact context without exposing full roadmap state", async () => {
     const tools = registerTools();
 
-    const readStateTool = registeredTool(tools, "roadmap_engineer_read_state");
-    const searchTool = registeredTool(tools, "roadmap_engineer_search_context");
-    const readTool = registeredTool(tools, "roadmap_engineer_read_context");
-    const readEventsTool = registeredTool(tools, "roadmap_engineer_read_events");
-    const nextActionTool = registeredTool(tools, "roadmap_engineer_next_action");
+    const readStateTool = registeredTool(tools, "omr_read_state");
+    const searchTool = registeredTool(tools, "omr_search_context");
+    const readTool = registeredTool(tools, "omr_read_context");
+    const readEventsTool = registeredTool(tools, "omr_read_events");
+    const nextActionTool = registeredTool(tools, "omr_next_action");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-tools-"));
     try {
@@ -106,7 +106,7 @@ describe("roadmap context tools", () => {
         toolContext(cwd),
       );
       expect(nextAction?.details).toMatchObject({
-        action: "Resolve validation errors: Roadmap must be finalized with roadmap_engineer_update_roadmap before approval",
+        action: "Resolve validation errors: Roadmap must be finalized with omr_update_roadmap before approval",
         plan: {
           label: "Resolve validation errors",
           status: "needs_input",

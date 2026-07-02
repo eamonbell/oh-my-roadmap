@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initProject } from "../src/core/project-init";
-import { parseMarkdownDocument, parseYaml } from "../src/core/frontmatter";
+import { initProject } from "@oh-my-roadmap/core/project-init";
+import { parseMarkdownDocument, parseYaml } from "@oh-my-roadmap/core/frontmatter";
 
 let cwd = "";
 
 beforeEach(async () => {
-  cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-engineer-init-"));
+  cwd = await fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-init-"));
 });
 
 afterEach(async () => {
@@ -70,7 +70,7 @@ describe("project init scaffold", () => {
     const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
     expect(workerLight.data).toMatchObject({
       name: "worker-light",
-      description: "Use for scoped roadmap-engineer implementation tasks assigned by an implementation orchestrator.",
+      description: "Use for scoped oh-my-roadmap implementation tasks assigned by an implementation orchestrator.",
     });
     expect(workerLight.body).toContain("# Worker");
     expectWorkerDirectives(workerLight.body);
@@ -78,7 +78,7 @@ describe("project init scaffold", () => {
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
     expect(worker.data).toMatchObject({
       name: "worker",
-      description: "Use for scoped roadmap-engineer implementation tasks assigned by an implementation orchestrator.",
+      description: "Use for scoped oh-my-roadmap implementation tasks assigned by an implementation orchestrator.",
     });
     expect(worker.data.model).toBeUndefined();
     expect(worker.data["thinking-level"]).toBeUndefined();
@@ -93,7 +93,7 @@ describe("project init scaffold", () => {
     const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
     expect(reviewer.data).toMatchObject({
       name: "reviewer",
-      description: "Use for roadmap-engineer per-wave and closeout reviews.",
+      description: "Use for oh-my-roadmap per-wave and closeout reviews.",
     });
     expect(reviewer.data.model).toBeUndefined();
     expect(reviewer.data["thinking-level"]).toBeUndefined();

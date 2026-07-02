@@ -1,6 +1,6 @@
-# roadmap-engineer Design
+# oh-my-roadmap Design
 
-`roadmap-engineer` is a local OMP extension for complex feature and refactor workflows that are too large for one plan-to-implementation pass.
+`oh-my-roadmap` is a local OMP extension for complex feature and refactor workflows that are too large for one plan-to-implementation pass.
 
 ## Workflow Contract
 
@@ -70,13 +70,13 @@ Config and state are stored under `.roadmaps`:
 - Blocking review findings stop later waves until resolved or explicitly deferred.
 - Recovery and rework are IRC-first: the orchestrator prefers waking the existing worker (which still holds its transcript and context) over spawning a replacement. On a transient/transport failure it resumes the worker in place; for review findings the original worker can fix, it wakes the worker to rework in-context and re-reviews, reserving canonical blockers for findings that need a user decision. It spawns a replacement only when the worker is aborted/non-revivable, is no longer a live peer (e.g. a resumed session), or delivery fails. Transport/socket errors are recorded as `transport_failed`, never as blockers. See [`irc.md`](./irc.md) for the full IRC coordination playbook.
 
-Task, wave, and cursor progress is recorded with `roadmap_engineer_transition` operations `update_task_status`, `update_wave_status`, and `update_implementation_progress`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
+Task, wave, and cursor progress is recorded with `omr_transition` operations `update_task_status`, `update_wave_status`, and `update_implementation_progress`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
 
 Implementation resume is driven by a persisted progress cursor on milestone and change plans. The cursor records the active wave, orchestration step, active task IDs, blocker reason, and timestamp. Status and resume commands treat this structured cursor as authoritative; notes provide context and evidence.
 
 Mutating store operations use `.roadmaps/store.lock` to serialize concurrent writers and write YAML/Markdown state files through atomic replacement. Append-only notes are routed through the same lock so note ordering stays consistent with task, wave, and progress updates.
 
-Large roadmap registers are reviewed through read-only context tools. `roadmap_engineer_read_state` returns compact structured state by default and exposes focused scopes for roadmap, active milestone, active change, and usage orientation. `roadmap_engineer_search_context` searches active-roadmap notes, roadmap sections, plan sections, roadmap-level decisions, and risks, returning snippets and metadata by default. `roadmap_engineer_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
+Large roadmap registers are reviewed through read-only context tools. `omr_read_state` returns compact structured state by default and exposes focused scopes for roadmap, active milestone, active change, and usage orientation. `omr_search_context` searches active-roadmap notes, roadmap sections, plan sections, roadmap-level decisions, and risks, returning snippets and metadata by default. `omr_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
 
 ## Closeout Evidence
 
@@ -84,6 +84,6 @@ Milestone completion requires structured closeout evidence in `closeout.md`. Eve
 
 ## Change Requests
 
-`/change:request` is allowed after implementation has produced changes, including `reviewing`, `closeout`, or `complete`. A change request uses the original milestone plan, actual implementation notes, evidence, and the user request as planning context. Implementation reopens only after the change plan is approved.
+`/omr:chg-request` is allowed after implementation has produced changes, including `reviewing`, `closeout`, or `complete`. A change request uses the original milestone plan, actual implementation notes, evidence, and the user request as planning context. Implementation reopens only after the change plan is approved.
 
 Approved change requests may implement from `reviewing`, `closeout`, or `complete` without restoring a previous phase. Closing a change request records its own structured evidence bundle, marks the change `closed`, clears the active change pointer, and preserves the current roadmap phase. The completed milestone remains active so post-completion changes can still target it.

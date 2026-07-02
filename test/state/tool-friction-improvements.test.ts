@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { nextActionPlan } from "../../src/core/report/index";
+import { nextActionPlan } from "@oh-my-roadmap/core/report/index";
 import {
   appendNote,
   createChangeRequest,
   loadState,
   transition,
-} from "../../src/core/store/index";
+} from "@oh-my-roadmap/core/store/index";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
   recordWaveResult,
-} from "../../src/core/wave-orchestration/index";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
 import type { AgentToolResult } from "@oh-my-pi/pi-coding-agent";
 import {
   approvedMilestone as approvedMilestoneForCwd,
@@ -49,7 +49,7 @@ describe("tool friction improvements", () => {
     await transition(cwd, { operation: "create_milestone_plan", milestone: input });
 
     const tools = registerTools();
-    const validateTool = registeredTool(tools, "roadmap_engineer_validate");
+    const validateTool = registeredTool(tools, "omr_validate");
     const result = await validateTool?.execute(
       "validate",
       {},
@@ -68,7 +68,7 @@ describe("tool friction improvements", () => {
   test("validate tool reports a clean pass without error lines", async () => {
     await approvedMilestoneForCwd(cwd);
     const tools = registerTools();
-    const validateTool = registeredTool(tools, "roadmap_engineer_validate");
+    const validateTool = registeredTool(tools, "omr_validate");
     const result = await validateTool?.execute(
       "validate",
       {},

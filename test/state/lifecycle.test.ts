@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { readRoadmapEvents } from "../../src/core/events";
-import { shouldBlockToolCall } from "../../src/core/gate";
-import { applyNextAction, nextActionPlan, renderReport } from "../../src/core/report/index";
+import { readRoadmapEvents } from "@oh-my-roadmap/core/events";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { applyNextAction, nextActionPlan, renderReport } from "@oh-my-roadmap/core/report/index";
 import {
   appendNote,
   createChangeRequest,
@@ -20,7 +20,7 @@ import {
   transition,
   updateRoadmap,
   writeRoadmapState,
-} from "../../src/core/store/index";
+} from "@oh-my-roadmap/core/store/index";
 import {
   changeRequestPath,
   changeRequestRuntimePath,
@@ -31,10 +31,10 @@ import {
   roadmapBlockersPath,
   roadmapDocPath,
   storeLockPath,
-} from "../../src/core/paths";
-import { validateImplementationGate, validateRoadmapState } from "../../src/core/validation";
-import { summarizeState } from "../../src/core/state-summary";
-import { readYamlFile, writeYamlFile } from "../../src/core/files";
+} from "@oh-my-roadmap/core/paths";
+import { validateImplementationGate, validateRoadmapState } from "@oh-my-roadmap/core/validation";
+import { summarizeState } from "@oh-my-roadmap/core/state-summary";
+import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
@@ -43,7 +43,7 @@ import {
   recordWorkerTransportFailed,
   recordWaveResult,
   recordWaveReview,
-} from "../../src/core/wave-orchestration/index";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
 import {
   additionalMilestone,
   approvedMilestone as approvedMilestoneForCwd,
@@ -212,7 +212,7 @@ describe("roadmap state lifecycle", () => {
     const checkedRevision = checked.roadmap?.roadmap_milestone_check.roadmap_revision;
 
     await updateRoadmap(cwd, roadmapInput({
-      goal: "Refactor roadmap-engineer state safely after checker rerun.",
+      goal: "Refactor oh-my-roadmap state safely after checker rerun.",
     }));
 
     const state = await loadState(cwd);
@@ -497,7 +497,7 @@ describe("roadmap state lifecycle", () => {
     ).rejects.toThrow("finalized roadmap");
 
     await updateRoadmap(cwd, roadmapInput({
-      goal: "Refactor roadmap-engineer state safely after reopening.",
+      goal: "Refactor oh-my-roadmap state safely after reopening.",
     }));
     await recordPassedRoadmapMilestoneCheck("Reopened roadmap milestone check passed.");
     await transition(cwd, {
@@ -976,7 +976,7 @@ describe("roadmap state lifecycle", () => {
     await initRoadmap(cwd, { roadmapId: "complex-refactor", title: "Complex Refactor" });
     await transition(cwd, {
       operation: "record_discovery",
-      discovery: { findings: ["Inspected local roadmap-engineer sources."] },
+      discovery: { findings: ["Inspected local oh-my-roadmap sources."] },
     });
     await updateRoadmap(cwd, roadmapInput({
       milestones: [
@@ -1004,7 +1004,7 @@ describe("roadmap state lifecycle", () => {
     await transition(cwd, { operation: "record_closeout", closeout: closedEvidence() });
     await transition(cwd, { operation: "complete_milestone" });
 
-    expect(await renderReport(cwd)).toContain("Start the next planned milestone with /milestone:plan");
+    expect(await renderReport(cwd)).toContain("Start the next planned milestone with /omr:ms-plan");
 
     await transition(cwd, { operation: "start_milestone_planning" });
     let state = await loadState(cwd);

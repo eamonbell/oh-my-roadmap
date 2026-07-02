@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { approvedMilestone, createTempRoadmapCwd, removeTempRoadmapCwd } from "../state/helpers";
-import { renderMilestoneDependencyGraph } from "../../src/core/plan-validation";
+import { renderMilestoneDependencyGraph } from "@oh-my-roadmap/core/plan-validation";
 import { registeredTool, registerTools, toolContext } from "./helpers";
 
 function firstText(result: unknown): string {
@@ -11,13 +11,13 @@ function firstText(result: unknown): string {
 describe("render dependency graph tool", () => {
   test("registers as a read-only tool", () => {
     const tools = registerTools();
-    const tool = registeredTool(tools, "roadmap_engineer_render_dependency_graph");
+    const tool = registeredTool(tools, "omr_render_dependency_graph");
     expect(tool?.approval).toBe("read");
   });
 
   test("emits Mermaid with a node per task and an edge per depends_on", async () => {
     const tools = registerTools();
-    const tool = registeredTool(tools, "roadmap_engineer_render_dependency_graph");
+    const tool = registeredTool(tools, "omr_render_dependency_graph");
     const cwd = await createTempRoadmapCwd();
     try {
       await approvedMilestone(cwd);

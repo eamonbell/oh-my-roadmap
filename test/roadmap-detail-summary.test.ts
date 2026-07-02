@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { renderReport } from "../src/core/report/index";
-import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "../src/core/roadmap-detail-summary/index";
+import { renderReport } from "@oh-my-roadmap/core/report/index";
+import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "@oh-my-roadmap/core/roadmap-detail-summary/index";
 import {
   appendNote,
   initRoadmap,
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
-} from "../src/core/store/index";
-import { recordMainUsage } from "../src/core/usage";
+} from "@oh-my-roadmap/core/store/index";
+import { recordMainUsage } from "@oh-my-roadmap/core/usage";
 
 let cwd = "";
 
@@ -209,7 +209,7 @@ describe("roadmap detail summary", () => {
     });
     expect(summary.nextAction.description).toMatch(/^Resolve or defer blocking blockers: blk_[^:]+: Blocking note$/);
     expect(summary.nextAction.status).toBe("blocked");
-    expect(summary.nextCommand.command).toBe("/blocker:list");
+    expect(summary.nextCommand.command).toBe("/omr:blk-list");
     expect(summary.waves).toMatchObject({
       total: 1,
       counts: { blocked: 1 },
@@ -283,15 +283,15 @@ describe("roadmap detail summary", () => {
       label: "Apply safe next action",
       enabled: false,
       tool: {
-        name: "roadmap_engineer_apply_next_action",
+        name: "omr_apply_next_action",
       },
     });
     expect(summary.availableControls.find((control) => control.key === "d")).toMatchObject({
       label: "Prepare wave dispatch",
       enabled: false,
     });
-    expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("roadmap_engineer_resolve_blocker");
-    expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("roadmap_engineer_defer_blocker");
+    expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("omr_resolve_blocker");
+    expect(summary.availableControls.find((control) => control.key === "b")?.prompt).toContain("omr_defer_blocker");
     expect(summary.usage?.roadmap.label).toBe("$0.0123, 1 req, 20 tok, in 10, out 5, cache 2/3, reasoning 4");
     expect(summary.usage?.topAgents[0]?.label).toContain("implementation_orchestrator");
     expect(summary.usage?.milestone?.id).toBe("m01-core");
@@ -309,7 +309,7 @@ describe("roadmap detail summary", () => {
       constraints: ["Unsafe actions remain prompts."],
       nonGoals: ["Do not spawn workers from the dashboard."],
       context: ["applyNextAction owns safe transition checks."],
-      evidence: ["The control descriptor includes roadmap_engineer_apply_next_action."],
+      evidence: ["The control descriptor includes omr_apply_next_action."],
       risks: ["A stale action id must not be applied."],
       milestones: [
         {
@@ -351,13 +351,13 @@ describe("roadmap detail summary", () => {
     expect(before.availableControls.find((control) => control.key === "a")).toMatchObject({
       enabled: true,
       tool: {
-        name: "roadmap_engineer_apply_next_action",
+        name: "omr_apply_next_action",
         input: { actionId: before.nextAction.id },
       },
     });
     expect(before.nextCommand).toMatchObject({
-      command: "/milestone:plan",
-      label: "/milestone:plan - Start milestone planning",
+      command: "/omr:ms-plan",
+      label: "/omr:ms-plan - Start milestone planning",
     });
     expect(before.availableControls.find((control) => control.key === "d")).toMatchObject({
       enabled: false,
@@ -395,7 +395,7 @@ describe("roadmap detail summary", () => {
     expect(approval.kind).toBe("active");
     if (approval.kind !== "active") throw new Error("Expected active summary");
     expect(approval.nextAction.status).toBe("approval_required");
-    expect(approval.nextCommand.command).toBe("/milestone:plan");
+    expect(approval.nextCommand.command).toBe("/omr:ms-plan");
     expect(approval.gate.status).toBe("closed");
     expect(approval.gate.issues).toEqual([]);
     expect(approval.roadmapHealth).toMatchObject({
@@ -436,7 +436,7 @@ describe("roadmap detail summary", () => {
     expect(ready.availableControls.find((control) => control.key === "d")).toMatchObject({
       enabled: true,
       tool: {
-        name: "roadmap_engineer_prepare_wave_dispatch",
+        name: "omr_prepare_wave_dispatch",
         input: { roadmapId: "summary-roadmap", milestoneId: "m01-core" },
       },
     });
