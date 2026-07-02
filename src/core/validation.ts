@@ -18,7 +18,7 @@ import {
 
 const ROADMAP_APPROVED_INDEX = PHASES.indexOf('roadmap_approved')
 const MILESTONE_APPROVED_INDEX = PHASES.indexOf('milestone_approved')
-const BYPASSABLE_GATE_ERROR_CODES = new Set(['notes.blocking.open'])
+const BYPASSABLE_GATE_ERROR_CODES = new Set(['notes.blocking.open', 'notes.malformed'])
 
 function phaseIndex(phase: string): number {
 	return PHASES.indexOf(phase as never)
@@ -179,6 +179,7 @@ async function findOpenBlockingNotes(
 	cwd: string,
 	state: LoadedState,
 	canonicalBlockers: RoadmapBlocker[],
+	reworkScope: ReworkScope = EMPTY_REWORK_SCOPE,
 ): Promise<ValidationIssue[]> {
 	if (!state.active?.roadmap_id || !state.active.milestone_id) return []
 	const filePath = milestoneNotesPath(cwd, state.active.roadmap_id, state.active.milestone_id)
@@ -199,7 +200,12 @@ async function findOpenBlockingNotes(
 				doc.data.blocking === true &&
 				doc.data.status !== 'resolved' &&
 				doc.data.status !== 'deferred' &&
-				!hasCanonicalBlockerForNote(doc.data, canonicalBlockers)
+				!hasCanonicalBlockerForNote(doc.data, canonicalBlockers) &&
+				!isUnderActiveRework(
+					reworkScope,
+					typeof doc.data.task_id === 'string' ? doc.data.task_id : undefined,
+					typeof doc.data.wave_id === 'string' ? doc.data.wave_id : undefined,
+				)
 			) {
 				errors.push(issue('notes.blocking.open', 'Open blocking note must be resolved or explicitly deferred'))
 			}
@@ -225,9 +231,51 @@ function hasCanonicalBlockerForNote(
 	return false
 }
 
-function openCanonicalBlockingIssues(blockers: RoadmapBlocker[]): ValidationIssue[] {
+// A dispatched (rework) assignment — a running/transport_failed worker run — authorizes
+// editing the files under the very blocker it was sent to fix without first resolving that
+// blocker (which created a chicken-and-egg edit-gate deadlock). A blocker is "under active
+// rework" when its task OR its wave has such a run: review-rework blockers are wave-scoped
+// (no task_id), so wave scope must count too.
+interface ReworkScope {
+	taskIds: Set<string>;
+	waveIds: Set<string>;
+}
+
+const EMPTY_REWORK_SCOPE: ReworkScope = {taskIds: new Set(), waveIds: new Set()}
+
+function reworkScopeFromState(state: LoadedState): ReworkScope {
+	const runs = [
+		...(state.milestone?.progress.worker_runs ?? []),
+		...(state.changeRequest?.progress.worker_runs ?? []),
+	]
+	const taskIds = new Set<string>()
+	const waveIds = new Set<string>()
+	for (const run of runs) {
+		if (run.status !== 'running' && run.status !== 'transport_failed') continue
+		taskIds.add(run.task_id)
+		if (run.wave_id) waveIds.add(run.wave_id)
+	}
+	return {taskIds, waveIds}
+}
+
+function isUnderActiveRework(
+	scope: ReworkScope,
+	taskId: string | undefined,
+	waveId: string | undefined,
+): boolean {
+	// A task-scoped blocker/note is authorized only when ITS task is under rework; wave-level
+	// authorization applies only to genuinely wave-scoped review-rework blockers (no task_id),
+	// so one running worker cannot silence an unrelated blocker for another task in the wave.
+	return Boolean((taskId && scope.taskIds.has(taskId)) || (!taskId && waveId && scope.waveIds.has(waveId)))
+}
+
+function openCanonicalBlockingIssues(
+	blockers: RoadmapBlocker[],
+	reworkScope: ReworkScope = EMPTY_REWORK_SCOPE,
+): ValidationIssue[] {
 	return blockers
 	.filter((blocker) => blocker.severity === 'blocking' && blocker.status === 'open')
+	.filter((blocker) => !isUnderActiveRework(reworkScope, blocker.task_id, blocker.wave_id))
 	.map((blocker) =>
 		issue(
 			'blockers.blocking.open',
@@ -343,13 +391,31 @@ export async function validateImplementationGate(cwd: string): Promise<Validatio
 		const result = await validateRoadmapState(cwd)
 		const state = await loadState(cwd)
 		if (!state.active || !state.roadmap) return result
+
+		// A dispatched rework worker is authorized to edit under the very blocker it was sent
+		// to fix: drop open-blocker/blocking-note gate errors whose task or wave is under
+		// active rework (review-rework blockers are wave-scoped).
+		let baseErrors = result.errors
+		const reworkScope = reworkScopeFromState(state)
+		if (
+			(reworkScope.taskIds.size > 0 || reworkScope.waveIds.size > 0) &&
+			result.errors.some((error) => error.code === 'blockers.blocking.open' || error.code === 'notes.blocking.open')
+		) {
+			const canonicalBlockers = await loadRoadmapBlockers(cwd, state.roadmap.roadmap_id)
+			const authorizedBlockerErrors = openCanonicalBlockingIssues(canonicalBlockers, reworkScope)
+			const authorizedNoteErrors = await findOpenBlockingNotes(cwd, state, canonicalBlockers, reworkScope)
+			baseErrors = result.errors
+			.filter((error) => error.code !== 'blockers.blocking.open' && error.code !== 'notes.blocking.open')
+			.concat(authorizedBlockerErrors, authorizedNoteErrors)
+		}
+
 		if (state.roadmap.bypass?.active) {
-			const errors = result.errors.filter((error) => !BYPASSABLE_GATE_ERROR_CODES.has(error.code))
+			const errors = baseErrors.filter((error) => !BYPASSABLE_GATE_ERROR_CODES.has(error.code))
 			return {valid: errors.length === 0, errors, warnings: result.warnings}
 		}
-		if (!result.valid) return result
+		if (baseErrors.length > 0) return {valid: false, errors: baseErrors, warnings: result.warnings}
 
-		const errors: ValidationIssue[] = [...result.errors]
+		const errors: ValidationIssue[] = [...baseErrors]
 		const activeChangeApproved =
 			state.changeRequest &&
 			['approved', 'implementing'].includes(state.changeRequest.status) &&

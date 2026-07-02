@@ -57,11 +57,12 @@ Config and state are stored under `.roadmaps`:
 
 - No worktrees or isolated workspaces.
 - All agents work on the active branch.
-- Same-wave tasks cannot overlap owned files or modules.
+- Ownership is exclusive only within a wave: concurrent same-wave tasks cannot overlap owned files or modules.
+- Cross-wave file edits are permitted. Because only one wave runs at a time (waves run strictly sequentially), a task may edit files owned by another wave when its work requires it — those waves are already complete or not yet started, so no concurrent worker holds their files. This is a normal staged-refactor pattern.
 - Each task must appear in exactly one wave.
 - Task dependencies must reference known tasks in earlier waves and must not form cycles.
 - Only one wave may be `running` or `reviewing`; later waves cannot start until earlier waves are complete.
-- A worker that needs an unowned file/module must stop and append a blocking note.
+- A worker only stops and appends a blocking note for something genuinely outside the plan or an ambiguous required decision — not merely because a file belongs to another wave.
 - Workers and reviewers do not request user input directly; they append blocking notes for the orchestrator or main agent to resolve.
 - Implementation orchestrators dispatch tasks to the exact worker role recorded on each task and do not write code themselves.
 - Wave-flow checks run during planning before approval; implementation orchestrators do not perform wave-flow checks.

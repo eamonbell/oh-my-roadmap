@@ -1,5 +1,6 @@
 import {withDiagnosticTiming} from '../../diagnostics'
-import {nowIso, openBlocker, type OpenBlockerInput, transition,} from '../store/index'
+import {searchContext} from '../context'
+import {nowIso, openBlocker, type OpenBlockerInput, reconcileTaskNotes, transition,} from '../store/index'
 import type {ChangeRequest, MilestonePlan, TaskPlan, WorkerRun, WorkerRunStatus} from '../types'
 import {ACTIVE_WORKER_RUN_STATUSES, activePlanContext, type ActivePlanContext, writePlanRuntime,} from './context'
 import {notesText} from './dispatch'
@@ -10,13 +11,34 @@ function activeIncompleteTaskIds(tasks: TaskPlan[]): string[] {
 	return tasks.filter((task) => task.status !== 'done').map((task) => task.id)
 }
 
+// Durable result handoff: when the orchestrator cannot get a summary from the worker's
+// live IRC reply (a completed worker may have already terminated — "Unknown or terminated
+// agent"), source the summary from the worker's own persisted note in state instead of
+// forcing the orchestrator to reconstruct it. Returns the most recent worker note body
+// for the task, if any.
+async function summaryFromWorkerNote(cwd: string, milestoneId: string, taskId: string): Promise<string | undefined> {
+	const found = await searchContext(cwd, {
+		artifacts: ['notes'],
+		kinds: ['worker'],
+		milestoneIds: [milestoneId],
+		taskId,
+		includeBodies: true,
+		maxResults: 1,
+	})
+	const note = found.results[0]
+	if (!note) return undefined
+	const text = (note.body ?? note.snippet ?? '').trim()
+	return text || undefined
+}
+
 function blockerInputForTask(
 	ctx: ActivePlanContext,
 	task: TaskPlan,
 	input: RecordWaveResultInput,
+	summary: string | undefined,
 ): OpenBlockerInput {
 	const reason =
-		input.blocker?.description ?? (notesText(input.notes) || input.summary || `${task.id} reported ${input.status}`)
+		input.blocker?.description ?? (notesText(input.notes) || summary || `${task.id} reported ${input.status}`)
 	return {
 		roadmapId: ctx.roadmapId,
 		milestoneId: ctx.milestoneId,
@@ -60,13 +82,19 @@ export async function recordWaveResult(
 		if (!task) throw new Error(`Task ${input.taskId} is not in active wave ${ctx.activeWave.id}`)
 		if (ctx.activeWave.status === 'complete') throw new Error(`Active wave ${ctx.activeWave.id} is already complete`)
 
+		const summary = input.summary?.trim()
+			? input.summary
+			: await summaryFromWorkerNote(cwd, ctx.milestoneId, input.taskId)
+
 		if (input.status === 'completed') {
 			await transition(cwd, {
 				operation: 'update_task_status',
 				taskId: task.id,
 				taskStatus: 'done',
-				...(input.summary ? {summary: input.summary} : {}),
+				...(summary ? {summary} : {}),
 			})
+			// Retract any superseded issue note left on this now-done task by a stood-down run.
+			await reconcileTaskNotes(cwd, ctx.roadmapId, ctx.milestoneId, task.id)
 			const updated = await activePlanContext(cwd, input)
 			const remaining = activeIncompleteTaskIds(updated.activeTasks)
 			const workerRuns = closeWorkerRunForTask(updated.plan, task.id, 'completed')
@@ -78,6 +106,7 @@ export async function recordWaveResult(
 					wave_id: updated.activeWave.id,
 					wave_status: updated.activeWave.status,
 					progress_step: 'wave_review',
+					...(summary ? {summary} : {}),
 				}
 			}
 			await writeProgressWithRuns(cwd, updated, workerRuns, remaining, updated.plan.tasks, 'workers_running')
@@ -87,6 +116,7 @@ export async function recordWaveResult(
 				wave_id: updated.activeWave.id,
 				wave_status: updated.activeWave.status,
 				progress_step: 'workers_running',
+				...(summary ? {summary} : {}),
 			}
 		}
 
@@ -94,10 +124,10 @@ export async function recordWaveResult(
 			operation: 'update_task_status',
 			taskId: task.id,
 			taskStatus: 'blocked',
-			...(input.summary ? {summary: input.summary} : {}),
+			...(summary ? {summary} : {}),
 		})
 		await transition(cwd, {operation: 'update_wave_status', waveId: ctx.activeWave.id, waveStatus: 'blocked'})
-		const blocker = await openBlocker(cwd, blockerInputForTask(ctx, task, input))
+		const blocker = await openBlocker(cwd, blockerInputForTask(ctx, task, input, summary))
 		const updated = await activePlanContext(cwd, input)
 		const workerRuns = closeWorkerRunForTask(updated.plan, task.id, input.status === 'failed' ? 'failed' : 'blocked')
 		await writePlanRuntime(cwd, {
@@ -118,6 +148,7 @@ export async function recordWaveResult(
 			wave_id: ctx.activeWave.id,
 			wave_status: 'blocked',
 			progress_step: 'resolving_blockers',
+			...(summary ? {summary} : {}),
 			blocker,
 		}
 	})

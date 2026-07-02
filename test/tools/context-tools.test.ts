@@ -24,6 +24,48 @@ describe("roadmap context tools", () => {
     expect(nextActionTool?.approval).toBe("read");
   });
 
+  test("serializes agent-facing tool text compactly while details stay structured", async () => {
+    const tools = registerTools();
+    const readStateTool = registeredTool(tools, "roadmap_engineer_read_state");
+    const searchTool = registeredTool(tools, "roadmap_engineer_search_context");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-compact-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "compact-roadmap", title: "Compact Roadmap" });
+
+      const state = await readStateTool?.execute(
+        "state",
+        {},
+        new AbortController().signal,
+        undefined,
+        toolContext(cwd),
+      );
+      const firstText = (result: unknown): string => {
+        const content = (result as { content?: Array<{ type: string; text?: string }> } | undefined)?.content ?? [];
+        return content.find((entry) => entry.type === "text")?.text ?? "";
+      };
+      const stateText = firstText(state);
+      // Compact: no pretty-print indentation/newlines in the agent-facing text.
+      expect(stateText).not.toContain("\n");
+      expect(stateText).not.toContain("  ");
+      // The parsed text still matches the structured details rendered for the UI.
+      expect(JSON.parse(stateText)).toEqual(state?.details);
+
+      const search = await searchTool?.execute(
+        "search",
+        { artifacts: ["roadmap"] },
+        new AbortController().signal,
+        undefined,
+        toolContext(cwd),
+      );
+      const searchText = firstText(search);
+      expect(searchText).not.toContain("\n");
+      expect(JSON.parse(searchText)).toEqual(search?.details);
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("reads and searches compact context without exposing full roadmap state", async () => {
     const tools = registerTools();
 

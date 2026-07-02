@@ -106,6 +106,8 @@ export async function recordWorkerDispatch(
 			status: 'running',
 			started_at: now,
 			updated_at: now,
+			transport_failures: 0,
+			...(input.replacesAgentId ? {replaces_agent_id: input.replacesAgentId} : {}),
 		}
 		const tasks = updateTaskStatusLocal(ctx.plan.tasks, task.id, 'started')
 		const activeTaskIds = Array.from(new Set([...ctx.plan.progress.active_task_ids, task.id]))
@@ -136,6 +138,7 @@ export async function recordWorkerTransportFailed(
 			...current,
 			status: 'transport_failed',
 			updated_at: nowIso(),
+			transport_failures: (current.transport_failures ?? 0) + 1,
 			...(input.lastError ? {last_error: input.lastError} : {}),
 		}
 		await writeProgressWithRuns(

@@ -683,6 +683,54 @@ describe("roadmap state lifecycle", () => {
     expect(validation.errors.map((error) => error.code)).toContain("task.worker.invalid");
   });
 
+  test("rejects a milestone plan missing decisions or dependency analysis", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    input.decisions = [];
+    input.dependencyAnalysis = [];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.map((error) => error.code)).toContain("plan.decisions.missing");
+    expect(validation.errors.map((error) => error.code)).toContain("plan.dependency_analysis.missing");
+  });
+
+  test("approves a milestone plan that records decisions and dependency analysis", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    await transition(cwd, { operation: "create_milestone_plan", milestone: milestoneInput() });
+    await recordPassedWaveFlowCheck();
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(true);
+    expect(validation.errors.map((error) => error.code)).not.toContain("plan.decisions.missing");
+    expect(validation.errors.map((error) => error.code)).not.toContain("plan.dependency_analysis.missing");
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    const state = await loadState(cwd);
+    expect(state.roadmap?.phase).toBe("milestone_approved");
+  });
+
+  test("permits a task to edit a file owned by another wave (no cross-wave ownership block)", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    // t02 (wave w02) edits src/core/store.ts, which t01 (wave w01) owns. Waves run
+    // sequentially, so this cross-wave edit is allowed and must not fail validation.
+    input.tasks[1] = { ...input.tasks[1]!, owned_files: ["src/core/store.ts"] };
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+
+    const validation = await validateRoadmapState(cwd);
+    expect(validation.valid).toBe(true);
+    expect(validation.errors.map((error) => error.code)).not.toContain("wave.ownership.overlap");
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    const state = await loadState(cwd);
+    expect(state.roadmap?.phase).toBe("milestone_approved");
+  });
+
   test("draft milestone updates reset wave-flow check state", async () => {
     await approvedRoadmap();
     await transition(cwd, { operation: "start_milestone_planning" });

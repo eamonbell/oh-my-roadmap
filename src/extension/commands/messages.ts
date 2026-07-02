@@ -1,11 +1,13 @@
 import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import {loadTransportResumeAttempts} from '../../core/project-init'
 import {renderReport} from '../../core/report/index'
 import {COMMAND_MESSAGE_TYPE} from './catalog'
 import {commandPrompt} from './prompts'
 
 export async function sendCommandPrompt(api: ExtensionAPI, name: string, args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const report = await renderReport(ctx.cwd)
-	queueCommandPrompt(api, ctx, commandPrompt(name, args, report))
+	const transportResumeAttempts = await loadTransportResumeAttempts(ctx.cwd)
+	queueCommandPrompt(api, ctx, commandPrompt(name, args, report, transportResumeAttempts))
 }
 
 export function queueCommandPrompt(api: ExtensionAPI, ctx: ExtensionCommandContext, prompt: string): void {

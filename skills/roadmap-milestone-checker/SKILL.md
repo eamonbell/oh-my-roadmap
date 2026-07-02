@@ -7,13 +7,20 @@ description: Use to check roadmap milestone outlines for conflicts, sequencing, 
 
 Review a finalized draft roadmap after roadmap_engineer_update_roadmap writes roadmap.md and before roadmap approval is requested.
 
-Focus only on milestone flow contradictions:
+Sequence milestones on a best-effort basis. Only genuine hard blocks stop approval; softer concerns are advisory notes, not failures.
 
-- Conflicting milestone scopes, acceptance intent, or verification intent.
-- Milestone dependency order, unknown dependencies, and sequencing contradictions.
-- Earlier milestones that rely on code, schema, configuration, generated artifacts, or decisions assigned to later milestones.
-- Milestone boundaries that leave the project knowingly unbuildable until a later milestone.
-- Milestone verification intent that lacks a buildability check such as the project build, typecheck, compile, or equivalent command.
+Hard-fail (report `failed`) only on genuine blocks:
+
+- Milestone dependency cycles, unknown dependencies, or contradictory (out-of-order) sequencing.
+- A milestone boundary that leaves the project knowingly unbuildable until a later milestone lands.
+- Directly contradictory milestone scopes, acceptance intent, or verification intent.
+
+Cross-milestone reuse of the same code or files is not itself a block: milestones run sequentially, so a later milestone editing or removing code an earlier milestone added is a normal staged-refactor pattern.
+
+Softer concerns are advisory notes in a `passed` summary, not failures:
+
+- An earlier milestone that references an artifact or decision nominally assigned to a later milestone without actually being unbuildable.
+- Milestone verification intent that lacks an explicit buildability check, or other sequencing tidiness preferences.
 
 Rules:
 

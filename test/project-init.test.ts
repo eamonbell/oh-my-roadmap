@@ -64,6 +64,7 @@ describe("project init scaffold", () => {
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
       },
+      orchestration: { transport_resume_attempts: 3 },
     });
 
     const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
@@ -137,6 +138,7 @@ describe("project init scaffold", () => {
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
       },
+      orchestration: { transport_resume_attempts: 3 },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
@@ -159,6 +161,19 @@ describe("project init scaffold", () => {
     const roadmapChecker = parseMarkdownDocument(await readFile(".omp/agents/roadmap-milestone-checker.md"));
     expect(roadmapChecker.body).toContain("milestone flow");
     expectNoAskToolDirective(roadmapChecker.body);
+  });
+
+  test("preserves a configured transport_resume_attempts on rerun", async () => {
+    await writeFile(
+      ".roadmaps/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  transport_resume_attempts: 5\n",
+    );
+
+    await initProject(cwd);
+
+    expect(parseYaml<Record<string, any>>(await readFile(".roadmaps/config.yml")).orchestration).toEqual({
+      transport_resume_attempts: 5,
+    });
   });
 
   test("renders configured model and thinking for all generated agents", async () => {
@@ -233,6 +248,7 @@ describe("project init scaffold", () => {
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
       },
+      orchestration: { transport_resume_attempts: 3 },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
@@ -274,6 +290,16 @@ describe("project init scaffold", () => {
         name: "unknown role field",
         text: "agents:\n  worker:\n    temperature: 1\n  reviewer: {}\n",
         message: "agents.worker contains unsupported key: temperature",
+      },
+      {
+        name: "non-positive resume attempts",
+        text: "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  transport_resume_attempts: 0\n",
+        message: "orchestration.transport_resume_attempts must be a positive integer",
+      },
+      {
+        name: "unknown orchestration key",
+        text: "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  foo: 1\n",
+        message: "orchestration contains unsupported key: foo",
       },
     ];
 

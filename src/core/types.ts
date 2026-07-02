@@ -221,7 +221,9 @@ export interface WorkerRun {
 	status: WorkerRunStatus;
 	started_at: string;
 	updated_at: string;
+	transport_failures: number;
 	last_error?: string;
+	replaces_agent_id?: string;
 }
 
 export interface ImplementationProgress {

@@ -1,6 +1,8 @@
 export type {
 	PrepareWaveDispatchResult,
 	PrepareWaveReviewResult,
+	PrepareWorkerRedispatchInput,
+	PrepareWorkerRedispatchResult,
 	RecordWaveResultInput,
 	RecordWaveResultResult,
 	RecordWaveReviewInput,
@@ -11,7 +13,7 @@ export type {
 	WaveOrchestrationTargetInput,
 	WaveWorkerAssignment,
 } from './types'
-export {prepareWaveDispatch} from './dispatch'
+export {prepareWaveDispatch, prepareWorkerRedispatch} from './dispatch'
 export {
 	recordWorkerAbandoned,
 	recordWorkerDispatch,

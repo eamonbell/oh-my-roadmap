@@ -16,7 +16,7 @@ import type {
 } from '../types'
 import {WORKER_RUN_STATUSES} from '../types'
 import type {WaveFlowCheckInput} from './contract'
-import {list, nowIso, valueList, valueString} from './shared'
+import {list, nowIso, valueList, valueNumber, valueString} from './shared'
 
 export function pendingWaveFlowCheck(): WaveFlowCheck {
 	return {
@@ -145,7 +145,9 @@ export function normalizeWorkerRun(value: unknown): WorkerRun | undefined {
 		status: status as WorkerRun['status'],
 		started_at: valueString(raw.started_at) || nowIso(),
 		updated_at: valueString(raw.updated_at) || nowIso(),
+		transport_failures: valueNumber(raw.transport_failures, 0),
 		...(valueString(raw.last_error) ? {last_error: valueString(raw.last_error)} : {}),
+		...(valueString(raw.replaces_agent_id) ? {replaces_agent_id: valueString(raw.replaces_agent_id)} : {}),
 	}
 }
 

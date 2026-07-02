@@ -7,13 +7,21 @@ description: Use to check milestone or change-plan waves for dependency, ownersh
 
 Review a draft milestone or change plan after tasks and waves are written but before user approval is requested.
 
-Focus only on flow contradictions:
+Sequence the plan on a best-effort basis, checking for flow contradictions. Only genuine hard blocks stop approval; softer concerns are advisory notes, not failures.
 
-- Task dependency order, unknown dependencies, and cycles.
-- Same-wave file or module ownership collisions.
-- Future-wave compile blockers caused by tasks whose verification cannot pass until later-wave edits land.
-- Verification commands that depend on files, modules, or generated artifacts owned by later waves.
-- Shared files/modules that appear in implementation notes or verification but are not represented in task ownership.
+Hard-fail (report `failed`) only on genuine blocks:
+
+- Dependency cycles.
+- Unknown or out-of-order task dependencies.
+- Same-wave ownership collisions — two tasks that run concurrently in the SAME wave editing the same file or module.
+- A wave that literally cannot build or verify until a later wave lands.
+
+Cross-wave editing of the same file is NOT a collision. Waves run strictly sequentially (only one wave runs at a time), so a task in one wave editing a file another wave owns is a normal staged-refactor pattern and must not fail the check.
+
+Softer concerns are advisory notes in a `passed` summary, not failures:
+
+- Verification commands that reference an artifact owned by a later wave without actually blocking the current wave's build.
+- Ownership tidiness, shared files that appear in notes/verification but not in task ownership, or other stylistic sequencing preferences.
 
 Rules:
 

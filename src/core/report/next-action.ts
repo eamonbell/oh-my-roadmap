@@ -242,7 +242,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 			return plan({
 				id: `roadmap:${state.roadmap.roadmap_id}:complete`,
 				label: 'Create follow-up work',
-				description: 'Create a post-implementation change request or start a new roadmap.',
+				description: 'Create a post-implementation change request, or start a new roadmap (starting a new roadmap archives the completed one).',
 				status: 'needs_input',
 				missing_inputs: ['change request or new roadmap'],
 				scope: scopeFromState(state),

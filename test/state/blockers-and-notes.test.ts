@@ -212,6 +212,45 @@ describe("roadmap state blockers and notes", () => {
     expect(gate.warnings.map((warning) => warning.code)).toContain("bypass.active");
   });
 
+  test("malformed note frontmatter blocks state validation but is bypassable at the gate", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await fs.appendFile(
+      milestoneNotesPath(cwd, "complex-refactor", "m01-core"),
+      [
+        "",
+        "---",
+        "kind: worker",
+        "roadmap_id: complex-refactor",
+        "milestone_id: m01-core",
+        "blocking: true",
+        "status: open",
+        "at: 2026-01-01T00:00:00.000Z",
+        "",
+        "## Malformed note without closing frontmatter",
+        "",
+        "This note is missing its closing frontmatter delimiter and cannot be parsed.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const stateValidation = await validateRoadmapState(cwd);
+    expect(stateValidation.valid).toBe(false);
+    expect(stateValidation.errors.map((error) => error.code)).toContain("notes.malformed");
+
+    await transition(cwd, {
+      operation: "request_bypass",
+      reason: "A single malformed note must not wedge all file writes.",
+      approver: "user",
+    });
+
+    const gate = await validateImplementationGate(cwd);
+    expect(gate.valid).toBe(true);
+    expect(gate.errors).toEqual([]);
+    expect(gate.warnings.map((warning) => warning.code)).toContain("bypass.active");
+  });
+
   test("legacy blocking note is not suppressed by unrelated canonical blocker in the same scope", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });

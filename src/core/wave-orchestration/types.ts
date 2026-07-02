@@ -1,3 +1,4 @@
+import type {ContextEntryResult} from '../context-types'
 import type {ImplementationProgressStep, ImplementationWorkerName, RoadmapBlocker, TaskPlan, WavePlan, WorkerRun,} from '../types'
 
 export interface WaveOrchestrationTargetInput {
@@ -33,6 +34,28 @@ export interface RecordWorkerDispatchInput extends WaveOrchestrationTargetInput 
 	taskId: string;
 	agentId: string;
 	jobId: string;
+	replacesAgentId?: string;
+}
+
+export interface PrepareWorkerRedispatchInput extends WaveOrchestrationTargetInput {
+	taskId: string;
+	agentId?: string;
+	jobId?: string;
+}
+
+export interface PrepareWorkerRedispatchResult {
+	roadmap_id: string;
+	milestone_id: string;
+	change_request_id?: string;
+	wave_id: string;
+	assignment: WaveWorkerAssignment;
+	prior_run: {
+		agent_id: string;
+		job_id: string;
+		transport_failures: number;
+		last_error?: string;
+	};
+	instructions: string;
 }
 
 export interface RecordWorkerRunStatusInput extends WaveOrchestrationTargetInput {
@@ -66,6 +89,7 @@ export interface RecordWaveResultResult {
 	wave_id: string;
 	wave_status: WavePlan['status'];
 	progress_step: ImplementationProgressStep;
+	summary?: string;
 	blocker?: RoadmapBlocker;
 }
 
@@ -84,6 +108,7 @@ export interface PrepareWaveReviewResult {
 		owned_modules: string[];
 		shared_interfaces: string[];
 	}>;
+	worker_notes: ContextEntryResult[];
 }
 
 export interface RecordWaveReviewInput extends WaveOrchestrationTargetInput {

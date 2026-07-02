@@ -34,10 +34,12 @@ import {
 } from "../../src/core/paths";
 import { validateImplementationGate, validateRoadmapState } from "../../src/core/validation";
 import { summarizeState } from "../../src/core/state-summary";
+import { searchContext } from "../../src/core/context";
 import { readYamlFile, writeYamlFile } from "../../src/core/files";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
+  prepareWorkerRedispatch,
   recordWorkerAbandoned,
   recordWorkerDispatch,
   recordWorkerTransportFailed,
@@ -127,6 +129,36 @@ describe("roadmap wave orchestration state", () => {
       step: "dispatching",
       active_task_ids: ["t01-state"],
     });
+  });
+
+  test("assignment prompt reserves same-wave sibling files and permits cross-wave edits", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    // Two concurrent tasks in the same wave: each is a reserved sibling of the other.
+    input.tasks = [
+      { ...input.tasks[0]! },
+      { ...input.tasks[1]!, depends_on: [] },
+    ];
+    input.waves = [testWave("w01", ["t01-state", "t02-report"])];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    await transition(cwd, { operation: "start_implementation" });
+
+    const result = await prepareWaveDispatch(cwd);
+    const stateAssignment = result.assignments.find((entry) => entry.task_id === "t01-state");
+    expect(stateAssignment).toBeDefined();
+    const prompt = stateAssignment!.prompt;
+    // The concurrent sibling's owned file is reserved in this wave.
+    expect(prompt).toContain("Reserved by concurrent sibling tasks in THIS wave");
+    expect(prompt).toContain("src/core/report.ts");
+    // Cross-wave editing is explicitly permitted.
+    expect(prompt).toContain("OTHER waves");
+    // The task's own file is not listed as reserved.
+    expect(prompt).not.toContain("Reserved by concurrent sibling tasks in THIS wave (do not edit): src/core/store.ts");
+    // The old exclusive "Work only on this task's scope" wording is gone.
+    expect(prompt).not.toContain("Work only on this task's scope");
   });
 
   test("records worker dispatch leases and refuses active redispatch", async () => {
@@ -234,6 +266,103 @@ describe("roadmap wave orchestration state", () => {
     const redispatch = await prepareWaveDispatch(cwd);
     expect(redispatch.assignments.map((assignment) => assignment.task_id)).toEqual(["t01-state"]);
     expect(redispatch.active_runs).toEqual([]);
+  });
+
+  test("transport_failures increments and survives reload", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+
+    const first = await recordWorkerTransportFailed(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "socket closed",
+    });
+    expect(first.run.transport_failures).toBe(1);
+
+    const second = await recordWorkerTransportFailed(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "socket closed again",
+    });
+    expect(second.run.transport_failures).toBe(2);
+
+    const state = await loadState(cwd);
+    const reloaded = state.milestone?.progress.worker_runs.find((run) => run.task_id === "t01-state");
+    expect(reloaded?.transport_failures).toBe(2);
+    expect(reloaded?.status).toBe("transport_failed");
+  });
+
+  test("records replaces_agent_id lineage on dispatch", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+
+    const dispatch = await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store-2",
+      jobId: "job-store-2",
+      replacesAgentId: "agent-store-1",
+    });
+    expect(dispatch.run.replaces_agent_id).toBe("agent-store-1");
+
+    const state = await loadState(cwd);
+    const run = state.milestone?.progress.worker_runs.find((r) => r.agent_id === "agent-store-2");
+    expect(run?.replaces_agent_id).toBe("agent-store-1");
+  });
+
+  test("prepareWorkerRedispatch rejects while a run is still running", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+
+    await expect(prepareWorkerRedispatch(cwd, { taskId: "t01-state" })).rejects.toThrow(
+      "still has a running worker",
+    );
+  });
+
+  test("prepareWorkerRedispatch abandons the transport_failed run and returns a continuation prompt", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+    await recordWorkerTransportFailed(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "socket closed",
+    });
+
+    const redispatch = await prepareWorkerRedispatch(cwd, { taskId: "t01-state" });
+
+    expect(redispatch.prior_run).toMatchObject({
+      agent_id: "agent-store",
+      transport_failures: 1,
+      last_error: "socket closed",
+    });
+    expect(redispatch.assignment.task_id).toBe("t01-state");
+    expect(redispatch.assignment.prompt).toContain("CONTINUATION CONTEXT");
+    expect(redispatch.assignment.prompt).toContain("history://agent-store");
+    expect(redispatch.assignment.prompt).toContain("1 transport failure");
+    expect(redispatch.instructions).toContain("replacesAgentId");
+
+    const state = await loadState(cwd);
+    const run = state.milestone?.progress.worker_runs.find((r) => r.agent_id === "agent-store");
+    expect(run?.status).toBe("abandoned");
+    expect(state.milestone?.progress.active_task_ids).not.toContain("t01-state");
   });
 
   test("records wave results as terminal worker runs", async () => {
@@ -347,6 +476,105 @@ describe("roadmap wave orchestration state", () => {
     });
   });
 
+  test("prepareWaveReview package carries the active wave's worker notes", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await appendNote(cwd, {
+      kind: "worker",
+      waveId: "w01",
+      taskId: "t01-state",
+      workerId: "alice",
+      status: "resolved",
+      title: "State task worker note",
+      body: "Implemented the store lock and ran bun test.",
+    });
+    // A note from another wave must not leak into this wave's review package.
+    await appendNote(cwd, {
+      kind: "worker",
+      waveId: "w02",
+      taskId: "t02-report",
+      workerId: "bob",
+      status: "resolved",
+      title: "Report task worker note",
+      body: "Unrelated wave-2 note.",
+    });
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+
+    const review = await prepareWaveReview(cwd);
+    expect(review.worker_notes).toBeDefined();
+    expect(review.worker_notes.length).toBe(1);
+    expect(review.worker_notes[0]?.title).toBe("State task worker note");
+    // Bodies ride along so the reviewer needs no extra context call.
+    expect(review.worker_notes[0]?.body).toContain("Implemented the store lock");
+    // The wave-2 note is filtered out.
+    expect(review.worker_notes.some((note) => note.title === "Report task worker note")).toBe(false);
+  });
+
+  test("summarizeState active_wave scope returns only the active wave and its tasks", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await appendNote(cwd, {
+      kind: "worker",
+      waveId: "w01",
+      taskId: "t01-state",
+      workerId: "alice",
+      status: "resolved",
+      title: "Active wave worker note",
+      body: "Progress note for the active wave.",
+    });
+    await openBlocker(cwd, {
+      roadmapId: "complex-refactor",
+      milestoneId: "m01-core",
+      waveId: "w01",
+      severity: "non_blocking",
+      title: "Active wave advisory",
+      description: "Advisory for the active wave.",
+      createdBy: "reviewer",
+    });
+    await openBlocker(cwd, {
+      roadmapId: "complex-refactor",
+      milestoneId: "m01-core",
+      waveId: "w02",
+      severity: "non_blocking",
+      title: "Other wave advisory",
+      description: "Advisory for another wave.",
+      createdBy: "reviewer",
+    });
+
+    const state = await loadState(cwd);
+    const blockers = await loadRoadmapBlockers(cwd, "complex-refactor");
+    const noteSections = (
+      await searchContext(cwd, { artifacts: ["notes"], kinds: ["worker", "review"], waveId: "w01" })
+    ).results;
+    const summary = summarizeState(state, "active_wave", { blockers, noteSections }) as {
+      active?: unknown;
+      active_wave?: { id: string; status: string; tasks: Array<{ id: string }> };
+      progress?: { active_wave_id?: string };
+      blockers: Array<{ title: string; wave_id?: string }>;
+      context_sections: { notes: Array<{ title: string }> };
+      milestone?: unknown;
+      roadmap?: unknown;
+    };
+
+    // Only the active wave, with just its tasks — not the full milestone/roadmap.
+    expect(summary.milestone).toBeUndefined();
+    expect(summary.roadmap).toBeUndefined();
+    expect(summary.active_wave?.id).toBe("w01");
+    expect(summary.active_wave?.status).toBe("running");
+    expect(summary.active_wave?.tasks.map((task) => task.id)).toEqual(["t01-state"]);
+    expect(summary.progress?.active_wave_id).toBe("w01");
+    // Blockers are filtered to the active wave.
+    expect(summary.blockers.map((blocker) => blocker.title)).toEqual(["Active wave advisory"]);
+    // Note refs are waveId-filtered worker/review notes.
+    expect(summary.context_sections.notes.map((note) => note.title)).toEqual(["Active wave worker note"]);
+  });
+
   test("records a failing review as blockers and resolving progress", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });
@@ -453,5 +681,133 @@ describe("roadmap wave orchestration state", () => {
         severity: "blocking",
       },
     ]);
+  });
+});
+
+describe("part 7 operational gaps", () => {
+  // 7a — durable result handoff: a completed worker may have already terminated when the
+  // orchestrator asks for its report. record_wave_result must source the summary from the
+  // worker's resolved note in state rather than requiring a live IRC reply.
+  test("record_wave_result sources its summary from the resolved worker note when no summary is supplied", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, { taskId: "t01-state", agentId: "agent-store", jobId: "job-store" });
+    // The worker persists its structured result to a note before yielding, then terminates.
+    await appendNote(cwd, {
+      kind: "worker",
+      waveId: "w01",
+      taskId: "t01-state",
+      workerId: "worker-light",
+      status: "resolved",
+      title: "State task result",
+      body: "Implemented the store lock and ran bun test green; all done criteria met.",
+    });
+
+    // Peer is gone — orchestrator records completion with no summary of its own.
+    const result = await recordWaveResult(cwd, { taskId: "t01-state", status: "completed" });
+    expect(result.status).toBe("done");
+
+    const state = await loadState(cwd);
+    expect(state.milestone?.tasks.find((task) => task.id === "t01-state")?.status).toBe("done");
+
+    // The completion event carries the summary sourced from the worker note.
+    const events = await readRoadmapEvents(cwd, { type: ["task.status_changed"] });
+    const doneEvent = events.events.find(
+      (event) => (event.details as { task_status?: string } | undefined)?.task_status === "done",
+    );
+    expect((doneEvent?.details as { summary?: string } | undefined)?.summary).toContain(
+      "Implemented the store lock",
+    );
+  });
+
+  // 7b — edit-gate deadlock: a rework worker dispatched to fix an open blocker must be able
+  // to edit the files it was sent to fix without first resolving that blocker.
+  test("the write-gate permits the assigned rework worker to edit its blocker's task without a prior resolve_blocker", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+
+    // An open blocking blocker against t01-state closes the write-gate.
+    await openBlocker(cwd, {
+      roadmapId: "complex-refactor",
+      milestoneId: "m01-core",
+      waveId: "w01",
+      taskId: "t01-state",
+      severity: "blocking",
+      title: "Review finding: fix ownership drift",
+      description: "Worker-fixable rework needed on the store lock.",
+      createdBy: "reviewer",
+    });
+
+    // Before a rework worker is dispatched, the gate is closed by the open blocker.
+    const beforeDispatch = await validateImplementationGate(cwd);
+    expect(beforeDispatch.valid).toBe(false);
+    expect(beforeDispatch.errors.some((error) => error.code === "blockers.blocking.open")).toBe(true);
+    expect((await shouldBlockToolCall(cwd, "edit")).block).toBe(true);
+
+    // Dispatching the rework worker for the blocker's task authorizes its edits.
+    await recordWorkerDispatch(cwd, { taskId: "t01-state", agentId: "rework-agent", jobId: "rework-job" });
+
+    const afterDispatch = await validateImplementationGate(cwd);
+    expect(afterDispatch.valid).toBe(true);
+    expect(afterDispatch.errors.some((error) => error.code === "blockers.blocking.open")).toBe(false);
+    expect((await shouldBlockToolCall(cwd, "edit")).block).toBe(false);
+
+    // The blocker itself is still open — no premature resolve_blocker was required.
+    const blockers = await listBlockers(cwd, { taskId: "t01-state", status: "open" });
+    expect(blockers.blockers).toHaveLength(1);
+  });
+
+  // 7c — stand-down note hygiene: a stood-down worker's issue/deferred note must be
+  // reconciled once the task later resolves via another worker.
+  test("a stood-down worker's issue/deferred note is reconciled once the task resolves", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+
+    // A stood-down worker leaves a durable deferred issue note against the task.
+    await appendNote(cwd, {
+      kind: "issue",
+      waveId: "w01",
+      taskId: "t01-state",
+      workerId: "stood-down-worker",
+      status: "deferred",
+      title: "Partial refactor left incomplete",
+      body: "Stood down mid-edit to avoid collision with the active worker.",
+    });
+
+    const before = await searchContext(cwd, {
+      artifacts: ["notes"],
+      kinds: ["issue"],
+      taskId: "t01-state",
+      statuses: ["deferred"],
+    });
+    expect(before.results).toHaveLength(1);
+
+    // The task then completes via another worker.
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "Task completed by the recovering worker.",
+    });
+
+    // The deferred issue no longer survives against the done task.
+    const deferred = await searchContext(cwd, {
+      artifacts: ["notes"],
+      kinds: ["issue"],
+      taskId: "t01-state",
+      statuses: ["deferred"],
+    });
+    expect(deferred.results).toHaveLength(0);
+
+    const resolved = await searchContext(cwd, {
+      artifacts: ["notes"],
+      kinds: ["issue"],
+      taskId: "t01-state",
+      statuses: ["resolved"],
+    });
+    expect(resolved.results).toHaveLength(1);
+    expect(resolved.results[0]?.metadata.reconciled).toBe(true);
   });
 });
