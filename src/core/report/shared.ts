@@ -1,7 +1,14 @@
 import type {TransitionInput} from '../store/index'
-import type {ImplementationProgress, LoadedState, RoadmapBlocker, RoadmapState, TaskPlan, WavePlan,} from '../types'
+import type {ImplementationProgress, LoadedState, RoadmapBlocker, RoadmapState, TaskPlan, ValidationResult, WavePlan,} from '../types'
 import type {RoadmapUsageSummary, UsageScopeSummary, UsageTotals} from '../usage'
 import type {NextActionPlan, NextActionScope} from './types'
+
+export function formatValidationIssues(result: ValidationResult): string[] {
+	return [
+		...result.errors.map((error) => `- ERROR ${error.code}: ${error.message}`),
+		...result.warnings.map((warning) => `- WARN ${warning.code}: ${warning.message}`),
+	]
+}
 
 export function progressLines(label: string, progress: ImplementationProgress, waves: WavePlan[], tasks: TaskPlan[]): string[] {
 	const activeWave = progress.active_wave_id

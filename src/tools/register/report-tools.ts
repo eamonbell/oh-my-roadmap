@@ -1,6 +1,6 @@
 import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {amend, type AmendmentInput, createChangeRequest, type CreateChangeRequestInput,} from '../../core/store/index'
-import {applyNextAction, nextActionPlan, renderReport} from '../../core/report/index'
+import {applyNextAction, formatValidationIssues, nextActionPlan, renderReport} from '../../core/report/index'
 import {validateRoadmapState} from '../../core/validation'
 import {textResult, type ToolRegistrationContext} from './shared'
 
@@ -16,7 +16,10 @@ export function registerReportTools(ctx: ToolRegistrationContext): void {
 		parameters: z.object({}),
 		async execute(_id, _params, _signal, _update, ctx) {
 			const result = await validateRoadmapState(ctx.cwd)
-			return textResult(result.valid ? 'Roadmap state is valid.' : 'Roadmap state is invalid.', result)
+			const summary = result.valid ? 'Roadmap state is valid.' : 'Roadmap state is invalid.'
+			const issueLines = formatValidationIssues(result)
+			const text = issueLines.length > 0 ? `${summary}\n${issueLines.join('\n')}` : summary
+			return textResult(text, result)
 		},
 	} as ToolDefinition)
 

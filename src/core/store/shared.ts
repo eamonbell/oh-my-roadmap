@@ -49,9 +49,10 @@ export function hasPlannableMilestone(roadmap: RoadmapState): boolean {
 	return roadmap.milestones.some((milestone) => ['planned', 'blocked'].includes(milestone.status))
 }
 
-export function requirePhase(actual: Phase, expected: Phase, operation: string): void {
+export function requirePhase(actual: Phase, expected: Phase, operation: string, remediation?: string): void {
 	if (actual !== expected) {
-		throw new Error(`${operation} requires phase ${expected}; current phase is ${actual}`)
+		const base = `${operation} requires phase ${expected}; current phase is ${actual}`
+		throw new Error(remediation ? `${base}. ${remediation}` : base)
 	}
 }
 

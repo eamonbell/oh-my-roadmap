@@ -170,17 +170,21 @@ export async function appendNoteEntry(
 	if (!roadmapId || !milestoneId) {
 		throw new Error('append_note requires an active roadmap and milestone')
 	}
-	const changeRequestId =
-		roadmapId === loaded.active?.roadmap_id && milestoneId === loaded.active?.milestone_id
-			? loaded.active.change_request_id
-			: undefined
+	const targetsActive = roadmapId === loaded.active?.roadmap_id && milestoneId === loaded.active?.milestone_id
+	const changeRequestId = targetsActive ? loaded.active?.change_request_id : undefined
+	// Worker notes are frequently appended without an explicit waveId; default it to the
+	// active wave so wave_id-based filters (and review gating) still find them.
+	const resolvedWaveId = input.waveId ??
+		(input.kind === 'worker' && targetsActive
+			? (loaded.changeRequest ?? loaded.milestone)?.progress.active_wave_id
+			: undefined)
 
 	const metadata = {
 		kind: input.kind,
 		roadmap_id: roadmapId,
 		milestone_id: milestoneId,
 		change_request_id: changeRequestId,
-		wave_id: input.waveId,
+		wave_id: resolvedWaveId,
 		task_id: input.taskId,
 		worker_id: input.workerId,
 		blocking: input.blocking ?? false,
@@ -193,7 +197,7 @@ export async function appendNoteEntry(
 	await appendText(filePath, entry)
 	const scope: RoadmapEventScope = {roadmap_id: roadmapId, milestone_id: milestoneId}
 	if (changeRequestId) scope.change_request_id = changeRequestId
-	if (input.waveId) scope.wave_id = input.waveId
+	if (resolvedWaveId) scope.wave_id = resolvedWaveId
 	if (input.taskId) scope.task_id = input.taskId
 	if (blockerId) scope.blocker_id = blockerId
 	return {filePath, scope}

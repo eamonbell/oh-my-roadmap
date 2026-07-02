@@ -2,7 +2,7 @@ import {withDiagnosticTiming} from '../../diagnostics'
 import {loadRoadmapBlockers, loadState} from '../store/index'
 import {validateImplementationGate, validateRoadmapState} from '../validation'
 import {nextAction} from './next-action'
-import {progressLines, roadmapMilestoneCheckLabel, usageLines} from './shared'
+import {formatValidationIssues, progressLines, roadmapMilestoneCheckLabel, usageLines} from './shared'
 
 async function renderReportImpl(cwd: string): Promise<string> {
 	const state = await loadState(cwd)
@@ -45,9 +45,7 @@ async function renderReportImpl(cwd: string): Promise<string> {
 	lines.push(...usageLines(state.usage, state.active.milestone_id, state.active.change_request_id))
 
 	lines.push(``, `Validation: ${validation.valid ? 'valid' : 'invalid'}`)
-
-	for (const error of validation.errors) lines.push(`- ERROR ${error.code}: ${error.message}`)
-	for (const warning of validation.warnings) lines.push(`- WARN ${warning.code}: ${warning.message}`)
+	lines.push(...formatValidationIssues(validation))
 
 	lines.push(``, `Implementation gate: ${gate.valid ? 'open' : 'closed'}`)
 	for (const error of gate.errors) lines.push(`- ${error.message}`)
