@@ -1,6 +1,6 @@
 import {appendRoadmapEvent} from '../events'
-import {appendText} from '../files'
-import {serializeYaml} from '../frontmatter'
+import {appendText, readText, writeText} from '../files'
+import {parseMarkdownDocument, serializeYaml} from '../frontmatter'
 import {withStoreWriteLock} from '../lock'
 import {decisionsPath, milestoneNotesPath} from '../paths'
 import type {LoadedState, RoadmapBlocker, RoadmapEventScope} from '../types'
@@ -248,6 +248,85 @@ export async function appendNoteImpl(cwd: string, input: AppendNoteInput): Promi
 			})
 			return filePath
 		})
+	})
+}
+
+// Retract stale issue notes left by superseded (stood-down/abandoned) worker runs once
+// the task they concern has resolved. A stood-down worker can leave a durable
+// kind:"issue" note (open or deferred); if the task later completes via another worker,
+// closeout/review would otherwise still see an issue against a done task. Flip those
+// notes to resolved (and resolve any canonical blocker they created) so the completed
+// task no longer carries a dangling issue.
+export async function reconcileTaskNotes(
+	cwd: string,
+	roadmapId: string,
+	milestoneId: string,
+	taskId: string,
+): Promise<{ reconciled: number }> {
+	return await withStoreWriteLock(cwd, async () => {
+		const filePath = milestoneNotesPath(cwd, roadmapId, milestoneId)
+		let text: string
+		try {
+			text = await readText(filePath)
+		} catch {
+			return {reconciled: 0}
+		}
+
+		const blockerIds: string[] = []
+		let reconciled = 0
+		// Split on a note-frontmatter fence only at a real note boundary — every appended note is
+		// preceded by a blank line (see appendNoteEntry) — so a note body that itself contains a
+		// "---\nkind:" line is not false-split (which would truncate its body on rewrite).
+		const rebuilt = text.split(/(?<=\n)\n(?=---\nkind:)/g).map((part) => {
+			if (!part.startsWith('---\n')) return part
+			let doc
+			try {
+				doc = parseMarkdownDocument<Record<string, unknown>>(part)
+			} catch {
+				return part
+			}
+			const metadata = doc.data
+			const stale =
+				metadata.kind === 'issue' &&
+				metadata.task_id === taskId &&
+				(metadata.status === 'open' || metadata.status === 'deferred') &&
+				metadata.reconciled !== true
+			if (!stale) return part
+			reconciled += 1
+			if (typeof metadata.blocker_id === 'string') blockerIds.push(metadata.blocker_id)
+			const updated = {
+				...metadata,
+				status: 'resolved',
+				blocking: false,
+				reconciled: true,
+				reconciled_reason: `Task ${taskId} resolved via another worker; superseded issue retracted.`,
+				reconciled_at: nowIso(),
+			}
+			return `---\n${serializeYaml(updated).trimEnd()}\n---\n\n${doc.body.trim()}\n`
+		})
+
+		if (reconciled === 0) return {reconciled: 0}
+		await writeText(filePath, rebuilt.join('\n'))
+
+		if (blockerIds.length > 0) {
+			const blockers = await loadRoadmapBlockers(cwd, roadmapId)
+			let changed = false
+			for (const blocker of blockers) {
+				if (!blockerIds.includes(blocker.id)) continue
+				if (blocker.status !== 'open' && blocker.status !== 'deferred') continue
+				const previous = {...blocker}
+				blocker.status = 'resolved'
+				blocker.resolved_by = 'implementation-orchestrator'
+				blocker.resolved_at = nowIso()
+				blocker.resolution = `Task ${taskId} resolved; superseded issue note retracted.`
+				changed = true
+				await appendBlockerEvent(cwd, 'blocker.resolved', 'implementation-orchestrator', blocker, previous, {
+					resolution: blocker.resolution,
+				})
+			}
+			if (changed) await writeRoadmapBlockers(cwd, roadmapId, blockers)
+		}
+		return {reconciled}
 	})
 }
 

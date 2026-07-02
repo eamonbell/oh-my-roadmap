@@ -202,7 +202,8 @@ describe("roadmap commands", () => {
     expect(content).toContain("what test coverage they want");
     expect(content).toContain("which areas should create tests");
     expect(content).toContain("what coverage is intentionally deferred or not required");
-    expect(content).toContain("compact orientation");
+    expect(content).toContain("pick the narrowest scope that answers your question");
+    expect(content).toContain("active_wave for a single wave's tasks/blockers/worker notes");
     expect(content).toContain("roadmap sections, plan sections");
     expect(content).toContain("do not call reopen_roadmap");
     expect(content).toContain("start_milestone_planning to advance from the completed milestone");
@@ -255,6 +256,24 @@ describe("roadmap commands", () => {
     expect(content).toContain("worker-fixable");
     expect(content).toContain("needs-user-decision");
     expect(content).toContain("history://<agentId>");
+    // Reframed transport-recovery protocol (Part 1e)
+    expect(content).toContain("bounded resume loop");
+    expect(content).toContain("resume cap of 3 attempts");
+    expect(content).toContain("Never abandon after a single failed resume");
+    expect(content).toContain("An acknowledgement is a liveness signal, not a licence to abandon");
+    expect(content).toContain("a 2-minute result silence is not death");
+    expect(content).toContain("consume that reply as the liveness signal");
+    expect(content).toContain("do NOT launch a second blocking op:wait");
+    expect(content).toContain("op:list is the authority for liveness; the job tool is not");
+    expect(content).toContain("run a fresh irc op:list immediately before roadmap_engineer_record_worker_abandoned");
+    expect(content).toContain("stop the peer with TaskStop and confirm it is gone via op:list");
+    expect(content).toContain("do not leave it parked");
+    expect(content).toContain("roadmap_engineer_prepare_worker_redispatch");
+    expect(content).toContain("replacesAgentId");
+    // The old fixed-window abandonment wording must not survive
+    expect(content).not.toContain("abandon after 2 min");
+    expect(content).not.toContain("abandon after first failed resume");
+    expect(content).not.toContain("it does not respond within 2 minutes");
     // Findings report submitted once at the end of the run, not per wave
     expect(content).toContain("Submit roadmap_engineer_submit_findings_report exactly once at the terminal point");
     expect(content).toContain("Do not submit a findings report after an individual wave");

@@ -114,7 +114,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await listBlockers(ctx.cwd, params as ListBlockersInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 }

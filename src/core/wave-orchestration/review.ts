@@ -1,4 +1,5 @@
 import {withDiagnosticTiming} from '../../diagnostics'
+import {searchContext} from '../context'
 import {listBlockers, openBlocker, transition,} from '../store/index'
 import type {RoadmapBlocker} from '../types'
 import {activePlanContext, type ActivePlanContext, assertImplementationReady,} from './context'
@@ -70,6 +71,14 @@ export async function prepareWaveReview(
 		}
 		await setProgress(cwd, ctx, 'wave_review', [])
 
+		const workerNotes = await searchContext(cwd, {
+			artifacts: ['notes'],
+			kinds: ['worker'],
+			waveId: ctx.activeWave.id,
+			includeBodies: true,
+			maxResults: 80,
+		})
+
 		return {
 			roadmap_id: ctx.roadmapId,
 			milestone_id: ctx.milestoneId,
@@ -85,6 +94,7 @@ export async function prepareWaveReview(
 				owned_modules: task.owned_modules,
 				shared_interfaces: task.shared_interfaces,
 			})),
+			worker_notes: workerNotes.results,
 		}
 	})
 }

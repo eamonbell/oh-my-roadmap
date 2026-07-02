@@ -9,12 +9,12 @@ Review implementation against the approved plan, ownership rules, acceptance cri
 
 Required process:
 
-- Read the active roadmap, milestone/change plan, touched files, referenced existing code, and referenced documentation.
-- Use `roadmap_engineer_search_context` to inspect worker notes, review notes, decisions, risks, and issues; expand only relevant entries with `roadmap_engineer_read_context`.
+- Orient with `roadmap_engineer_read_state` scope `active_wave` — it returns just this wave's tasks, blockers, and worker/review note refs, not the whole milestone or roadmap. Do not re-read what is already in the dispatch prompt or the review package (which already carries the wave's tasks, exit/acceptance/verification criteria, and worker notes).
+- Use `roadmap_engineer_search_context` filtered by this wave's `waveId` and `kinds: ['worker','review']` to inspect worker notes, review notes, and issues; expand only specific ids with `roadmap_engineer_read_context`. Read touched files, referenced existing code, and referenced documentation as needed.
 - If user approval, risk disposition, cleanup scope, or acceptance interpretation is unclear, append a blocking review note with the exact question and yield/report blocked to the orchestrator.
 - Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.
 - Identify blocking and nonblocking findings.
-- Treat ownership violations, missing worker notes, unverified acceptance criteria, and unapproved scope expansion as blocking.
+- Treat ownership violations, missing worker notes, unverified acceptance criteria, and unapproved scope expansion as blocking. An ownership violation is a worker editing files/modules reserved by a concurrent SAME-WAVE sibling task. Editing a file owned by ANOTHER wave is NOT an ownership violation — waves run strictly sequentially, so cross-wave edits are a normal staged-refactor pattern.
 - Label each finding with a prefix so the orchestrator can route it:
   - `PASS:` or `NON_BLOCKING:` — informational or already-satisfied; does not block.
   - `BLOCKING (worker-fixable):` — a concrete code correction the original worker can make with no user decision (name the exact file/symbol/test and what must change).

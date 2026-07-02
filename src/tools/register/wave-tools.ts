@@ -2,6 +2,8 @@ import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/exten
 import {
 	prepareWaveDispatch,
 	prepareWaveReview,
+	prepareWorkerRedispatch,
+	type PrepareWorkerRedispatchInput,
 	recordWaveResult,
 	type RecordWaveResultInput,
 	recordWaveReview,
@@ -27,7 +29,7 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		parameters: waveOrchestrationTargetSchema,
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await prepareWaveDispatch(ctx.cwd, params as WaveOrchestrationTargetInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 
@@ -40,10 +42,27 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 			taskId: z.string(),
 			agentId: z.string(),
 			jobId: z.string(),
+			replacesAgentId: z.string().optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await recordWorkerDispatch(ctx.cwd, params as RecordWorkerDispatchInput)
 			return textResult(`Recorded worker dispatch for ${result.task_id}.`, result)
+		},
+	} as ToolDefinition)
+
+	register({
+		name: 'roadmap_engineer_prepare_worker_redispatch',
+		label: 'Prepare Worker Redispatch',
+		description: 'Abandon a transport_failed worker run (refuses while any run is still running) and return a replacement assignment carrying continuation context.',
+		approval: 'write',
+		parameters: waveOrchestrationTargetSchema.extend({
+			taskId: z.string(),
+			agentId: z.string().optional(),
+			jobId: z.string().optional(),
+		}),
+		async execute(_id, params, _signal, _update, ctx) {
+			const result = await prepareWorkerRedispatch(ctx.cwd, params as PrepareWorkerRedispatchInput)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 
@@ -112,7 +131,7 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		parameters: waveOrchestrationTargetSchema,
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await prepareWaveReview(ctx.cwd, params as WaveOrchestrationTargetInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 

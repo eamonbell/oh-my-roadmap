@@ -51,6 +51,7 @@ export function progressSnapshot(loaded: LoadedState): Record<string, unknown> {
 			agent_id: run.agent_id,
 			job_id: run.job_id,
 			status: run.status,
+			transport_failures: run.transport_failures ?? 0,
 		})) ?? [],
 		blocked_reason: progress?.blocked_reason ?? null,
 	}

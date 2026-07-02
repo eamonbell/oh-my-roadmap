@@ -22,5 +22,6 @@ export const COMMANDS = [
 
 export const INIT_COMMAND = 'roadmap:init'
 export const DETAILS_COMMAND = 'roadmap:details'
+export const USAGE_COMMAND = 'roadmap:usage'
 export const FINDINGS_CLEAR_COMMAND = 'findings:clear'
 export const COMMAND_MESSAGE_TYPE = 'roadmap-engineer.command-result'

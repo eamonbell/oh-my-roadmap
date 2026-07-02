@@ -28,6 +28,8 @@ export function milestoneInput(): CreateMilestonePlanInput {
     title: "Core milestone",
     verificationCommands: ["bun test"],
     acceptanceCriteria: ["State validates", "Gate opens only during implementation"],
+    decisions: ["Persist state through the existing store lock."],
+    dependencyAnalysis: ["t02-report depends on t01-state; state must land first."],
     tasks: [
       {
         id: "t01-state",

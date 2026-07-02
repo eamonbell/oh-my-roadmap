@@ -10,6 +10,7 @@ const CONFIG_FILE = 'config.yml'
 const OMP_AGENTS_DIR = path.join('.omp', 'agents')
 const ROLE_NAMES = ['worker-light', 'worker', 'worker-heavy', 'reviewer', 'wave-flow-checker', 'roadmap-milestone-checker'] as const
 const THINKING_LEVELS = new Set(['inherit', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+export const DEFAULT_TRANSPORT_RESUME_ATTEMPTS = 3
 
 type AgentRole = (typeof ROLE_NAMES)[number];
 
@@ -18,8 +19,13 @@ interface AgentConfig {
 	thinking?: string;
 }
 
+interface OrchestrationConfig {
+	transport_resume_attempts: number;
+}
+
 interface RoadmapProjectConfig {
 	agents: Record<AgentRole, AgentConfig>;
+	orchestration: OrchestrationConfig;
 }
 
 export interface ProjectInitResult {
@@ -88,9 +94,26 @@ function parseRoleConfig(value: unknown, role: AgentRole): AgentConfig {
 	return config
 }
 
+function defaultOrchestrationConfig(): OrchestrationConfig {
+	return {transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS}
+}
+
+function parseOrchestrationConfig(value: unknown): OrchestrationConfig {
+	if (value === undefined) return defaultOrchestrationConfig()
+	const orchestration = requirePlainObject(value, 'orchestration')
+	rejectUnknownKeys(orchestration, ['transport_resume_attempts'], 'orchestration')
+	if (orchestration.transport_resume_attempts === undefined) return defaultOrchestrationConfig()
+
+	const attempts = orchestration.transport_resume_attempts
+	if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1) {
+		throw new Error('orchestration.transport_resume_attempts must be a positive integer')
+	}
+	return {transport_resume_attempts: attempts}
+}
+
 function parseConfig(raw: unknown): RoadmapProjectConfig {
 	const root = requirePlainObject(raw, 'config')
-	rejectUnknownKeys(root, ['agents'], 'config')
+	rejectUnknownKeys(root, ['agents', 'orchestration'], 'config')
 
 	const agents = requirePlainObject(root.agents, 'agents')
 	rejectUnknownKeys(agents, ROLE_NAMES, 'agents')
@@ -99,6 +122,7 @@ function parseConfig(raw: unknown): RoadmapProjectConfig {
 		agents: Object.fromEntries(
 			ROLE_NAMES.map((role) => [role, parseRoleConfig(agents[role], role)]),
 		) as Record<AgentRole, AgentConfig>,
+		orchestration: parseOrchestrationConfig(root.orchestration),
 	}
 }
 
@@ -106,9 +130,19 @@ async function loadConfig(cwd: string): Promise<RoadmapProjectConfig> {
 	return parseConfig(await readYamlFile(configPath(cwd)))
 }
 
+export async function loadTransportResumeAttempts(cwd: string): Promise<number> {
+	try {
+		if (!(await fileExists(configPath(cwd)))) return DEFAULT_TRANSPORT_RESUME_ATTEMPTS
+		return (await loadConfig(cwd)).orchestration.transport_resume_attempts
+	} catch {
+		return DEFAULT_TRANSPORT_RESUME_ATTEMPTS
+	}
+}
+
 function defaultConfig(): RoadmapProjectConfig {
 	return {
 		agents: Object.fromEntries(ROLE_NAMES.map((role) => [role, {}])) as Record<AgentRole, AgentConfig>,
+		orchestration: defaultOrchestrationConfig(),
 	}
 }
 
@@ -122,7 +156,7 @@ async function ensureConfig(cwd: string): Promise<boolean> {
 
 	const raw = await readYamlFile<unknown>(targetConfigPath)
 	const root = requirePlainObject(raw, 'config')
-	rejectUnknownKeys(root, ['agents'], 'config')
+	rejectUnknownKeys(root, ['agents', 'orchestration'], 'config')
 	const agents = requirePlainObject(root.agents, 'agents')
 	rejectUnknownKeys(agents, ROLE_NAMES, 'agents')
 
@@ -135,7 +169,13 @@ async function ensureConfig(cwd: string): Promise<boolean> {
 		}
 	}
 
-	const expanded = {agents: expandedAgents}
+	const expanded: Record<string, unknown> = {agents: expandedAgents}
+	if (root.orchestration !== undefined) {
+		expanded.orchestration = root.orchestration
+	} else {
+		expanded.orchestration = defaultOrchestrationConfig()
+		changed = true
+	}
 	parseConfig(expanded)
 	if (changed) await writeYamlFile(targetConfigPath, expanded)
 	return false

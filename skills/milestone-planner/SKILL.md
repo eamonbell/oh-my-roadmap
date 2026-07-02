@@ -9,7 +9,7 @@ Produce a decision-complete plan for one milestone or change request.
 
 Required process:
 
-- Read active roadmap state, closeout evidence, and amendments.
+- Read active roadmap state, closeout evidence, and amendments with `roadmap_engineer_read_state` scope `active_milestone` for milestone/implementation work (`roadmap` scope for roadmap-level questions); avoid full-roadmap/compact dumps when a focused scope answers the question.
 - Use `roadmap_engineer_search_context` for decisions, risks, and previous notes before reading full context; expand only relevant entries with `roadmap_engineer_read_context`.
 - Select one approved roadmap milestone outline and expand that outline into the milestone plan. Do not invent milestone scope that is not grounded in the approved roadmap.
 - Do not pad a milestone plan with filler tasks to make the milestone feel larger; every task must directly implement the approved roadmap milestone scope.

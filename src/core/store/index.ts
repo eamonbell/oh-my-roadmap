@@ -1,4 +1,4 @@
-export {amend, appendNote, deferBlocker, listBlockers, openBlocker, resolveBlocker} from './blockers'
+export {amend, appendNote, deferBlocker, listBlockers, openBlocker, reconcileTaskNotes, resolveBlocker} from './blockers'
 export type {
 	AmendmentInput, AppendNoteInput,
 	CreateChangeRequestInput, CreateMilestonePlanInput, DeferBlockerInput, InitRoadmapInput, ListBlockersInput,
@@ -15,5 +15,5 @@ export {
 } from './persistence'
 export {createChangeRequest, createMilestonePlan, transition} from './plans'
 export {listQualityGates} from './quality-gates'
-export {initRoadmap, repairRoadmap, updateRoadmap} from './roadmap'
+export {clearActivePointer, initRoadmap, repairRoadmap, updateRoadmap} from './roadmap'
 export {assertSlug, nowIso, roadmapBlockerId} from './shared'

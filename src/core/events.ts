@@ -1,7 +1,8 @@
 import * as crypto from 'node:crypto'
 import {activePointerPath, roadmapEventsPath} from './paths'
-import {appendText, fileExists, readText, readYamlFile} from './files'
+import {appendTextAtomic, fileExists, readText, readYamlFile} from './files'
 import {withStoreWriteLock} from './lock'
+import {logDiagnostic} from '../diagnostics'
 import type {ActivePointer, RoadmapEvent} from './types'
 
 const DEFAULT_EVENT_LIMIT = 100
@@ -58,10 +59,25 @@ function matchesScope(event: RoadmapEvent, input: ReadRoadmapEventsInput): boole
 }
 
 function parseEvents(text: string): RoadmapEvent[] {
-	return text
-	.split('\n')
-	.filter((line) => line.trim() !== '')
-	.map((line) => JSON.parse(line) as RoadmapEvent)
+	const events: RoadmapEvent[] = []
+	let skipped = 0
+	for (const line of text.split('\n')) {
+		if (line.trim() === '') continue
+		try {
+			events.push(JSON.parse(line) as RoadmapEvent)
+		} catch {
+			skipped++
+		}
+	}
+	if (skipped > 0) {
+		void logDiagnostic({
+			level: 'warn',
+			component: 'core',
+			operation: 'events.parseEvents',
+			metadata: {skipped},
+		})
+	}
+	return events
 }
 
 export async function appendRoadmapEvent(cwd: string, input: RoadmapEventInput): Promise<RoadmapEvent> {
@@ -72,7 +88,7 @@ export async function appendRoadmapEvent(cwd: string, input: RoadmapEventInput):
 			schema_version: 1,
 			at: input.at ?? new Date().toISOString(),
 		}
-		await appendText(roadmapEventsPath(cwd, event.scope.roadmap_id), `${JSON.stringify(event)}\n`)
+		await appendTextAtomic(roadmapEventsPath(cwd, event.scope.roadmap_id), `${JSON.stringify(event)}\n`)
 		return event
 	})
 }

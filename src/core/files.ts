@@ -35,6 +35,20 @@ export async function appendText(filePath: string, text: string): Promise<void> 
 	await fs.appendFile(filePath, text, 'utf8')
 }
 
+export async function appendTextAtomic(filePath: string, text: string): Promise<void> {
+	let existing = ''
+	try {
+		existing = await fs.readFile(filePath, 'utf8')
+	} catch (error) {
+		// Only a missing file means "nothing to preserve". Any other read error (EMFILE, EACCES,
+		// EBUSY, …) must abort the append — otherwise we would atomically overwrite the whole file
+		// with just the new chunk, destroying existing history.
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+		existing = ''
+	}
+	await writeText(filePath, existing + text)
+}
+
 export async function readYamlFile<T>(filePath: string): Promise<T> {
 	return parseYaml<T>(await readText(filePath))
 }

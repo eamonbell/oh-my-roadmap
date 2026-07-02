@@ -1,9 +1,10 @@
 import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {initProject} from '../../core/project-init'
 import {withDiagnosticTiming} from '../../diagnostics'
-import {COMMANDS, DETAILS_COMMAND, FINDINGS_CLEAR_COMMAND, INIT_COMMAND} from './catalog'
+import {COMMANDS, DETAILS_COMMAND, FINDINGS_CLEAR_COMMAND, INIT_COMMAND, USAGE_COMMAND} from './catalog'
 import {showRoadmapDetails} from './details'
 import {sendCommandMessage, sendCommandPrompt} from './messages'
+import {showRoadmapUsage} from './usage'
 import {clearFindingsReportTile} from '../../core/findings.ts'
 import {AutocompleteItem} from '@oh-my-pi/pi-tui'
 
@@ -45,6 +46,26 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
 				slowMs: 1000,
 			}, async () => {
 				await showRoadmapDetails(api, ctx)
+			})
+		},
+	})
+
+	api.registerCommand(USAGE_COMMAND, {
+		description: 'Report roadmap usage totals without prompting the model (append "json" and/or an export path)',
+		handler: async (args, ctx) => {
+			await withDiagnosticTiming({
+				component: 'command',
+				operation: USAGE_COMMAND,
+				cwd: ctx.cwd,
+				slowMs: 1000,
+			}, async () => {
+				try {
+					await showRoadmapUsage(api, ctx, args)
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error)
+					sendCommandMessage(api, `roadmap:usage failed: ${message}`)
+					throw error
+				}
 			})
 		},
 	})

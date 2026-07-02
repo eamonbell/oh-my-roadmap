@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises'
 import {appendRoadmapEvent, roadmapEventId} from '../events'
-import {readText, writeText} from '../files'
+import {fileExists, readText, writeText} from '../files'
 import {withStoreWriteLock} from '../lock'
-import {decisionsPath, risksPath, roadmapDir, roadmapDocPath} from '../paths'
+import {activePointerPath, decisionsPath, risksPath, roadmapDir, roadmapDocPath} from '../paths'
 import type {RoadmapMilestoneCheck, RoadmapState} from '../types'
 import type {InitRoadmapInput, RepairRoadmapInput, RepairRoadmapResult, UpdateRoadmapInput, WaveFlowCheckInput} from './contract'
 import {
@@ -110,12 +110,39 @@ export async function assertRoadmapReadyForApproval(cwd: string, roadmap: Roadma
 	}
 }
 
+export async function clearActivePointer(cwd: string): Promise<void> {
+	return await withStoreWriteLock(cwd, async () => {
+		await fs.rm(activePointerPath(cwd), {force: true})
+	})
+}
+
 export async function initRoadmapImpl(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
 	return await withStoreWriteLock(cwd, async () => {
 		assertSlug(input.roadmapId, 'roadmapId')
+		// Never overwrite an existing roadmap directory (e.g. a just-archived completed roadmap
+		// whose id is reused): auto-archive only clears the active pointer, the files remain as
+		// history, and mkdir(recursive)+writes below would otherwise clobber them.
+		if (await fileExists(roadmapDir(cwd, input.roadmapId))) {
+			throw new Error(`Cannot create roadmap: a roadmap named ${input.roadmapId} already exists`)
+		}
 		const existingActive = await loadActive(cwd)
 		if (existingActive) {
-			throw new Error(`Cannot create roadmap: ${existingActive.roadmap_id} is already active`)
+			const existingRoadmap = await loadRoadmapState(cwd, existingActive.roadmap_id)
+			const hasActiveChangeRequest =
+				Boolean(existingActive.change_request_id) || Boolean(existingRoadmap.active_change_request_id)
+			if (existingRoadmap.phase !== 'complete' || hasActiveChangeRequest) {
+				throw new Error(`Cannot create roadmap: ${existingActive.roadmap_id} is already active`)
+			}
+			// Completed roadmap with no active change request: auto-archive it. The roadmap
+			// directory and files are preserved as history; only the active pointer is cleared.
+			await appendRoadmapEvent(cwd, {
+				actor: 'user',
+				type: 'roadmap.archived',
+				scope: {roadmap_id: existingRoadmap.roadmap_id},
+				summary: `Archived completed roadmap ${existingRoadmap.roadmap_id} to start a new roadmap.`,
+				before: {phase: existingRoadmap.phase},
+			})
+			await clearActivePointer(cwd)
 		}
 
 		return await withStoreMutationRollback(cwd, input.roadmapId, async () => {

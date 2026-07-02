@@ -28,6 +28,10 @@ export function valueString(value: unknown): string {
 	return typeof value === 'string' ? value : ''
 }
 
+export function valueNumber(value: unknown, fallback = 0): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 export function approval(approver: string | undefined, summary: string | undefined): Approval {
 	return {
 		by: approver ?? 'user',

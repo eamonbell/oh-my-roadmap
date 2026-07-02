@@ -183,8 +183,49 @@ function validateProgress(
 	}
 }
 
-function validateDependencyCycles(tasks: TaskPlan[], errors: ValidationIssue[]): void {
+export interface TaskDependencyGraph {
+	taskById: Map<string, TaskPlan>;
+	/** Directed edges dependency -> dependent, restricted to tasks present in the plan. */
+	edges: Array<{ from: string; to: string }>;
+}
+
+export function buildTaskDependencyGraph(tasks: TaskPlan[]): TaskDependencyGraph {
 	const taskById = new Map(tasks.map((task) => [task.id, task]))
+	const edges: Array<{ from: string; to: string }> = []
+	for (const task of tasks) {
+		for (const dependency of task.depends_on) {
+			if (taskById.has(dependency)) edges.push({from: dependency, to: task.id})
+		}
+	}
+	return {taskById, edges}
+}
+
+function escapeMermaidLabel(text: string): string {
+	return text.replace(/"/g, "'").replace(/[\r\n]+/g, ' ').trim()
+}
+
+export function renderMilestoneDependencyGraph(tasks: TaskPlan[]): string {
+	const {taskById, edges} = buildTaskDependencyGraph(tasks)
+	const ids = [...taskById.keys()]
+	const nodeName = new Map<string, string>()
+	ids.forEach((id, index) => nodeName.set(id, `n${index}`))
+	const lines = ['graph TD']
+	if (ids.length === 0) {
+		lines.push('\tempty["No tasks in active plan"]')
+		return lines.join('\n')
+	}
+	for (const id of ids) {
+		const task = taskById.get(id)!
+		lines.push(`\t${nodeName.get(id)}["${escapeMermaidLabel(`${id}: ${task.title}`)}"]`)
+	}
+	for (const edge of edges) {
+		lines.push(`\t${nodeName.get(edge.from)} --> ${nodeName.get(edge.to)}`)
+	}
+	return lines.join('\n')
+}
+
+function validateDependencyCycles(tasks: TaskPlan[], errors: ValidationIssue[]): void {
+	const {taskById} = buildTaskDependencyGraph(tasks)
 	const visiting = new Set<string>()
 	const visited = new Set<string>()
 
@@ -246,6 +287,18 @@ export function validateMilestonePlan(
 	}
 	if (plan.open_questions.length > 0) {
 		errors.push(issue(`${prefix}.questions.open`, 'Plan has open material questions'))
+	}
+	// Decision-completeness is an approval gate: only enforce it while the milestone plan is
+	// still being drafted (not yet approved). Re-validating an already-approved or completed
+	// milestone must not retroactively invalidate a roadmap that was planned before this rule
+	// existed (that would strand the planner at /roadmap:next and slam the implementation gate).
+	if (prefix === 'milestone' && plan.approvals.length === 0) {
+		if (plan.decisions.length === 0) {
+			errors.push(issue('plan.decisions.missing', 'Milestone plan must record decisions before approval'))
+		}
+		if (plan.dependency_analysis.length === 0) {
+			errors.push(issue('plan.dependency_analysis.missing', 'Milestone plan must record dependency analysis before approval'))
+		}
 	}
 	if (plan.verification_commands.length === 0) {
 		errors.push(issue(`${prefix}.verify.missing`, 'Plan must define verification commands'))

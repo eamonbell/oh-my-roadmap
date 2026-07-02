@@ -16,6 +16,8 @@ import {
 } from "../src/core/store/index";
 import { recordMainUsage, recordTaskUsage } from "../src/core/usage";
 import { validateRoadmapState } from "../src/core/validation";
+import type { ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import { parseUsageArgs, renderUsageReport, showRoadmapUsage } from "../src/extension/commands/usage";
 
 let cwd = "";
 
@@ -293,6 +295,105 @@ describe("roadmap usage summaries", () => {
     const validation = await validateRoadmapState(cwd);
     expect(validation.valid).toBe(false);
     expect(validation.errors[0]?.code).toBe("state.unreadable");
+  });
+});
+
+describe("roadmap:usage command", () => {
+  function captureApi(): { api: ExtensionAPI; messages: string[] } {
+    const messages: string[] = [];
+    const api = {
+      sendMessage(msg: { content: string }) {
+        messages.push(msg.content);
+      },
+    } as unknown as ExtensionAPI;
+    return { api, messages };
+  }
+
+  test("parses format and export-path arguments", () => {
+    expect(parseUsageArgs("")).toEqual({ format: "markdown" });
+    expect(parseUsageArgs("json")).toEqual({ format: "json" });
+    expect(parseUsageArgs("json out/usage.json")).toEqual({ format: "json", exportPath: "out/usage.json" });
+    expect(parseUsageArgs("usage.md")).toEqual({ format: "markdown", exportPath: "usage.md" });
+    // A path token that equals a format word is still an export path once a format is consumed.
+    expect(parseUsageArgs("json md")).toEqual({ format: "json", exportPath: "md" });
+    expect(parseUsageArgs("markdown report")).toEqual({ format: "markdown", exportPath: "report" });
+  });
+
+  test("renders a markdown summary with roadmap and milestone totals", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await recordMainUsage(cwd, {
+      role: "assistant",
+      responseId: "resp-usage-md",
+      usage: {
+        input: 40,
+        output: 10,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoningTokens: 0,
+        cost: { total: 0.05 },
+      },
+    });
+
+    const state = await loadState(cwd);
+    const markdown = renderUsageReport(state.usage!, { format: "markdown", milestoneId: "m01-core" });
+    expect(markdown).toContain("# Roadmap usage: usage-roadmap");
+    expect(markdown).toContain("- Usage roadmap: $0.0500");
+    expect(markdown).toContain("- Usage milestone m01-core: $0.0500");
+
+    const json = renderUsageReport(state.usage!, { format: "json" });
+    expect(JSON.parse(json).roadmap_id).toBe("usage-roadmap");
+  });
+
+  test("prints the summary through the command handler", async () => {
+    await approvedRoadmap();
+    await recordMainUsage(cwd, {
+      role: "assistant",
+      responseId: "resp-usage-cmd",
+      usage: {
+        input: 10,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoningTokens: 0,
+        cost: { total: 0.01 },
+      },
+    });
+
+    const { api, messages } = captureApi();
+    await showRoadmapUsage(api, { cwd } as ExtensionCommandContext, "");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("# Roadmap usage: usage-roadmap");
+    expect(messages[0]).toContain("Usage roadmap: $0.0100");
+  });
+
+  test("exports the summary to a file when a path is provided", async () => {
+    await approvedRoadmap();
+    await recordMainUsage(cwd, {
+      role: "assistant",
+      responseId: "resp-usage-export",
+      usage: {
+        input: 10,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoningTokens: 0,
+        cost: { total: 0.01 },
+      },
+    });
+
+    const { api, messages } = captureApi();
+    await showRoadmapUsage(api, { cwd } as ExtensionCommandContext, "json usage-export.json");
+    const target = path.join(cwd, "usage-export.json");
+    const written = await fs.readFile(target, "utf8");
+    expect(JSON.parse(written).roadmap_id).toBe("usage-roadmap");
+    expect(messages[0]).toContain("Exported json roadmap usage to");
+  });
+
+  test("reports when there is no active roadmap", async () => {
+    const { api, messages } = captureApi();
+    await showRoadmapUsage(api, { cwd } as ExtensionCommandContext, "");
+    expect(messages[0]).toBe("No roadmap usage recorded yet.");
   });
 });
 

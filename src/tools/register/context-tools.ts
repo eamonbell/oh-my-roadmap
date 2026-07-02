@@ -15,24 +15,32 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		description: 'Read compact active roadmap, milestone, and change-request state. Full detail is available through roadmap_engineer_search_context and roadmap_engineer_read_context.',
 		approval: 'read',
 		parameters: z.object({
-			scope: z.enum(['compact', 'roadmap', 'active_milestone', 'active_change', 'usage']).optional(),
+			scope: z.enum(['compact', 'roadmap', 'active_milestone', 'active_wave', 'active_change', 'usage']).optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const scope = ((params as { scope?: StateReadScope }).scope ?? 'compact') as StateReadScope
 			const state = await loadState(ctx.cwd)
 			const blockers = state.roadmap ? await loadRoadmapBlockers(ctx.cwd, state.roadmap.roadmap_id) : []
+			// sectionRefs discards snippet bodies, so request a minimal snippet and skip computing thrown-away text.
 			const roadmapSections = ['compact', 'roadmap'].includes(scope)
-				? (await searchContext(ctx.cwd, {artifacts: ['roadmap'], maxResults: 50, snippetChars: 80})).results
+				? (await searchContext(ctx.cwd, {artifacts: ['roadmap'], maxResults: 50, snippetChars: 1})).results
 				: undefined
 			const planSections = ['compact', 'active_milestone', 'active_change'].includes(scope)
-				? (await searchContext(ctx.cwd, {artifacts: ['plan'], maxResults: 80, snippetChars: 80})).results
+				? (await searchContext(ctx.cwd, {artifacts: ['plan'], maxResults: 80, snippetChars: 1})).results
+				: undefined
+			const activeWaveId = scope === 'active_wave'
+				? (state.changeRequest ?? state.milestone)?.progress.active_wave_id
+				: undefined
+			const noteSections = activeWaveId
+				? (await searchContext(ctx.cwd, {artifacts: ['notes'], kinds: ['worker', 'review'], waveId: activeWaveId, maxResults: 80, snippetChars: 1})).results
 				: undefined
 			const summary = summarizeState(state, scope, {
 				...(roadmapSections !== undefined ? {roadmapSections} : {}),
 				...(planSections !== undefined ? {planSections} : {}),
+				...(noteSections !== undefined ? {noteSections} : {}),
 				blockers,
 			})
-			return textResult(JSON.stringify(summary, null, 2), summary)
+			return textResult(JSON.stringify(summary), summary)
 		},
 	} as ToolDefinition)
 
@@ -60,7 +68,7 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await searchContext(ctx.cwd, params as SearchContextInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 
@@ -75,7 +83,7 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await readContext(ctx.cwd, params as ReadContextInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 
@@ -97,7 +105,7 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await readRoadmapEvents(ctx.cwd, params as ReadRoadmapEventsInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 
@@ -114,7 +122,7 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await listQualityGates(ctx.cwd, params as ListQualityGatesInput)
-			return textResult(JSON.stringify(result, null, 2), result)
+			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
 }

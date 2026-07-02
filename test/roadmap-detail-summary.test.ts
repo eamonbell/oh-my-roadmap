@@ -29,6 +29,8 @@ function milestoneInput(): CreateMilestonePlanInput {
     title: "Core milestone",
     verificationCommands: ["bun test"],
     acceptanceCriteria: ["Summary is UI-ready"],
+    decisions: ["Derive the summary outside renderReport."],
+    dependencyAnalysis: ["Single task; no inter-task dependencies."],
     tasks: [
       {
         id: "t01-state",

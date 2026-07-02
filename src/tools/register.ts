@@ -3,6 +3,7 @@ import { withDiagnosticTiming } from "../diagnostics";
 import { registerBlockerTools } from "./register/blocker-tools";
 import { registerContextTools } from "./register/context-tools";
 import { registerFindingsReportTool } from "./register/findings-report-tool";
+import { registerGraphTools } from "./register/graph-tools";
 import { registerReportTools } from "./register/report-tools";
 import { registerRoadmapLifecycleTools } from "./register/roadmap-tools";
 import { createToolRegistrationSchemas, toolMetadata, type ToolRegistrationContext } from "./register/shared";
@@ -35,4 +36,5 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   registerWaveTools(ctx);
   registerReportTools(ctx);
   registerFindingsReportTool(ctx);
+  registerGraphTools(ctx);
 }

@@ -210,6 +210,22 @@ describe("event ledger", () => {
     ]);
   });
 
+  test("skips a torn/malformed event line and still returns valid events", async () => {
+    await initRoadmap(cwd, { roadmapId: "event-roadmap", title: "Event Roadmap" });
+    await transition(cwd, { operation: "record_discovery", discovery: { findings: ["Inspected surfaces."] } });
+
+    const filePath = roadmapEventsPath(cwd, "event-roadmap");
+    const original = await fs.readFile(filePath, "utf8");
+    const lines = original.split("\n").filter((line) => line.trim() !== "");
+    // Corrupt (tear) the middle line, then append it back plus a garbage line.
+    const torn = `${lines[0]}\n${lines[1]!.slice(0, lines[1]!.length - 5)}\nnot json at all\n`;
+    await fs.writeFile(filePath, torn, "utf8");
+
+    const result = await readRoadmapEvents(cwd);
+    // The one intact line still parses; the torn and garbage lines are skipped.
+    expect(result.events.map((event) => event.type)).toEqual(["roadmap.initialized"]);
+  });
+
   test("records change request lifecycle events with change scope", async () => {
     await approveMilestone();
     await transition(cwd, { operation: "start_implementation" });
@@ -263,11 +279,12 @@ describe("event ledger", () => {
     );
     expect((await readRoadmapEvents(cwd)).events.map((event) => event.type)).toEqual(["roadmap.initialized"]);
 
-    await fs.chmod(roadmapEventsPath(cwd, "event-roadmap"), 0o444);
+    const eventsDir = path.dirname(roadmapEventsPath(cwd, "event-roadmap"));
+    await fs.chmod(eventsDir, 0o555);
     try {
       await expect(transition(cwd, { operation: "record_discovery" })).rejects.toThrow();
     } finally {
-      await fs.chmod(roadmapEventsPath(cwd, "event-roadmap"), 0o644);
+      await fs.chmod(eventsDir, 0o755);
     }
 
     expect((await readRoadmapEvents(cwd)).events.map((event) => event.type)).toEqual(["roadmap.initialized"]);

@@ -1,4 +1,4 @@
-function commandSpecificInstructions(name: string): string {
+function commandSpecificInstructions(name: string, transportResumeAttempts: number): string {
 	if (name === 'roadmap:new') {
 		return `
 Command-specific workflow for /roadmap:new:
@@ -12,7 +12,7 @@ Command-specific workflow for /roadmap:new:
 Command-specific workflow for /milestone:plan:
 - If the roadmap phase is roadmap_approved, call roadmap_engineer_transition with operation start_milestone_planning before creating the milestone plan.
 - If the roadmap phase is complete and the roadmap has remaining planned or blocked milestone outlines, do not call reopen_roadmap. Call roadmap_engineer_transition with operation start_milestone_planning to advance from the completed milestone into planning for the next milestone.
-- If the roadmap phase is complete and there are no remaining planned or blocked milestone outlines, stop and ask whether the user wants a post-implementation change request or a new roadmap.
+- If the roadmap phase is complete and there are no remaining planned or blocked milestone outlines, stop and ask whether the user wants a post-implementation change request or a new roadmap (starting a new roadmap archives the completed one).
 - Do not pad the milestone plan with filler tasks; every task must directly implement the approved roadmap milestone scope.
 - After milestone planning is open, use roadmap_engineer_transition with operation create_milestone_plan for the selected roadmap milestone, then validate before asking for approval.`
 	}
@@ -35,15 +35,20 @@ IRC recovery/rework pattern (prefer waking the existing worker over spawning a r
 - Use op:send await:true or op:wait only when you are blocked on the reply; do not treat a wait timeout as failure, because the worker may still be running.
 - Spawn a replacement only when the worker is aborted or non-revivable, when op:list does not list it (for example after resuming in a new session where the old subagent no longer exists), or when delivery returns failed. Use history://<agentId> to recover a worker's transcript when deciding whether a replacement is truly needed.
 
-Transient transport failure:
-- If a current-session worker job reports socket-close or another transient transport failure, call roadmap_engineer_record_worker_transport_failed, then op:list and, if the worker is still a peer, op:send it a narrow resume message: "You stopped after a transport error. Resume from your existing transcript, continue from the last completed step, retry only the interrupted operation, do not redo completed work, and report back." Then wait up to 2 minutes for a reply. If the original worker responds, collect its final result and call roadmap_engineer_record_wave_result with completed. If op:list does not list it, delivery fails, or it does not respond within 2 minutes, call roadmap_engineer_record_worker_abandoned, then redispatch only that task.
+Transient transport failure (bounded resume loop, liveness-gated abandonment):
+- If a current-session worker job reports socket-close or another transient transport failure, call roadmap_engineer_record_worker_transport_failed, then run a bounded resume loop: irc op:list to find the worker's peer, op:send it a narrow resume message ("You stopped after a transport error. Resume from your existing transcript, continue from the last completed step, retry only the interrupted operation, do not redo completed work, and report back."), and wait up to 2 minutes for a reply. Re-resume the same worker up to the configured resume cap of ${transportResumeAttempts} attempts (transport_failures is the counter). Never abandon after a single failed resume.
+- An acknowledgement is a liveness signal, not a licence to abandon. If the worker acks or resumes it is alive and working; do not then fire a separate op:wait for a final result and treat its timeout as death. A worker-heavy task will not finish inside a 2-minute window, so a 2-minute result silence is not death. If op:send await:true already returned a reply, consume that reply as the liveness signal — do NOT launch a second blocking op:wait for a message that will never come. After acking, keep monitoring with longer waits (op:wait minutes, or op:list activity-age checks), never a fixed short abandon window.
+- op:list is the authority for liveness; the job tool is not. The job/job list tool can report a crashed-then-resumed run as terminal failed (exit 1) while op:list shows the peer running, and can return an empty or non-text placeholder. A job "failed"/"exited" status means the spawned process exited — that is NOT the same as the task failing when the underlying agent/IRC peer survives and resumed. Treat an empty or non-text job snapshot as no signal (never as death). Decide liveness from op:list peer status and activity age only; ignore a stale job terminal state after a transport failure, and never abandon on job output alone.
+- Only after the resume cap of ${transportResumeAttempts} attempts is hit or the worker is confirmed unreachable: run a fresh irc op:list immediately before roadmap_engineer_record_worker_abandoned — if the peer is running or idle with recent activity, do not abandon. Then stop the peer with TaskStop and confirm it is gone via op:list (do not leave it parked — parked peers linger for minutes and are auto-revived when messaged), call roadmap_engineer_record_worker_abandoned, call roadmap_engineer_prepare_worker_redispatch (it refuses while a run is still running, so a replacement can never collide with a live peer), spawn the replacement with the returned prompt (it carries continuation context, the prior worker's history://<agentId> transcript, and a live-peer coordination warning), then call roadmap_engineer_record_worker_dispatch with the new agentId and jobId and replacesAgentId set to the prior worker's agentId.
 - A transport, socket, or provider error is an orchestration interruption, not an implementation blocker. Never call roadmap_engineer_record_wave_result with failed or blocked for a transport error; that path opens a canonical blocking blocker. Route transport errors only through roadmap_engineer_record_worker_transport_failed and then resume-or-abandon. Reserve roadmap_engineer_record_wave_result with failed or blocked for a real implementation failure or blocker the worker itself reports.
 - After each worker returns real work, call roadmap_engineer_record_wave_result with completed, failed, or blocked status before taking any next orchestration step.
+- Collect the result from state, not from a live IRC reply. A worker writes its structured result to its persisted note before yielding, and may already have terminated ("Unknown or terminated agent") by the time you ask for its report. If the peer is gone, do NOT re-search or reconstruct the summary from scratch: call roadmap_engineer_record_wave_result for the task (omit summary when you have none) — it sources the summary from the worker's resolved note in state. Reserve a search only for extra detail you still need after that.
 
 Wave review and rework:
 - When all active-wave workers are completed, call roadmap_engineer_prepare_wave_review and dispatch the returned reviewer package with the built-in task/subagent mechanism.
 - When the reviewer returns findings, classify each blocking finding before recording the review: worker-fixable (a concrete code correction that needs no user decision) versus needs-user-decision (ambiguous acceptance, scope or approval, or risk disposition).
 - For worker-fixable findings do not open a blocker: op:list and, if the original worker is still a peer, op:send it (replyTo the finding) narrow rework instructions naming the exact file/symbol/test, what must change, what must not change, and the verification to run; wait for its rework note; then re-dispatch reviewer and repeat until the wave is clean. If op:list does not list the original worker (new session or aborted), spawn a fresh worker for that task seeded with the findings and the task's persisted worker notes (and history://<agentId> when reachable), then re-review.
+- A rework worker dispatched to fix an open blocker is authorized to edit the files that blocker covers without first resolving it; the write-gate already permits edits for a task with an active worker run. Do NOT call roadmap_engineer_resolve_blocker merely to open the write-gate — resolve a blocker only when its rework is genuinely done.
 - Call roadmap_engineer_record_wave_review with passed only when the wave is clean, and with failed only for findings that genuinely need a user decision.
 - If workers or reviewers report real blockers, rely on the record tools to update task/wave/progress state and open canonical blockers, cancel sibling active runs, pause, ask the user from the orchestrator/main-agent role when needed, and report /blocker:list, /blocker:resolve <id> <resolution> or /blocker:defer <id> <reason>, then /roadmap:resume.
 - Require worker results whose worker role matches each returned assignment before preparing review.
@@ -105,7 +110,7 @@ Command-specific workflow for /roadmap:reopen:
 - Do not create milestone plans, tasks, waves, workers, ownership, change requests, or implementation work during reopening.`
 }
 
-export function commandPrompt(name: string, args: string, report: string): string {
+export function commandPrompt(name: string, args: string, report: string, transportResumeAttempts = 3): string {
 	return `You are operating the roadmap-engineer OMP extension command /${name}.
 
 User arguments:
@@ -119,7 +124,7 @@ Follow the roadmap-engineer workflow strictly:
 - Inspect existing code and documentation before planning or changing state.
 - Use the built-in ask tool to interview the user whenever additional information, decisions, tradeoffs, gaps, approvals, or unresolved questions remain.
 - Reference relevant existing code and documentation paths in roadmap, milestone, change, review, and closeout artifacts when those references help future agents.
-- Use roadmap_engineer_read_state for compact orientation before changing state when context is unclear; request a focused scope when only roadmap, active milestone, active change, or usage context is needed.
+- Use roadmap_engineer_read_state for orientation before changing state when context is unclear, and always pick the narrowest scope that answers your question: roadmap for roadmap work, active_milestone for milestone/implementation planning, active_wave for a single wave's tasks/blockers/worker notes, active_change for change requests, usage for token accounting, and compact only when a broad snapshot is genuinely required.
 - Use roadmap_engineer_search_context for roadmap sections, plan sections, decisions, risks, notes, issues, and review findings; use roadmap_engineer_read_context only for selected entries that need full detail. Do not read full roadmap.md or plan.md directly unless the section tools cannot answer the question.
 - Use roadmap_engineer_validate before asking for approval or opening implementation.
 - Use roadmap_engineer_update_roadmap to finalize a detailed generated roadmap before asking for roadmap approval.
@@ -140,5 +145,5 @@ Before finishing this slash-command turn:
 - Call roadmap_engineer_submit_findings_report exactly once after completing the command task or determining the terminal blocked/error/needs-input state, and before your final response.
 - Use title: "/${name} result".
 - Use markdown for the durable user-visible command result only: outcome, next commands/actions, and any blocker/error state. Do not include a tool-call audit trail unless it is part of the command result.
-${commandSpecificInstructions(name)}`
+${commandSpecificInstructions(name, transportResumeAttempts)}`
 }

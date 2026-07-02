@@ -1,7 +1,7 @@
 import type {ChangeRequest, CloseoutEvidence, LoadedState, MilestonePlan, RoadmapBlocker, RoadmapState, TaskPlan, WavePlan,} from './types'
 import type {ContextEntryResult} from './context-types'
 
-export type StateReadScope = 'compact' | 'roadmap' | 'active_milestone' | 'active_change' | 'usage';
+export type StateReadScope = 'compact' | 'roadmap' | 'active_milestone' | 'active_wave' | 'active_change' | 'usage';
 
 interface SectionReference {
 	id: string;
@@ -13,6 +13,7 @@ interface SectionReference {
 interface StateSummaryContext {
 	roadmapSections?: ContextEntryResult[];
 	planSections?: ContextEntryResult[];
+	noteSections?: ContextEntryResult[];
 	blockers?: RoadmapBlocker[];
 }
 
@@ -170,6 +171,31 @@ export function summarizeState(
 				closeout: closeoutSummary(state.closeout),
 				context_sections: {plan: sectionRefs(context.planSections)},
 			}
+		case 'active_wave': {
+			const plan = state.changeRequest ?? state.milestone
+			const activeWaveId = plan?.progress.active_wave_id
+			const wave = plan?.waves.find((candidate) => candidate.id === activeWaveId)
+			const taskById = new Map((plan?.tasks ?? []).map((task) => [task.id, task]))
+			const waveTasks = (wave?.tasks ?? [])
+			.map((taskId) => taskById.get(taskId))
+			.filter((task): task is TaskPlan => task !== undefined)
+			.map(taskSummary)
+			return {
+				active: state.active,
+				active_wave: wave
+					? {
+						id: wave.id,
+						status: wave.status,
+						exit_criteria: wave.exit_criteria,
+						review_checkpoint: wave.review_checkpoint,
+						tasks: waveTasks,
+					}
+					: undefined,
+				progress: plan?.progress,
+				blockers: blockerSummary((context.blockers ?? []).filter((blocker) => blocker.wave_id === activeWaveId)),
+				context_sections: {notes: sectionRefs(context.noteSections)},
+			}
+		}
 		case 'active_change':
 			return {
 				active: state.active,

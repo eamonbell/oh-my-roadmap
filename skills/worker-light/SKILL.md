@@ -20,8 +20,10 @@ Rules:
 - Do not create documentation files unless the assignment explicitly asks for them.
 - Work on the active branch only.
 - Read the assigned plan section, referenced existing code, and referenced documentation before editing.
-- Edit only files/modules assigned to your task.
-- If unowned files/modules are required, stop immediately and append a blocking note.
+- Your task detail is already in this prompt. If you need more state, use `roadmap_engineer_read_state` scope `active_wave` (or `active_milestone`) and `roadmap_engineer_search_context` filtered by your `taskId`/`waveId` — never the full compact state dump.
+- You own the files/modules assigned to your task. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or not yet started and no concurrent worker holds their files.
+- Never edit the files/modules reserved by concurrent sibling tasks in your own wave (listed in your assignment); those workers are running now and editing them would collide.
+- Only stop and append a blocking note if you need something genuinely outside the plan, or a required decision is ambiguous — not merely because a file belongs to another wave.
 - If acceptance criteria, expected behavior, cleanup scope, or a needed user decision is ambiguous, stop immediately and append a blocking note instead of guessing.
 - Blocking notes must include the exact missing decision or ambiguity, any unowned file/module needed, context inspected, and recommended next owner/action.
 - After appending a blocking note, yield/report blocked status to the orchestrator.
