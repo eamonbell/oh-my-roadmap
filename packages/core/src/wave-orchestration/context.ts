@@ -1,15 +1,19 @@
-import {loadState, writeChangeRequestRuntime, writeMilestoneRuntime,} from '../store/index'
+import {loadState, writeAdhocRuntime, writeChangeRequestRuntime, writeMilestoneRuntime,} from '../store/index'
 import {validateImplementationGate} from '../validation'
-import type {ChangeRequest, LoadedState, MilestonePlan, TaskPlan, WavePlan, WorkerRun, WorkerRunStatus,} from '../types'
+import type {AdhocPlan, ChangeRequest, LoadedState, MilestonePlan, TaskPlan, WavePlan, WorkerRun, WorkerRunStatus,} from '../types'
 import {IMPLEMENTATION_WORKER_NAMES} from '../types'
 import type {WaveOrchestrationTargetInput} from './types'
+
+// Any plan the wave machinery can drive. Ad-hoc plans reuse the same tasks/waves/progress shape.
+export type WaveOrchestrationPlan = MilestonePlan | ChangeRequest | AdhocPlan;
 
 export interface ActivePlanContext {
 	loaded: LoadedState;
 	roadmapId: string;
 	milestoneId: string;
 	changeRequestId?: string;
-	plan: MilestonePlan | ChangeRequest;
+	isAdhoc: boolean;
+	plan: WaveOrchestrationPlan;
 	activeWave: WavePlan;
 	activeTasks: TaskPlan[];
 }
@@ -17,7 +21,7 @@ export interface ActivePlanContext {
 export const WORKERS = new Set<string>(IMPLEMENTATION_WORKER_NAMES)
 export const ACTIVE_WORKER_RUN_STATUSES = new Set<WorkerRunStatus>(['running', 'transport_failed'])
 
-export function activeWorkerRuns(plan: MilestonePlan | ChangeRequest): WorkerRun[] {
+export function activeWorkerRuns(plan: WaveOrchestrationPlan): WorkerRun[] {
 	return plan.progress.worker_runs.filter((run) => ACTIVE_WORKER_RUN_STATUSES.has(run.status))
 }
 
@@ -37,7 +41,11 @@ export function updateTaskStatusLocal(tasks: TaskPlan[], taskId: string, status:
 	return updated
 }
 
-export async function writePlanRuntime(cwd: string, plan: MilestonePlan | ChangeRequest): Promise<void> {
+export async function writePlanRuntime(cwd: string, plan: WaveOrchestrationPlan): Promise<void> {
+	if ('adhoc_id' in plan) {
+		await writeAdhocRuntime(cwd, plan)
+		return
+	}
 	if ('change_request_id' in plan) {
 		await writeChangeRequestRuntime(cwd, plan)
 		return
@@ -56,7 +64,15 @@ export async function assertImplementationReady(cwd: string): Promise<void> {
 export function requireMatchingTarget(
 	loaded: LoadedState,
 	input: WaveOrchestrationTargetInput,
-): { roadmapId: string; milestoneId: string; changeRequestId?: string } {
+): { roadmapId: string; milestoneId: string; changeRequestId?: string; isAdhoc: boolean } {
+	// Ad-hoc plans have no roadmap; scope every roadmap-keyed operation by the ad-hoc id.
+	if (!loaded.active && loaded.adhoc) {
+		const adhocId = loaded.adhoc.adhoc_id
+		if (input.roadmapId && input.roadmapId !== adhocId) throw new Error(`Requested roadmap ${input.roadmapId} is not active`)
+		if (input.milestoneId && input.milestoneId !== adhocId) throw new Error(`Requested milestone ${input.milestoneId} is not active`)
+		return {roadmapId: adhocId, milestoneId: adhocId, isAdhoc: true}
+	}
+
 	const roadmapId = loaded.active?.roadmap_id
 	const milestoneId = loaded.active?.milestone_id
 	const changeRequestId = loaded.active?.change_request_id
@@ -70,10 +86,10 @@ export function requireMatchingTarget(
 	if (input.changeRequestId && input.changeRequestId !== changeRequestId) {
 		throw new Error(`Requested change request ${input.changeRequestId} is not active`)
 	}
-	return {roadmapId, milestoneId, ...(changeRequestId ? {changeRequestId} : {})}
+	return {roadmapId, milestoneId, ...(changeRequestId ? {changeRequestId} : {}), isAdhoc: false}
 }
 
-export function requireActiveWave(plan: MilestonePlan | ChangeRequest): WavePlan {
+export function requireActiveWave(plan: WaveOrchestrationPlan): WavePlan {
 	const activeWaveId = plan.progress.active_wave_id
 	if (!activeWaveId) throw new Error('Implementation progress has no active wave')
 	const wave = plan.waves.find((candidate) => candidate.id === activeWaveId)
@@ -87,8 +103,8 @@ export async function activePlanContext(
 ): Promise<ActivePlanContext> {
 	const loaded = await loadState(cwd)
 	const target = requireMatchingTarget(loaded, input)
-	const plan = loaded.changeRequest ?? loaded.milestone
-	if (!plan) throw new Error('Wave orchestration requires an active milestone or change plan')
+	const plan = loaded.changeRequest ?? loaded.milestone ?? loaded.adhoc
+	if (!plan) throw new Error('Wave orchestration requires an active milestone, change, or ad-hoc plan')
 	const activeWave = requireActiveWave(plan)
 	const taskById = new Map(plan.tasks.map((task) => [task.id, task]))
 	const activeTasks = activeWave.tasks.map((taskId) => {
@@ -117,7 +133,7 @@ export function assertTaskDispatchFields(task: TaskPlan): void {
 	}
 }
 
-export function assertDependenciesComplete(plan: MilestonePlan | ChangeRequest, task: TaskPlan): void {
+export function assertDependenciesComplete(plan: WaveOrchestrationPlan, task: TaskPlan): void {
 	for (const dependency of task.depends_on) {
 		const dependencyTask = plan.tasks.find((candidate) => candidate.id === dependency)
 		if (!dependencyTask) throw new Error(`Task ${task.id} depends on unknown task ${dependency}`)

@@ -16,7 +16,7 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 	register({
 		name: 'omr_init',
 		label: 'Init Roadmap',
-		description: 'Create .roadmaps state and set a single active roadmap.',
+		description: 'Create .omr state and set a single active roadmap.',
 		approval: 'write',
 		parameters: z.object({
 			roadmapId: z.string(),

@@ -8,7 +8,7 @@ This tutorial walks through using `oh-my-roadmap` from the OMP TUI when you have
 roadmap -> milestone plan -> implementation waves -> review -> closeout -> complete
 ```
 
-The main thing to remember: you drive the workflow with slash commands, and the agent records state under `.roadmaps`.
+The main thing to remember: you drive the workflow with slash commands, and the agent records state under `.omr`.
 
 ## 1. Start In The Target Project
 
@@ -34,13 +34,13 @@ You should see `oh-my-roadmap` and its tools.
 Run this once per repository, from your shell (not the OMP TUI):
 
 ```sh
-omr-cli init
+omr init
 ```
 
 This creates or refreshes:
 
 ```text
-.roadmaps/config.yml
+.omr/config.yml
 .omp/agents/worker-light.md
 .omp/agents/worker.md
 .omp/agents/worker-heavy.md
@@ -49,7 +49,7 @@ This creates or refreshes:
 .omp/agents/roadmap-milestone-checker.md
 ```
 
-`omr-cli init` does not start a roadmap. It only prepares the repo.
+`omr init` does not start a roadmap. It only prepares the repo.
 
 ## 3. Create A Roadmap
 
@@ -74,9 +74,9 @@ The agent should inspect the repository before finalizing the roadmap.
 
 At the end of `/omr:rm-new`, the agent should:
 
-- create `.roadmaps/active.yml`
-- create `.roadmaps/<roadmap-id>/state.yml`
-- generate `.roadmaps/<roadmap-id>/roadmap.md`
+- create `.omr/active.yml`
+- create `.omr/<roadmap-id>/state.yml`
+- generate `.omr/<roadmap-id>/roadmap.md`
 - dispatch `roadmap-milestone-checker`
 - record the checker result
 - ask you to approve the roadmap
@@ -377,7 +377,7 @@ If the next action says the roadmap is complete or ready to finish, follow the r
 For a normal roadmap:
 
 ```text
-omr-cli init
+omr init
 /omr:rm-new <goal>
 /omr:rm-status
 /omr:ms-plan

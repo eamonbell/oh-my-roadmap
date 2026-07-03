@@ -5,7 +5,7 @@ import {parseMarkdownDocument} from './frontmatter'
 import {withDiagnosticTiming} from './diagnostics'
 import {loadRoadmapBlockers, loadState, renderRoadmapMarkdown, roadmapContentHash} from './store/index'
 import {validateCloseoutEvidence} from './closeout'
-import {issue, validateChangeRequest, validateMilestonePlan} from './plan-validation'
+import {issue, validateAdhocPlan, validateChangeRequest, validateMilestonePlan} from './plan-validation'
 import {
 	type LoadedState,
 	PHASES,
@@ -306,7 +306,16 @@ export async function validateRoadmapState(cwd: string): Promise<ValidationResul
 			}
 		}
 
-		if (!state.active) return {valid: true, errors, warnings}
+		// A roadmap and an ad-hoc plan must never both be active.
+		if (state.active && state.adhocActive) {
+			errors.push(issue('adhoc.conflict', 'A roadmap and an ad-hoc plan cannot both be active; close or cancel one'))
+		}
+
+		if (!state.active) {
+			// Ad-hoc-only path (no roadmap active).
+			if (state.adhoc) validateAdhocPlan(state.adhoc, errors)
+			return {valid: errors.length === 0, errors, warnings}
+		}
 		if (!state.roadmap) {
 			errors.push(issue('roadmap.missing', 'Active pointer references a missing roadmap'))
 			return {valid: false, errors, warnings}
@@ -325,6 +334,18 @@ export async function validateRoadmapState(cwd: string): Promise<ValidationResul
 			}
 			if (roadmap.discovery.external_research_required && !roadmap.discovery.external_research_recorded) {
 				errors.push(issue('research.missing', 'Required external research has not been recorded'))
+			}
+			// Non-blocking nudge: research is required and marked recorded, but no findings or
+			// documentation references were captured. Ground work in real docs, not guesses.
+			if (
+				roadmap.discovery.external_research_required &&
+				roadmap.discovery.external_research_recorded &&
+				roadmap.discovery.findings.length === 0
+			) {
+				warnings.push(issue(
+					'research.undocumented',
+					'External research is recorded but no findings or documentation references are captured; cite the docs consulted.',
+				))
 			}
 			if (!hasApproval(roadmap.approvals)) {
 				errors.push(issue('roadmap.approval.missing', 'Roadmap approval must be recorded'))
@@ -390,6 +411,24 @@ export async function validateImplementationGate(cwd: string): Promise<Validatio
 	}, async () => {
 		const result = await validateRoadmapState(cwd)
 		const state = await loadState(cwd)
+
+		// Ad-hoc write-gate: with an ad-hoc plan active (and no roadmap), writes require an
+		// approved plan in implementing/reviewing. Structural errors from validateRoadmapState carry over.
+		if (!state.active && state.adhoc) {
+			const errors = [...result.errors]
+			const adhoc = state.adhoc
+			if (!hasApproval(adhoc.approvals)) {
+				errors.push(issue('gate.adhoc.unapproved', 'File writes require an approved ad-hoc plan'))
+			}
+			if (!['implementing', 'reviewing'].includes(adhoc.status)) {
+				errors.push(issue(
+					'gate.adhoc.phase.closed',
+					`File writes require ad-hoc status implementing or reviewing; current status is ${adhoc.status}`,
+				))
+			}
+			return {valid: errors.length === 0, errors, warnings: result.warnings}
+		}
+
 		if (!state.active || !state.roadmap) return result
 
 		// A dispatched rework worker is authorized to edit under the very blocker it was sent

@@ -13,6 +13,39 @@ export function activePointerPath(cwd: string): string {
 	return path.join(roadmapsDir(cwd), 'active.yml')
 }
 
+// Ad-hoc plans live under .omr/adhoc/, with their own active pointer.
+export function adhocDir(cwd: string): string {
+	return path.join(roadmapsDir(cwd), 'adhoc')
+}
+
+export function adhocActivePointerPath(cwd: string): string {
+	return path.join(adhocDir(cwd), 'active.yml')
+}
+
+export function adhocPlanDir(cwd: string, adhocId: string): string {
+	return path.join(adhocDir(cwd), adhocId)
+}
+
+export function adhocPlanPath(cwd: string, adhocId: string): string {
+	return path.join(adhocPlanDir(cwd, adhocId), 'plan.md')
+}
+
+export function adhocRuntimePath(cwd: string, adhocId: string): string {
+	return path.join(adhocPlanDir(cwd, adhocId), 'runtime.yml')
+}
+
+export function adhocNotesPath(cwd: string, adhocId: string): string {
+	return path.join(adhocPlanDir(cwd, adhocId), 'notes.md')
+}
+
+export function adhocCloseoutPath(cwd: string, adhocId: string): string {
+	return path.join(adhocPlanDir(cwd, adhocId), 'closeout.md')
+}
+
+export function adhocBlockersPath(cwd: string, adhocId: string): string {
+	return path.join(adhocPlanDir(cwd, adhocId), 'blockers.yml')
+}
+
 export function roadmapDir(cwd: string, roadmapId: string): string {
 	return path.join(roadmapsDir(cwd), roadmapId)
 }

@@ -54,11 +54,12 @@ function workerPrompt(
 	continuation?: WorkerContinuation,
 ): string {
 	const reserved = reservedSiblingScope(ctx, task)
+	const scopeHeader = ctx.isAdhoc
+		? `Ad-hoc plan: ${ctx.roadmapId}\n`
+		: `Roadmap: ${ctx.roadmapId}\nMilestone: ${ctx.milestoneId}\n${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}`
 	const base = `You are ${task.worker} for oh-my-roadmap task ${task.id}: ${task.title}.
 
-Roadmap: ${ctx.roadmapId}
-Milestone: ${ctx.milestoneId}
-${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}Wave: ${ctx.activeWave.id} - ${ctx.activeWave.goal}
+${scopeHeader}Wave: ${ctx.activeWave.id} - ${ctx.activeWave.goal}
 
 Objective:
 ${task.objective}

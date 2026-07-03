@@ -7,6 +7,9 @@ import {fileExists, readMarkdownData, readYamlFile, writeMarkdownData, writeText
 import {withStoreWriteLock} from '../lock'
 import {
 	activePointerPath,
+	adhocActivePointerPath,
+	adhocPlanPath,
+	adhocRuntimePath,
 	changeRequestPath,
 	changeRequestRuntimePath,
 	milestoneCloseoutPath,
@@ -20,6 +23,9 @@ import {
 } from '../paths'
 import type {
 	ActivePointer,
+	AdhocPlan,
+	AdhocPointer,
+	AdhocRuntime,
 	ChangeRequest,
 	ChangeRequestRuntime,
 	LoadedState,
@@ -31,6 +37,7 @@ import type {
 import {loadUsageSummary} from '../usage'
 import {
 	applyRuntime,
+	normalizeAdhocPlan,
 	normalizeChangeRequest,
 	normalizeMilestonePlan,
 	normalizePlanRuntime,
@@ -248,28 +255,82 @@ export async function writeChangeRequestRuntimeImpl(
 	)
 }
 
+// --- Ad-hoc plans (roadmap-free; plan.md definition + runtime.yml status split) ---
+
+export async function loadAdhocActiveImpl(cwd: string): Promise<AdhocPointer | undefined> {
+	const filePath = adhocActivePointerPath(cwd)
+	if (!(await fileExists(filePath))) return undefined
+	return await readYamlFile<AdhocPointer>(filePath)
+}
+
+export async function writeAdhocActiveImpl(cwd: string, pointer: AdhocPointer): Promise<void> {
+	await withStoreWriteLock(cwd, async () => {
+		await writeYamlFile(adhocActivePointerPath(cwd), pointer)
+	})
+}
+
+export async function loadAdhocPlanImpl(cwd: string, adhocId: string): Promise<AdhocPlan> {
+	const plan = normalizeAdhocPlan(await readMarkdownData<AdhocPlan>(adhocPlanPath(cwd, adhocId)))
+	const runtimePath = adhocRuntimePath(cwd, adhocId)
+	if (!(await fileExists(runtimePath))) return plan
+	return applyRuntime(plan, await loadAdhocRuntimeImpl(cwd, adhocId))
+}
+
+export async function writeAdhocPlanImpl(cwd: string, plan: AdhocPlan, body?: string): Promise<void> {
+	await withStoreWriteLock(cwd, async () => {
+		const normalized = normalizeAdhocPlan(plan)
+		await writeMarkdownData(
+			adhocPlanPath(cwd, normalized.adhoc_id),
+			planDefinitionData(normalized),
+			body ?? renderImplementationPlanBody(normalized),
+		)
+	})
+}
+
+export async function loadAdhocRuntimeImpl(cwd: string, adhocId: string): Promise<AdhocRuntime> {
+	const plan = normalizeAdhocPlan(await readMarkdownData<AdhocPlan>(adhocPlanPath(cwd, adhocId)))
+	return normalizePlanRuntime(await readYamlFile<AdhocRuntime>(adhocRuntimePath(cwd, adhocId)), plan)
+}
+
+export async function writeAdhocRuntimeImpl(cwd: string, plan: AdhocPlan): Promise<void> {
+	const normalized = normalizeAdhocPlan(plan)
+	await writeYamlFile(adhocRuntimePath(cwd, normalized.adhoc_id), runtimeFromPlan(normalized))
+}
+
 export async function loadStateImpl(cwd: string): Promise<LoadedState> {
 	const active = await loadActive(cwd)
-	if (!active) return {}
+	const adhocActive = await loadAdhocActive(cwd)
+	const loaded: LoadedState = {}
 
-	const roadmap = await loadRoadmapState(cwd, active.roadmap_id)
-	const milestone = active.milestone_id
-		? await loadMilestonePlan(cwd, active.roadmap_id, active.milestone_id)
-		: undefined
-	const changeRequest =
-		active.milestone_id && active.change_request_id
-			? await loadChangeRequest(cwd, active.roadmap_id, active.milestone_id, active.change_request_id)
+	if (active) {
+		const roadmap = await loadRoadmapState(cwd, active.roadmap_id)
+		const milestone = active.milestone_id
+			? await loadMilestonePlan(cwd, active.roadmap_id, active.milestone_id)
 			: undefined
-	const closeout =
-		active.milestone_id && (await fileExists(milestoneCloseoutPath(cwd, active.roadmap_id, active.milestone_id)))
-			? await loadMilestoneCloseout(cwd, active.roadmap_id, active.milestone_id)
-			: undefined
+		const changeRequest =
+			active.milestone_id && active.change_request_id
+				? await loadChangeRequest(cwd, active.roadmap_id, active.milestone_id, active.change_request_id)
+				: undefined
+		const closeout =
+			active.milestone_id && (await fileExists(milestoneCloseoutPath(cwd, active.roadmap_id, active.milestone_id)))
+				? await loadMilestoneCloseout(cwd, active.roadmap_id, active.milestone_id)
+				: undefined
 
-	const loaded: LoadedState = {active, roadmap}
-	if (milestone) loaded.milestone = milestone
-	if (changeRequest) loaded.changeRequest = changeRequest
-	if (closeout) loaded.closeout = closeout
-	loaded.usage = await loadUsageSummary(cwd, active.roadmap_id)
+		loaded.active = active
+		loaded.roadmap = roadmap
+		if (milestone) loaded.milestone = milestone
+		if (changeRequest) loaded.changeRequest = changeRequest
+		if (closeout) loaded.closeout = closeout
+		loaded.usage = await loadUsageSummary(cwd, active.roadmap_id)
+	}
+
+	// Ad-hoc plans live on a separate pointer; both being active is an invalid state
+	// that validation surfaces (creation guards prevent it).
+	if (adhocActive) {
+		loaded.adhocActive = adhocActive
+		loaded.adhoc = await loadAdhocPlan(cwd, adhocActive.adhoc_id)
+	}
+
 	return loaded
 }
 
@@ -294,6 +355,98 @@ export async function loadActive(cwd: string): Promise<ActivePointer | undefined
 
 export async function writeActive(cwd: string, active: ActivePointer): Promise<void> {
 	return await storeTiming('writeActive', cwd, {roadmap_id: active.roadmap_id}, async () => await writeActiveImpl(cwd, active))
+}
+
+// Stamp a lockout pause marker on the active roadmap pointer. No-op when no roadmap is active.
+export async function markActivePaused(cwd: string, pausedAt: string): Promise<boolean> {
+	return await withStoreWriteLock(cwd, async () => {
+		const active = await loadActiveImpl(cwd)
+		if (!active) return false
+		const {resumed_at: _cleared, ...rest} = active
+		await writeYamlFile(activePointerPath(cwd), {...rest, paused_at: pausedAt})
+		return true
+	})
+}
+
+// Stamp a lockout resume marker (keeping paused_at so resume can run a drift check).
+export async function markActiveResumed(cwd: string, resumedAt: string): Promise<boolean> {
+	return await withStoreWriteLock(cwd, async () => {
+		const active = await loadActiveImpl(cwd)
+		if (!active) return false
+		await writeYamlFile(activePointerPath(cwd), {...active, resumed_at: resumedAt})
+		return true
+	})
+}
+
+// Clear both lockout markers once a drift check has been surfaced on resume.
+export async function clearActivePauseMarkers(cwd: string): Promise<void> {
+	await withStoreWriteLock(cwd, async () => {
+		const active = await loadActiveImpl(cwd)
+		if (!active) return
+		const {paused_at: _p, resumed_at: _r, ...rest} = active
+		await writeYamlFile(activePointerPath(cwd), rest)
+	})
+}
+
+// --- Ad-hoc public accessors ---
+
+export async function loadAdhocActive(cwd: string): Promise<AdhocPointer | undefined> {
+	return await storeTiming('loadAdhocActive', cwd, undefined, async () => await loadAdhocActiveImpl(cwd))
+}
+
+export async function writeAdhocActive(cwd: string, pointer: AdhocPointer): Promise<void> {
+	return await storeTiming('writeAdhocActive', cwd, {adhoc_id: pointer.adhoc_id} as Record<string, unknown>, async () => await writeAdhocActiveImpl(cwd, pointer))
+}
+
+export async function clearAdhocActive(cwd: string): Promise<void> {
+	await withStoreWriteLock(cwd, async () => {
+		await fs.rm(adhocActivePointerPath(cwd), {force: true})
+	})
+}
+
+export async function loadAdhocPlan(cwd: string, adhocId: string): Promise<AdhocPlan> {
+	return await storeTiming('loadAdhocPlan', cwd, {adhoc_id: adhocId} as Record<string, unknown>, async () => await loadAdhocPlanImpl(cwd, adhocId))
+}
+
+export async function writeAdhocPlan(cwd: string, plan: AdhocPlan, body?: string): Promise<void> {
+	return await storeTiming('writeAdhocPlan', cwd, {adhoc_id: plan.adhoc_id} as Record<string, unknown>, async () => await writeAdhocPlanImpl(cwd, plan, body))
+}
+
+export async function loadAdhocRuntime(cwd: string, adhocId: string): Promise<AdhocRuntime> {
+	return await storeTiming('loadAdhocRuntime', cwd, {adhoc_id: adhocId} as Record<string, unknown>, async () => await loadAdhocRuntimeImpl(cwd, adhocId))
+}
+
+export async function writeAdhocRuntime(cwd: string, plan: AdhocPlan): Promise<void> {
+	return await storeTiming('writeAdhocRuntime', cwd, {adhoc_id: plan.adhoc_id} as Record<string, unknown>, async () => await writeAdhocRuntimeImpl(cwd, plan))
+}
+
+// Lockout markers for the ad-hoc pointer (parity with the roadmap pointer). No-op when none.
+export async function markAdhocPaused(cwd: string, pausedAt: string): Promise<boolean> {
+	return await withStoreWriteLock(cwd, async () => {
+		const pointer = await loadAdhocActiveImpl(cwd)
+		if (!pointer) return false
+		const {resumed_at: _cleared, ...rest} = pointer
+		await writeYamlFile(adhocActivePointerPath(cwd), {...rest, paused_at: pausedAt})
+		return true
+	})
+}
+
+export async function markAdhocResumed(cwd: string, resumedAt: string): Promise<boolean> {
+	return await withStoreWriteLock(cwd, async () => {
+		const pointer = await loadAdhocActiveImpl(cwd)
+		if (!pointer) return false
+		await writeYamlFile(adhocActivePointerPath(cwd), {...pointer, resumed_at: resumedAt})
+		return true
+	})
+}
+
+export async function clearAdhocPauseMarkers(cwd: string): Promise<void> {
+	await withStoreWriteLock(cwd, async () => {
+		const pointer = await loadAdhocActiveImpl(cwd)
+		if (!pointer) return
+		const {paused_at: _p, resumed_at: _r, ...rest} = pointer
+		await writeYamlFile(adhocActivePointerPath(cwd), rest)
+	})
 }
 
 export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<RoadmapState> {

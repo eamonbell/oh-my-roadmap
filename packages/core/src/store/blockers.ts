@@ -165,18 +165,22 @@ export async function appendNoteEntry(
 	blockerId?: string,
 ): Promise<{ filePath: string; scope: RoadmapEventScope }> {
 	const loaded = await loadState(cwd)
-	const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id
-	const milestoneId = input.milestoneId ?? loaded.active?.milestone_id
+	// Fall back to the ad-hoc scope (its id keys both roadmap and milestone) when no roadmap is active.
+	const adhocId = loaded.adhocActive?.adhoc_id
+	const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id ?? adhocId
+	const milestoneId = input.milestoneId ?? loaded.active?.milestone_id ?? adhocId
 	if (!roadmapId || !milestoneId) {
 		throw new Error('append_note requires an active roadmap and milestone')
 	}
-	const targetsActive = roadmapId === loaded.active?.roadmap_id && milestoneId === loaded.active?.milestone_id
-	const changeRequestId = targetsActive ? loaded.active?.change_request_id : undefined
+	const targetsActiveRoadmap = roadmapId === loaded.active?.roadmap_id && milestoneId === loaded.active?.milestone_id
+	const targetsActiveAdhoc = !loaded.active && adhocId !== undefined && roadmapId === adhocId
+	const targetsActive = targetsActiveRoadmap || targetsActiveAdhoc
+	const changeRequestId = targetsActiveRoadmap ? loaded.active?.change_request_id : undefined
 	// Worker notes are frequently appended without an explicit waveId; default it to the
 	// active wave so wave_id-based filters (and review gating) still find them.
 	const resolvedWaveId = input.waveId ??
 		(input.kind === 'worker' && targetsActive
-			? (loaded.changeRequest ?? loaded.milestone)?.progress.active_wave_id
+			? (loaded.changeRequest ?? loaded.milestone ?? loaded.adhoc)?.progress.active_wave_id
 			: undefined)
 
 	const metadata = {
@@ -206,7 +210,7 @@ export async function appendNoteEntry(
 export async function appendNoteImpl(cwd: string, input: AppendNoteInput): Promise<string> {
 	return await withStoreWriteLock(cwd, async () => {
 		const loaded = await loadState(cwd)
-		const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id
+		const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id ?? loaded.adhocActive?.adhoc_id
 		if (!roadmapId) throw new Error('append_note requires an active roadmap and milestone')
 
 		return await withStoreMutationRollback(cwd, roadmapId, async () => {

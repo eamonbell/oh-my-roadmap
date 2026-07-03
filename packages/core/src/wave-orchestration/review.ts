@@ -23,11 +23,12 @@ function reviewPrompt(ctx: ActivePlanContext): string {
 	const taskLines = ctx.activeTasks
 	.map((task) => `- ${task.id}: ${task.title} (${task.worker}); owned files ${task.owned_files.join(', ') || '(none)'}; owned modules ${task.owned_modules.join(', ') || '(none)'}`)
 	.join('\n')
+	const scopeHeader = ctx.isAdhoc
+		? `Ad-hoc plan: ${ctx.roadmapId}\n`
+		: `Roadmap: ${ctx.roadmapId}\nMilestone: ${ctx.milestoneId}\n${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}`
 	return `You are reviewer for oh-my-roadmap wave ${ctx.activeWave.id}: ${ctx.activeWave.goal}.
 
-Roadmap: ${ctx.roadmapId}
-Milestone: ${ctx.milestoneId}
-${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}Review checkpoint:
+${scopeHeader}Review checkpoint:
 ${ctx.activeWave.review_checkpoint}
 
 Wave exit criteria:

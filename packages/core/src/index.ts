@@ -3,12 +3,23 @@
 // this barrel exposes the config + agent-generation API used by omr-cli.
 export {
 	initProject,
+	initScoped,
 	applyProject,
 	generateAgents,
+	generateAgentsAt,
+	globalAgentsDir,
 	loadConfig,
 	ensureConfig,
+	loadGlobalConfig,
+	loadMergedConfig,
+	loadDisabled,
+	setProjectDisabled,
+	setProjectStyle,
+	homeConfigDir,
 	loadTransportResumeAttempts,
 	DEFAULT_TRANSPORT_RESUME_ATTEMPTS,
+	ROLE_NAMES,
+	THINKING_LEVELS,
 } from './project-init'
 export type {
 	ProjectInitResult,
@@ -16,4 +27,6 @@ export type {
 	AgentConfig,
 	AgentRole,
 	OrchestrationConfig,
+	StyleGuide,
+	InitScope,
 } from './project-init'

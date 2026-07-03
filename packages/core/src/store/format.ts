@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto'
 import {serializeMarkdownDocument} from '../frontmatter'
 import type {
+	AdhocPlan,
 	ChangeRequest,
 	ImplementationProgress,
 	MilestonePlan,
@@ -218,7 +219,28 @@ export function normalizeChangeRequest(change: ChangeRequest): ChangeRequest {
 	}
 }
 
-export function normalizePlanRuntime(value: unknown, plan: MilestonePlan | ChangeRequest): PlanRuntime {
+export function normalizeAdhocPlan(plan: AdhocPlan): AdhocPlan {
+	const raw = plan as unknown as Record<string, unknown>
+	const tasks = Array.isArray(plan.tasks) ? plan.tasks.map(normalizeTask) : []
+	const waves = Array.isArray(plan.waves) ? plan.waves.map(normalizeWave) : []
+	return {
+		...plan,
+		open_questions: valueList(raw.open_questions),
+		verification_commands: valueList(raw.verification_commands),
+		acceptance_criteria: valueList(raw.acceptance_criteria),
+		user_interview: valueList(raw.user_interview),
+		relevant_existing_code: valueList(raw.relevant_existing_code),
+		relevant_documentation: valueList(raw.relevant_documentation),
+		decisions: valueList(raw.decisions),
+		dependency_analysis: valueList(raw.dependency_analysis),
+		tasks,
+		waves,
+		progress: normalizeProgress(raw.progress, waves),
+		wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
+	}
+}
+
+export function normalizePlanRuntime(value: unknown, plan: MilestonePlan | ChangeRequest | AdhocPlan): PlanRuntime {
 	const raw = value && typeof value === 'object' && !Array.isArray(value)
 		? value as Partial<PlanRuntime>
 		: {}
@@ -240,7 +262,7 @@ export function normalizePlanRuntime(value: unknown, plan: MilestonePlan | Chang
 	}
 }
 
-export function runtimeFromPlan(plan: MilestonePlan | ChangeRequest): PlanRuntime {
+export function runtimeFromPlan(plan: MilestonePlan | ChangeRequest | AdhocPlan): PlanRuntime {
 	return {
 		tasks: plan.tasks.map((task) => ({id: task.id, status: task.status})),
 		waves: plan.waves.map((wave) => ({id: wave.id, status: wave.status})),
@@ -249,7 +271,7 @@ export function runtimeFromPlan(plan: MilestonePlan | ChangeRequest): PlanRuntim
 	}
 }
 
-export function applyRuntime<T extends MilestonePlan | ChangeRequest>(plan: T, runtime: PlanRuntime): T {
+export function applyRuntime<T extends MilestonePlan | ChangeRequest | AdhocPlan>(plan: T, runtime: PlanRuntime): T {
 	const taskStatuses = new Map(runtime.tasks.map((task) => [task.id, task.status]))
 	const waveStatuses = new Map(runtime.waves.map((wave) => [wave.id, wave.status]))
 	return {
@@ -267,7 +289,7 @@ export function applyRuntime<T extends MilestonePlan | ChangeRequest>(plan: T, r
 	}
 }
 
-export function planDefinitionData(plan: MilestonePlan | ChangeRequest): Record<string, unknown> {
+export function planDefinitionData(plan: MilestonePlan | ChangeRequest | AdhocPlan): Record<string, unknown> {
 	const {progress, wave_flow_check, tasks, waves, ...definition} = plan
 	return {
 		...definition,
@@ -376,8 +398,12 @@ export function renderRoadmapMarkdown(state: RoadmapState): string {
 	)
 }
 
-export function renderPlanSummary(plan: MilestonePlan | ChangeRequest): string {
-	const label = 'change_request_id' in plan ? `Change request: ${plan.change_request_id}` : `Milestone: ${plan.milestone_id}`
+export function renderPlanSummary(plan: MilestonePlan | ChangeRequest | AdhocPlan): string {
+	const label = 'change_request_id' in plan
+		? `Change request: ${plan.change_request_id}`
+		: 'adhoc_id' in plan
+			? `Ad-hoc plan: ${plan.adhoc_id}`
+			: `Milestone: ${plan.milestone_id}`
 	return [
 		label,
 		`Title: ${plan.title}`,
@@ -430,7 +456,7 @@ export function renderWave(wave: WavePlan): string {
 	].join('\n')
 }
 
-export function renderImplementationPlanBody(plan: MilestonePlan | ChangeRequest): string {
+export function renderImplementationPlanBody(plan: MilestonePlan | ChangeRequest | AdhocPlan): string {
 	const requestedDelta = 'request' in plan ? `\n## Requested Delta\n\n${plan.request}\n` : ''
 	return [
 		`# ${plan.title}`,

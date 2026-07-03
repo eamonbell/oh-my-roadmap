@@ -1,4 +1,4 @@
-import type {ChangeRequest, ImplementationProgress, MilestonePlan, TaskPlan, ValidationIssue, WaveFlowCheck, WavePlan,} from './types'
+import type {AdhocPlan, ChangeRequest, ImplementationProgress, MilestonePlan, TaskPlan, ValidationIssue, WaveFlowCheck, WavePlan,} from './types'
 import {IMPLEMENTATION_PROGRESS_STEPS, IMPLEMENTATION_WORKER_NAMES, WAVE_FLOW_CHECK_STATUSES} from './types'
 
 const IMPLEMENTATION_WORKERS = new Set<string>(IMPLEMENTATION_WORKER_NAMES)
@@ -250,7 +250,7 @@ function validateDependencyCycles(tasks: TaskPlan[], errors: ValidationIssue[]):
 function validateWaveFlowCheck(
 	waveFlowCheck: WaveFlowCheck | undefined,
 	errors: ValidationIssue[],
-	prefix: 'milestone' | 'change',
+	prefix: 'milestone' | 'change' | 'adhoc',
 ): void {
 	if (!waveFlowCheck) {
 		errors.push(issue(`${prefix}.wave_flow_check.missing`, 'Plan must include a wave-flow check'))
@@ -278,7 +278,7 @@ function validateWaveFlowCheck(
 export function validateMilestonePlan(
 	plan: MilestonePlan,
 	errors: ValidationIssue[],
-	prefix: 'milestone' | 'change' = 'milestone',
+	prefix: 'milestone' | 'change' | 'adhoc' = 'milestone',
 ): void {
 	if (!plan.milestone_id) errors.push(issue(`${prefix}.id.missing`, 'Milestone ID is required'))
 	if (!plan.title) errors.push(issue(`${prefix}.title.missing`, 'Milestone title is required'))
@@ -339,5 +339,35 @@ export function validateChangeRequest(change: ChangeRequest, errors: ValidationI
 		},
 		errors,
 		'change',
+	)
+}
+
+export function validateAdhocPlan(plan: AdhocPlan, errors: ValidationIssue[]): void {
+	if (plan.status !== 'adhoc_draft' && plan.approvals.length === 0) {
+		errors.push(issue('adhoc.approval.missing', 'Ad-hoc plan implementation requires plan approval'))
+	}
+	validateMilestonePlan(
+		{
+			roadmap_id: '',
+			milestone_id: plan.adhoc_id,
+			title: plan.title,
+			status: 'milestone_approved',
+			approvals: plan.approvals,
+			open_questions: plan.open_questions,
+			verification_commands: plan.verification_commands,
+			acceptance_criteria: plan.acceptance_criteria,
+			cleanup_policy: plan.cleanup_policy,
+			tasks: plan.tasks,
+			waves: plan.waves,
+			user_interview: plan.user_interview,
+			relevant_existing_code: plan.relevant_existing_code,
+			relevant_documentation: plan.relevant_documentation,
+			decisions: plan.decisions,
+			dependency_analysis: plan.dependency_analysis,
+			progress: plan.progress,
+			wave_flow_check: plan.wave_flow_check,
+		},
+		errors,
+		'adhoc',
 	)
 }

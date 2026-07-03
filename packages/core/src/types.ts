@@ -1,4 +1,4 @@
-export const ROADMAP_ROOT = '.roadmaps'
+export const ROADMAP_ROOT = '.omr'
 
 export const PHASES = [
 	'discovery',
@@ -56,6 +56,10 @@ export interface ActivePointer {
 	milestone_id?: string;
 	change_request_id?: string;
 	updated_at: string;
+	// Lockout markers. Set when omr is disabled/enabled while this roadmap is active;
+	// consumed by resume to trigger a drift check, then cleared.
+	paused_at?: string;
+	resumed_at?: string;
 }
 
 export interface DiscoveryState {
@@ -299,6 +303,52 @@ export interface ChangeRequest {
 	closeout?: CloseoutEvidence;
 }
 
+// Ad-hoc plans: a lightweight, roadmap-free plan that reuses the full task/wave/worker/
+// reviewer/closeout machinery. Minimal lifecycle (no change requests, reopen, or amendments).
+export const ADHOC_STATUSES = [
+	'adhoc_draft',
+	'adhoc_approved',
+	'implementing',
+	'reviewing',
+	'closeout',
+	'complete',
+] as const
+
+export type AdhocStatus = (typeof ADHOC_STATUSES)[number];
+
+export interface AdhocPlan {
+	adhoc_id: string;
+	title: string;
+	status: AdhocStatus;
+	created_at: string;
+	updated_at: string;
+	request: string;
+	approvals: Approval[];
+	open_questions: string[];
+	verification_commands: string[];
+	acceptance_criteria: string[];
+	cleanup_policy: 'approval-gated';
+	user_interview: string[];
+	relevant_existing_code: string[];
+	relevant_documentation: string[];
+	decisions: string[];
+	dependency_analysis: string[];
+	tasks: TaskPlan[];
+	waves: WavePlan[];
+	progress: ImplementationProgress;
+	wave_flow_check: WaveFlowCheck;
+	closeout?: CloseoutEvidence;
+}
+
+export type AdhocRuntime = PlanRuntime;
+
+export interface AdhocPointer {
+	adhoc_id: string;
+	updated_at: string;
+	paused_at?: string;
+	resumed_at?: string;
+}
+
 export interface ValidationIssue {
 	code: string;
 	message: string;
@@ -318,6 +368,9 @@ export interface LoadedState {
 	changeRequest?: ChangeRequest;
 	closeout?: CloseoutEvidence;
 	usage?: import('./usage').RoadmapUsageSummary;
+	// Active ad-hoc plan (roadmap-free path). Mutually exclusive with `active`/roadmap.
+	adhocActive?: AdhocPointer;
+	adhoc?: AdhocPlan;
 }
 
 export interface RoadmapEventScope {

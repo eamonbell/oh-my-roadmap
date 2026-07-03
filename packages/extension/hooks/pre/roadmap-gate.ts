@@ -3,7 +3,7 @@ import { shouldBlockToolCall } from 'oh-my-roadmap-core/gate';
 
 export default function roadmapEngineerGate(pi: HookAPI): void {
   pi.on("tool_call", async (event, ctx) => {
-    const decision = await shouldBlockToolCall(ctx.cwd, event.toolName);
+    const decision = await shouldBlockToolCall(ctx.cwd, event.toolName, event.input);
     if (!decision.block) return;
     return decision.reason
       ? { block: true, reason: decision.reason }

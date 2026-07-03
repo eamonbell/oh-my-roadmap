@@ -49,7 +49,7 @@ export function sectionHeader(title: string): string {
 export function styleValue(value: string): string {
 	const lower = value.toLowerCase()
 
-	if (['valid', 'open', 'complete', 'completed', 'done', 'active', 'healthy', 'passed'].includes(lower)) {
+	if (['valid', 'open', 'complete', 'completed', 'done', 'active', 'healthy', 'passed', 'approved'].includes(lower)) {
 		return `${s.green}${value}${s.reset}`
 	}
 
@@ -57,11 +57,16 @@ export function styleValue(value: string): string {
 		return `${s.red}${value}${s.reset}`
 	}
 
+	// In-flight states read as cyan so they stand apart from terminal green/red.
+	if (['running', 'reviewing', 'implementing', 'in progress', 'workers_running', 'dispatching'].includes(lower)) {
+		return `${s.cyan}${value}${s.reset}`
+	}
+
 	if (['inactive', 'none', 'not recorded', 'pending', 'todo', 'outline'].includes(lower)) {
 		return `${s.dim}${value}${s.reset}`
 	}
 
-	if (lower === 'stale' || lower === 'attention') {
+	if (['stale', 'attention', 'deferred', 'draft', 'adhoc_draft'].includes(lower)) {
 		return `${s.yellow}${value}${s.reset}`
 	}
 
@@ -73,8 +78,11 @@ export function styleValue(value: string): string {
 	.replace(/\bblocked\b/gi, `${s.red}$&${s.reset}`)
 	.replace(/\bcomplete(?:d)?\b/gi, `${s.green}$&${s.reset}`)
 	.replace(/\bpassed\b/gi, `${s.green}$&${s.reset}`)
+	.replace(/\bapproved\b/gi, `${s.green}$&${s.reset}`)
+	.replace(/\bfailed\b/gi, `${s.red}$&${s.reset}`)
+	.replace(/\b(?:running|reviewing|implementing)\b/gi, `${s.cyan}$&${s.reset}`)
 	.replace(/\bin progress\b/gi, `${s.cyan}$&${s.reset}`)
-	.replace(/\bpending\b/gi, `${s.yellow}$&${s.reset}`)
+	.replace(/\b(?:pending|deferred)\b/gi, `${s.yellow}$&${s.reset}`)
 }
 
 export function row(text: string, width: number, align: 'left' | 'center' = 'left'): string {

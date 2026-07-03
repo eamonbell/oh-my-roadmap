@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initProject } from "oh-my-roadmap-core/project-init";
+import { initProject, loadMergedConfig } from "oh-my-roadmap-core/project-init";
 import { parseMarkdownDocument, parseYaml } from "oh-my-roadmap-core/frontmatter";
 
 let cwd = "";
@@ -55,7 +55,7 @@ describe("project init scaffold", () => {
     const result = await initProject(cwd);
 
     expect(result.createdConfig).toBe(true);
-    expect(parseYaml<Record<string, unknown>>(await readFile(".roadmaps/config.yml"))).toEqual({
+    expect(parseYaml<Record<string, unknown>>(await readFile(".omr/config.yml"))).toEqual({
       agents: {
         "worker-light": {},
         worker: {},
@@ -115,12 +115,12 @@ describe("project init scaffold", () => {
     expect(roadmapChecker.body).toContain("Do not request user input directly");
     expect(roadmapChecker.body).toContain("Report either passed");
     expectNoAskToolDirective(roadmapChecker.body);
-    expect(await pathExists(".roadmaps/config.yml")).toBe(true);
+    expect(await pathExists(".omr/config.yml")).toBe(true);
   });
 
   test("preserves existing config and overwrites rendered agents on rerun", async () => {
     await writeFile(
-      ".roadmaps/config.yml",
+      ".omr/config.yml",
       "agents:\n  worker:\n    model: pi/task\n    thinking: medium\n  reviewer: {}\n",
     );
     await writeFile(".omp/agents/worker.md", "stale worker\n");
@@ -129,7 +129,7 @@ describe("project init scaffold", () => {
     const result = await initProject(cwd);
 
     expect(result.createdConfig).toBe(false);
-    expect(parseYaml<Record<string, unknown>>(await readFile(".roadmaps/config.yml"))).toEqual({
+    expect(parseYaml<Record<string, unknown>>(await readFile(".omr/config.yml"))).toEqual({
       agents: {
         "worker-light": {},
         worker: { model: "pi/task", thinking: "medium" },
@@ -165,20 +165,20 @@ describe("project init scaffold", () => {
 
   test("preserves a configured transport_resume_attempts on rerun", async () => {
     await writeFile(
-      ".roadmaps/config.yml",
+      ".omr/config.yml",
       "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  transport_resume_attempts: 5\n",
     );
 
     await initProject(cwd);
 
-    expect(parseYaml<Record<string, any>>(await readFile(".roadmaps/config.yml")).orchestration).toEqual({
+    expect(parseYaml<Record<string, any>>(await readFile(".omr/config.yml")).orchestration).toEqual({
       transport_resume_attempts: 5,
     });
   });
 
   test("renders configured model and thinking for all generated agents", async () => {
     await writeFile(
-      ".roadmaps/config.yml",
+      ".omr/config.yml",
       [
         "agents:",
         "  worker-light:",
@@ -239,7 +239,7 @@ describe("project init scaffold", () => {
     const result = await initProject(cwd);
 
     expect(result.createdConfig).toBe(true);
-    expect(parseYaml<Record<string, unknown>>(await readFile(".roadmaps/config.yml"))).toEqual({
+    expect(parseYaml<Record<string, unknown>>(await readFile(".omr/config.yml"))).toEqual({
       agents: {
         "worker-light": {},
         worker: {},
@@ -304,10 +304,148 @@ describe("project init scaffold", () => {
     ];
 
     for (const invalid of invalidConfigs) {
-      await writeFile(".roadmaps/config.yml", invalid.text);
+      await writeFile(".omr/config.yml", invalid.text);
       await expect(initProject(cwd), invalid.name).rejects.toThrow(invalid.message);
       expect(await readFile(".omp/agents/worker.md")).toBe("existing worker\n");
       expect(await readFile(".omp/agents/reviewer.md")).toBe("existing reviewer\n");
     }
+  });
+
+  test("preserves disabled flag and style guidance on rerun", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      [
+        "agents:",
+        "  worker: {}",
+        "  reviewer: {}",
+        "disabled: true",
+        "style:",
+        "  typescript:",
+        "    summary: Tabs, single quotes.",
+        "    guidelines:",
+        '      - "Naming: camelCase for functions"',
+        '      - "Errors: throw Error subclasses"',
+        "",
+      ].join("\n"),
+    );
+
+    await initProject(cwd);
+
+    const config = parseYaml<Record<string, any>>(await readFile(".omr/config.yml"));
+    expect(config.disabled).toBe(true);
+    expect(config.style).toEqual({
+      typescript: {
+        summary: "Tabs, single quotes.",
+        guidelines: ["Naming: camelCase for functions", "Errors: throw Error subclasses"],
+      },
+    });
+  });
+
+  test("rejects invalid disabled and style values", async () => {
+    const invalidConfigs = [
+      {
+        name: "non-boolean disabled",
+        text: "agents:\n  worker: {}\n  reviewer: {}\ndisabled: nope\n",
+        message: "disabled must be a boolean",
+      },
+      {
+        name: "non-string style summary",
+        text: "agents:\n  worker: {}\n  reviewer: {}\nstyle:\n  go:\n    summary: 1\n",
+        message: "style.go.summary must be a string",
+      },
+      {
+        name: "unknown style key",
+        text: "agents:\n  worker: {}\n  reviewer: {}\nstyle:\n  go:\n    extra: 1\n",
+        message: "style.go contains unsupported key: extra",
+      },
+    ];
+
+    for (const invalid of invalidConfigs) {
+      await writeFile(".omr/config.yml", invalid.text);
+      await expect(initProject(cwd), invalid.name).rejects.toThrow(invalid.message);
+    }
+  });
+});
+
+describe("merged global + project config", () => {
+  let home = "";
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-home-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  async function writeGlobal(text: string): Promise<void> {
+    const filePath = path.join(home, ".omp", "oh-my-roadmap", "config.yml");
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, text, "utf8");
+  }
+
+  test("project values override global per role, style, and disabled", async () => {
+    await writeGlobal(
+      [
+        "agents:",
+        "  worker:",
+        "    model: global/worker",
+        "    thinking: high",
+        "  reviewer:",
+        "    model: global/reviewer",
+        "disabled: false",
+        "style:",
+        "  go:",
+        "    guidelines: [tabs]",
+        "  typescript:",
+        "    guidelines: [global-ts]",
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      ".omr/config.yml",
+      [
+        "agents:",
+        "  worker:",
+        "    model: project/worker",
+        "  reviewer: {}",
+        "disabled: true",
+        "style:",
+        "  typescript:",
+        "    guidelines: [project-ts]",
+        "",
+      ].join("\n"),
+    );
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    // Project model wins; global reviewer model survives where project is empty.
+    expect(merged.agents.worker.model).toBe("project/worker");
+    expect(merged.agents.reviewer.model).toBe("global/reviewer");
+    // Project disabled wins.
+    expect(merged.disabled).toBe(true);
+    // Style merges per-language, project winning on collisions.
+    expect(merged.style).toEqual({
+      go: { guidelines: ["tabs"] },
+      typescript: { guidelines: ["project-ts"] },
+    });
+  });
+
+  test("falls back to global when project config is absent", async () => {
+    await writeGlobal("agents:\n  worker:\n    model: global/only\n  reviewer: {}\ndisabled: true\n");
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    expect(merged.agents.worker.model).toBe("global/only");
+    expect(merged.disabled).toBe(true);
+  });
+
+  test("falls back to project when no global config exists", async () => {
+    await writeFile(".omr/config.yml", "agents:\n  worker:\n    model: project/only\n  reviewer: {}\n");
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    expect(merged.agents.worker.model).toBe("project/only");
+    expect(merged.disabled).toBeUndefined();
   });
 });

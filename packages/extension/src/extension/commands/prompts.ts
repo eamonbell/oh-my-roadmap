@@ -110,7 +110,69 @@ Command-specific workflow for /omr:rm-reopen:
 - Do not create milestone plans, tasks, waves, workers, ownership, change requests, or implementation work during reopening.`
 }
 
-export function commandPrompt(name: string, args: string, report: string, transportResumeAttempts = 3): string {
+function adhocCommandInstructions(name: string): string {
+	if (name === 'omr:adhoc-new') {
+		return `- Interview the user with the built-in \`ask\` tool until the request, scope, acceptance criteria, verification commands, and any external-dependency docs are clear. Do not guess about SDKs/APIs — ask for documentation.
+- Call omr_init_adhoc with concrete executable tasks (objective, implementation notes, done criteria, verification, exclusive ownership, worker assignment) and execution waves.
+- Dispatch wave-flow-checker, then record its result with omr_adhoc_transition operation record_wave_flow_check.
+- Call omr_validate; when it passes and the wave-flow check passed, ask for approval and call omr_adhoc_transition operation approve.`
+	}
+	if (name === 'omr:adhoc-plan') {
+		return `- Use omr_update_adhoc_plan to revise the active draft plan (allowed only before approval).
+- Re-dispatch wave-flow-checker and record it with omr_adhoc_transition record_wave_flow_check, then omr_validate and ask for approval before omr_adhoc_transition approve.`
+	}
+	if (name === 'omr:adhoc-implement') {
+		return `- Call omr_adhoc_transition operation start_implementing.
+- Drive the whole plan this turn: loop omr_prepare_wave_dispatch -> dispatch each returned assignment to its exact worker as a background job -> omr_record_worker_dispatch -> collect results with omr_record_wave_result -> omr_prepare_wave_review -> dispatch reviewer -> omr_record_wave_review, one wave at a time until no waves remain.
+- Do not write or modify code yourself; dispatch the worker/reviewer agents. The write-gate opens only while the ad-hoc plan is approved and implementing/reviewing.
+- When all waves are complete, call omr_adhoc_transition start_reviewing, record closeout evidence with omr_adhoc_transition record_closeout, then omr_adhoc_transition complete.`
+	}
+	if (name === 'omr:adhoc-status') {
+		return `- Report the active ad-hoc plan's status, wave/task progress, wave-flow-check result, and next action. Do not change state.`
+	}
+	if (name === 'omr:adhoc-close') {
+		return `- Ensure every acceptance criterion and verification command has a passed or deferred result, then call omr_adhoc_transition record_closeout with the evidence and omr_adhoc_transition complete.`
+	}
+	if (name === 'omr:adhoc-cancel') {
+		return `- Confirm with the user, then call omr_adhoc_transition operation cancel to clear the active ad-hoc plan. This does not delete recorded files.`
+	}
+	return ''
+}
+
+export function adhocCommandPrompt(name: string, args: string, summary: string): string {
+	return `You are operating the oh-my-roadmap ad-hoc command /${name}.
+
+User arguments:
+${args || '(none)'}
+
+Active ad-hoc plan:
+${summary}
+
+Ad-hoc plans are a roadmap-free lightweight flow that reuse the full task/wave/worker/reviewer/closeout machinery. Only one ad-hoc plan (and no roadmap) may be active at a time.
+
+Follow these rules:
+- Interview for intent, not just mechanics, and never guess about external SDKs/APIs — ask the user for documentation links or file paths.
+- Use omr_read_state and omr_validate to orient and check the plan before approval or implementation.
+- Use the ad-hoc tools (omr_init_adhoc, omr_update_adhoc_plan, omr_adhoc_transition) plus the shared wave tools (omr_prepare_wave_dispatch, omr_record_wave_result, omr_prepare_wave_review, omr_record_wave_review) — the wave tools operate on the active ad-hoc plan.
+- Submit omr_submit_findings_report once at the end with title "/${name} result".
+${adhocCommandInstructions(name)}`
+}
+
+export function learnStylePrompt(args: string): string {
+	return `You are running the oh-my-roadmap /omr:learn-style command.
+
+User arguments:
+${args || '(none)'}
+
+Goal: learn how this codebase's author writes code and record concise per-language style guidance for future oh-my-roadmap workers.
+
+- Dispatch the built-in task tool with agent "style-scout" and a prompt instructing it to explore this repository and record per-language code style. If the user arguments name specific paths or languages, scope the scout to those.
+- The style-scout agent inspects representative real source files and calls omr_set_style once per language it has enough evidence for; it writes nothing else.
+- Do not invent style guidance yourself. Rely on the scout's inspection of real files; if it cannot find enough evidence for a language, that language is skipped.
+- When the scout returns, report which languages were recorded and a short highlight for each. Do not dump file contents or tool transcripts.`
+}
+
+export function commandPrompt(name: string, args: string, report: string, transportResumeAttempts = 3, resumeNote = ''): string {
 	return `You are operating the oh-my-roadmap OMP extension command /${name}.
 
 User arguments:
@@ -118,11 +180,13 @@ ${args || '(none)'}
 
 Current oh-my-roadmap state:
 ${report}
-
+${resumeNote}
 Follow the oh-my-roadmap workflow strictly:
 - Do not assume missing planning details.
 - Inspect existing code and documentation before planning or changing state.
 - Use the built-in ask tool to interview the user whenever additional information, decisions, tradeoffs, gaps, approvals, or unresolved questions remain.
+- During planning, interview for intent, not just mechanics: beyond "how would you like to handle X" questions, explore why the work matters and what success looks like, the desired user experience or layout for user-facing work, the preferred package/module/directory structure, and how much room to grow to build in without over-engineering. Treat these as illustrative examples, not a checklist or universally applicable — pursue the ones that fit and any others needed to understand the full picture, and skip the ones that do not apply.
+- Never guess about out-of-project resources. When work touches an SDK, dependency, API, CLI, or other external resource, do not assume the shape of a response, the functions or types it exposes, or that an endpoint or option exists. Ask the user for documentation links or file paths and ground decisions in them; record what you consulted and what is still needed under an Assumptions & External Dependencies section. Widely known, stable concepts are exempt. State assumptions and unknowns explicitly.
 - Reference relevant existing code and documentation paths in roadmap, milestone, change, review, and closeout artifacts when those references help future agents.
 - Use omr_read_state for orientation before changing state when context is unclear, and always pick the narrowest scope that answers your question: roadmap for roadmap work, active_milestone for milestone/implementation planning, active_wave for a single wave's tasks/blockers/worker notes, active_change for change requests, usage for token accounting, and compact only when a broad snapshot is genuinely required.
 - Use omr_search_context for roadmap sections, plan sections, decisions, risks, notes, issues, and review findings; use omr_read_context only for selected entries that need full detail. Do not read full roadmap.md or plan.md directly unless the section tools cannot answer the question.
