@@ -7,7 +7,8 @@
 	"omp":              {
 		"extensions": [
 			"./src/main.ts"
-		]
+		],
+		"hooks":      "./hooks/pre/roadmap-gate.ts"
 	},
 	"files":            [
 		"src",
@@ -15,7 +16,7 @@
 		"prompts"
 	],
 	"dependencies":     {
-		"oh-my-roadmap-core": "0.8.0"
+		"oh-my-roadmap-core": "0.9.0"
 	},
 	"peerDependencies": {
 		"@oh-my-pi/pi-coding-agent": "^16.2.6",

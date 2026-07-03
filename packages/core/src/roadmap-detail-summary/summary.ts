@@ -3,7 +3,7 @@ import {fileExists} from '../files'
 import {milestonePlanPath} from '../paths'
 import {nextActionPlan, type NextActionPlan} from '../report/index'
 import {listQualityGates, loadMilestonePlan, loadRoadmapBlockers, loadState} from '../store/index'
-import type {ChangeRequest, LoadedState, MilestonePlan, Phase, TaskPlan, WavePlan,} from '../types'
+import type {AdhocPlan, ChangeRequest, LoadedState, MilestonePlan, Phase, TaskPlan, WavePlan,} from '../types'
 import {validateImplementationGate, validateRoadmapState} from '../validation'
 import {availableControls} from './controls'
 import {
@@ -31,7 +31,7 @@ import {
 } from './types'
 
 export type PlanContext = {
-	plan: MilestonePlan | ChangeRequest;
+	plan: MilestonePlan | ChangeRequest | AdhocPlan;
 	tasks: TaskPlan[];
 	waves: WavePlan[];
 };

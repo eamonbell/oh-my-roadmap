@@ -8,12 +8,17 @@ export type {
 } from './contract'
 export {renderRoadmapMarkdown, roadmapContentHash} from './format'
 export {
-	loadActive, loadChangeRequest,
+	clearActivePauseMarkers, clearAdhocActive, clearAdhocPauseMarkers,
+	loadActive, loadAdhocActive, loadAdhocPlan, loadAdhocRuntime, loadChangeRequest,
 	loadChangeRequestRuntime, loadMilestonePlan, loadMilestoneRuntime, loadRoadmapBlockers, loadRoadmapState, loadState,
-	resetRoadmapStateForTest, writeActive, writeChangeRequestRuntime, writeMilestonePlan, writeMilestoneRuntime, writeRoadmapBlockers,
+	markActivePaused, markActiveResumed, markAdhocPaused, markAdhocResumed,
+	resetRoadmapStateForTest, writeActive, writeAdhocActive, writeAdhocPlan, writeAdhocRuntime,
+	writeChangeRequestRuntime, writeMilestonePlan, writeMilestoneRuntime, writeRoadmapBlockers,
 	writeRoadmapState
 } from './persistence'
 export {createChangeRequest, createMilestonePlan, transition} from './plans'
+export {adhocTransition, createAdhocPlan, updateAdhocPlan} from './adhoc'
+export type {AdhocTransitionInput, AdhocTransitionOperation, CreateAdhocPlanInput} from './adhoc'
 export {listQualityGates} from './quality-gates'
 export {clearActivePointer, initRoadmap, repairRoadmap, updateRoadmap} from './roadmap'
 export {assertSlug, nowIso, roadmapBlockerId} from './shared'

@@ -2,7 +2,7 @@
 
 `oh-my-roadmap` is a local OMP extension for complex feature and refactor work. It forces large work through explicit roadmap, milestone, implementation-wave, review, evidence, and change-request gates.
 
-The canonical workflow config and state live in `.roadmaps`. Direct file-write tools are blocked while an active roadmap is outside an approved implementation state. V1 intentionally does not classify or block mutating shell commands.
+The canonical workflow config and state live in `.omr`. Direct file-write tools are blocked while an active roadmap is outside an approved implementation state. V1 intentionally does not classify or block mutating shell commands.
 
 The workflow is strict and state-driven:
 
@@ -14,7 +14,7 @@ Milestone and change implementation progress is tracked through explicit task st
 
 Planning and orchestrator prompts require user-facing agents to inspect relevant existing code and documentation, reference useful paths in artifacts, and use OMP's built-in `ask` tool to interview the user until material decisions and gaps are closed. Subagents record blockers in notes and do not request user input directly.
 
-Agents should use compact `omr_read_state` scopes and `omr_search_context` to inspect active-roadmap notes, roadmap sections, plan sections, decisions, risks, issues, and review findings before reading large `.roadmaps` artifacts directly. Search returns compact snippets by default; agents can call `omr_read_context` with selected result IDs when full entry detail is needed.
+Agents should use compact `omr_read_state` scopes and `omr_search_context` to inspect active-roadmap notes, roadmap sections, plan sections, decisions, risks, issues, and review findings before reading large `.omr` artifacts directly. Search returns compact snippets by default; agents can call `omr_read_context` with selected result IDs when full entry detail is needed.
 
 ## Install
 
@@ -25,12 +25,17 @@ This repo publishes two user-facing packages to npm, plus `oh-my-roadmap-core` a
 
 ```sh
 # CLI
-npm install -g @oh-my-roadmap/cli        # or: bunx @oh-my-roadmap/cli init
+npm install -g @oh-my-roadmap/cli
 
-# Extension (install into a project, then load with OMP)
-npm install oh-my-roadmap
-omp --extension ./node_modules/oh-my-roadmap
+# Extension — let the CLI install it into OMP's plugin root (auto-discovered, no --extension flag)
+omr install --project        # <project>/.omp/plugins
+omr install --global         # ~/.omp/agent/plugins
+
+# Keep the CLI + extension current
+omr update                   # check npm and update; add --check to only report
 ```
+
+`omr install` writes `oh-my-roadmap` into the target OMP plugin root's `package.json` and installs it, so OMP discovers the extension automatically. `omr init`/`apply` also print a throttled notice when a newer CLI is available.
 
 ## Local Development
 
@@ -39,7 +44,7 @@ This is a Bun workspace monorepo (`packages/core`, `packages/extension`, `packag
 ```sh
 bun install
 bun run verify          # tsc --noEmit across the workspace + bun test
-bun run build           # bundle omr-cli to packages/cli/dist/index.js
+bun run build           # bundle the omr CLI to packages/cli/dist/index.js
 omp --extension packages/extension
 ```
 
@@ -51,7 +56,17 @@ omp -p '/extensions'
 
 ## Commands
 
-- `omr-cli init`
+- `omr init`
+- `/omr:disable`
+- `/omr:enable`
+- `/omr:learn-style`
+- `/omr:adhoc-new`
+- `/omr:adhoc-plan`
+- `/omr:adhoc-implement`
+- `/omr:adhoc-status`
+- `/omr:adhoc-close`
+- `/omr:adhoc-cancel`
+- `/omr:plan-details`
 - `/omr:rm-new`
 - `/omr:rm-resume`
 - `/omr:rm-status`
@@ -70,12 +85,43 @@ omp -p '/extensions'
 
 Run `/omr:fnd-clear` to dismiss the active findings report tile; it does not change roadmap state.
 
+## Lockout
+
+Run `/omr:disable` to pause oh-my-roadmap when you want to use plain plan mode or an unrelated agent without omr loading its skills or driving roadmap work. It sets `disabled: true` in the project `.omr/config.yml` and, if a roadmap is active, stamps `paused_at` on `.omr/active.yml`. While paused, the write-gate hook blocks every `omr_*` tool call and any `task` spawn targeting an omr agent, returning a message telling the agent omr is paused.
+
+Run `/omr:enable` to resume: it clears the flag and stamps `resumed_at`. The next `/omr:rm-resume` is instructed to inspect the codebase for changes made while paused and resolve any that affect the active plan with you before continuing, then the pause markers are cleared.
+
+## Ad-hoc Plans
+
+Not every change warrants a full roadmap. `/omr:adhoc-new` starts a **roadmap-free** plan that still runs through the full structured flow — interview, concrete tasks and execution waves, a wave-flow check, approval, wave-orchestrated implementation with the same `worker`/`reviewer` agents, and closeout evidence. Ad-hoc state lives under `.omr/adhoc/<id>/` with its own `.omr/adhoc/active.yml` pointer; a roadmap and an ad-hoc plan cannot both be active.
+
+Lifecycle: `adhoc_draft → adhoc_approved → implementing → reviewing → closeout → complete` (no change requests, reopen, or amendments — use a roadmap for that). The write-gate opens only while the ad-hoc plan is approved and implementing/reviewing, exactly like a milestone.
+
+- `/omr:adhoc-new` — interview + create the plan (`omr_init_adhoc`), run the wave-flow check, and approve.
+- `/omr:adhoc-plan` — revise the draft before approval.
+- `/omr:adhoc-implement` — run the waves (reuses `omr_prepare_wave_dispatch`, `omr_record_wave_result`, `omr_prepare_wave_review`, `omr_record_wave_review`), then review and close out.
+- `/omr:adhoc-status`, `/omr:adhoc-close`, `/omr:adhoc-cancel`.
+- `/omr:plan-details` — a details overlay for the active ad-hoc plan, mirroring `/omr:rm-details`.
+
+## Code Style
+
+Run `/omr:learn-style` to teach oh-my-roadmap how your codebase is written. It dispatches a dedicated `style-scout` agent that inspects representative source files and records concise, per-language conventions (naming, formatting, quoting, error handling, and so on) into a `style:` map in `.omr/config.yml` via the `omr_set_style` tool. You can also hand-author `style:` entries in the global config.
+
+Before writing code, worker agents call the `omr_style_guide` tool with the files they will edit; it returns the recorded guidance for those files' languages from the unified config. The guidance is advisory — reviewers do not fail a review solely for a style deviation.
+
 ## Project Init
 
-Run `omr-cli init` once in a project to scaffold oh-my-roadmap project files without starting a roadmap workflow. The command creates `.roadmaps/config.yml` when it is missing and always refreshes the local OMP agent definitions:
+Run `omr init` once to scaffold oh-my-roadmap files without starting a roadmap workflow. When run in a TTY it interactively prompts for a model id and reasoning level per agent role (leave blank to inherit OMP's defaults); non-interactively it scaffolds with inherited defaults.
+
+`init` is scoped:
+
+- `--project` (default) — writes `.omr/config.yml` (with the prompted models) and generates agents at `.omp/agents/`.
+- `--global` — writes `~/.omp/oh-my-roadmap/config.yml` and generates user-level agents at `~/.omp/agent/agents/`, and also scaffolds a model-free `.omr/config.yml` in the current folder. Global and project configs are unified at load time, with project values overriding global.
+
+The command creates the config when it is missing and always refreshes the generated OMP agent definitions:
 
 ```text
-.roadmaps/config.yml
+.omr/config.yml
 .omp/agents/worker-light.md
 .omp/agents/worker.md
 .omp/agents/worker-heavy.md
@@ -84,7 +130,7 @@ Run `omr-cli init` once in a project to scaffold oh-my-roadmap project files wit
 .omp/agents/roadmap-milestone-checker.md
 ```
 
-The `.roadmaps/config.yml` file configures the model and thinking level used when OMP dispatches the generated worker, reviewer, wave-flow-checker, and roadmap-milestone-checker agents:
+The `.omr/config.yml` file configures the model and thinking level used when OMP dispatches the generated worker, reviewer, wave-flow-checker, and roadmap-milestone-checker agents:
 
 ```yaml
 agents:
@@ -108,9 +154,9 @@ agents:
     thinking: "medium"
 ```
 
-Both `model` and `thinking` are optional. Supported thinking values are `inherit`, `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Re-running `omr-cli init` preserves existing role settings, adds any missing supported roles to `.roadmaps/config.yml`, and overwrites generated `.omp/agents/*.md` files from the extension templates. Legacy `.roadmap/config.yml` files are ignored.
+Both `model` and `thinking` are optional. Supported thinking values are `inherit`, `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Re-running `omr init` preserves existing role settings, adds any missing supported roles to `.omr/config.yml`, and overwrites generated `.omp/agents/*.md` files from the extension templates.
 
-`omr-cli init` does not create or modify active roadmap workflow state.
+`omr init` does not create or modify active roadmap workflow state.
 
 ## Roadmap Approval
 
@@ -131,7 +177,7 @@ Milestone and change plans persist the current implementation cursor:
 
 `/omr:rm-resume`, `/omr:rm-status`, `/omr:ms-status`, and `/omr:chg-status` treat this structured cursor as the source of truth. Worker and review notes provide supporting context, but they do not override the persisted cursor.
 
-Store mutations are serialized through `.roadmaps/store.lock` and state files are written with atomic replacement to reduce lost updates from concurrent agents or tool calls.
+Store mutations are serialized through `.omr/store.lock` and state files are written with atomic replacement to reduce lost updates from concurrent agents or tool calls.
 
 ## Roadmap Reopen
 

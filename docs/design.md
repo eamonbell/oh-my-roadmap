@@ -4,7 +4,7 @@
 
 ## Workflow Contract
 
-The extension activates only when a roadmap command creates or resumes `.roadmaps/active.yml`. While no active roadmap exists, normal work is not gated.
+The extension activates only when a roadmap command creates or resumes `.omr/active.yml`. While no active roadmap exists, normal work is not gated.
 
 When a roadmap is active, direct file-write tools are blocked unless the active state validates and the roadmap is in an approved implementation state. Mutating shell commands are not classified or blocked in v1; use them carefully.
 
@@ -16,10 +16,10 @@ discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> mileston
 
 ## Artifact Root
 
-Config and state are stored under `.roadmaps`:
+Config and state are stored under `.omr`:
 
 ```text
-.roadmaps/
+.omr/
   config.yml
   active.yml
   <roadmap-id>/
@@ -74,9 +74,9 @@ Task, wave, and cursor progress is recorded with `omr_transition` operations `up
 
 Implementation resume is driven by a persisted progress cursor on milestone and change plans. The cursor records the active wave, orchestration step, active task IDs, blocker reason, and timestamp. Status and resume commands treat this structured cursor as authoritative; notes provide context and evidence.
 
-Mutating store operations use `.roadmaps/store.lock` to serialize concurrent writers and write YAML/Markdown state files through atomic replacement. Append-only notes are routed through the same lock so note ordering stays consistent with task, wave, and progress updates.
+Mutating store operations use `.omr/store.lock` to serialize concurrent writers and write YAML/Markdown state files through atomic replacement. Append-only notes are routed through the same lock so note ordering stays consistent with task, wave, and progress updates.
 
-Large roadmap registers are reviewed through read-only context tools. `omr_read_state` returns compact structured state by default and exposes focused scopes for roadmap, active milestone, active change, and usage orientation. `omr_search_context` searches active-roadmap notes, roadmap sections, plan sections, roadmap-level decisions, and risks, returning snippets and metadata by default. `omr_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.roadmaps` markdown files.
+Large roadmap registers are reviewed through read-only context tools. `omr_read_state` returns compact structured state by default and exposes focused scopes for roadmap, active milestone, active change, and usage orientation. `omr_search_context` searches active-roadmap notes, roadmap sections, plan sections, roadmap-level decisions, and risks, returning snippets and metadata by default. `omr_read_context` expands selected result IDs with capped bodies. Planners, orchestrators, and reviewers should use this search-first workflow before reading full `.omr` markdown files.
 
 ## Closeout Evidence
 
@@ -87,3 +87,15 @@ Milestone completion requires structured closeout evidence in `closeout.md`. Eve
 `/omr:chg-request` is allowed after implementation has produced changes, including `reviewing`, `closeout`, or `complete`. A change request uses the original milestone plan, actual implementation notes, evidence, and the user request as planning context. Implementation reopens only after the change plan is approved.
 
 Approved change requests may implement from `reviewing`, `closeout`, or `complete` without restoring a previous phase. Closing a change request records its own structured evidence bundle, marks the change `closed`, clears the active change pointer, and preserves the current roadmap phase. The completed milestone remains active so post-completion changes can still target it.
+
+## Ad-hoc Plans
+
+Ad-hoc plans are a roadmap-free, lightweight path for changes that benefit from structured plan → implement → review → closeout but do not warrant a roadmap. They are a separate entity, not a roadmap flavor, but reuse the full implementation machinery.
+
+- State lives under `.omr/adhoc/<id>/` (`plan.md` definition + `runtime.yml` task/wave/progress cursor), with a dedicated `.omr/adhoc/active.yml` pointer. The roadmap `active.yml` is untouched.
+- A roadmap and an ad-hoc plan cannot both be active; `createAdhocPlan` refuses when either is active, and validation raises `adhoc.conflict` if both pointers exist.
+- Lifecycle: `adhoc_draft → adhoc_approved → implementing → reviewing → closeout → complete`. No change requests, reopen, or amendments — those remain roadmap-only.
+- Quality gates match milestones: a wave-flow check must pass before approval, and closeout requires structured evidence for every acceptance criterion and verification command.
+- The write-gate opens only while the ad-hoc plan is approved and in `implementing`/`reviewing`, using the same `DIRECT_FILE_WRITE_TOOLS` gate as roadmaps.
+- Wave orchestration is shared: every wave tool resolves the active plan through `activePlanContext`, which returns the ad-hoc plan (scoped by its id) when no roadmap is active. The same `worker`/`reviewer` agents are dispatched; no new agent roles exist. Status updates route through `transition` to the ad-hoc runtime, and blockers/notes are scoped by the ad-hoc id.
+- `/omr:plan-details` renders the active ad-hoc plan through the same details overlay as `/omr:rm-details`.

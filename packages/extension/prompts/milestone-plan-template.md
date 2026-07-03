@@ -43,11 +43,17 @@ List repo paths, ownership notes, and interfaces that shape this milestone.
 
 List project docs, external docs, standards, or API references used while planning.
 
+### Assumptions & External Dependencies
+
+Record assumptions made and every SDK, dependency, API, or CLI this milestone relies on. For each, note the documentation consulted (link or file path) or that a link is still needed. Do not guess the shape or behavior of an external resource — ask the user for docs and ground the plan in them.
+
 ## Decisions
 
 ## Required Work
 
 Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment. Worker assignment must be one of `worker-light`, `worker`, or `worker-heavy`. Do not add filler tasks to justify the milestone; every task must directly implement the approved roadmap milestone scope.
+
+Write implementation notes at the approach and intent level — describe what each task must achieve and its constraints, not a rigid line-by-line script. Keep exclusive file/module ownership exact (it is required for safe parallel waves), but leave the worker room to make the concrete edits; expect new areas of impact or revelations to surface during implementation and be handled in-flight unless they require a roadmap amendment.
 
 ## Dependency Analysis
 

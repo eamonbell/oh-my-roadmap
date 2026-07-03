@@ -1,8 +1,8 @@
 import {withDiagnosticTiming} from '../diagnostics'
 import {searchContext} from '../context'
 import {nowIso, openBlocker, type OpenBlockerInput, reconcileTaskNotes, transition,} from '../store/index'
-import type {ChangeRequest, MilestonePlan, TaskPlan, WorkerRun, WorkerRunStatus} from '../types'
-import {ACTIVE_WORKER_RUN_STATUSES, activePlanContext, type ActivePlanContext, writePlanRuntime,} from './context'
+import type {TaskPlan, WorkerRun, WorkerRunStatus} from '../types'
+import {ACTIVE_WORKER_RUN_STATUSES, activePlanContext, type ActivePlanContext, type WaveOrchestrationPlan, writePlanRuntime,} from './context'
 import {notesText} from './dispatch'
 import type {RecordWaveResultInput, RecordWaveResultResult} from './types'
 import {writeProgressWithRuns} from './worker-runs'
@@ -52,7 +52,7 @@ function blockerInputForTask(
 	}
 }
 
-function closeWorkerRunForTask(plan: MilestonePlan | ChangeRequest, taskId: string, status: WorkerRunStatus): WorkerRun[] {
+function closeWorkerRunForTask(plan: WaveOrchestrationPlan, taskId: string, status: WorkerRunStatus): WorkerRun[] {
 	const now = nowIso()
 	let closed = false
 	return plan.progress.worker_runs.map((run) => {

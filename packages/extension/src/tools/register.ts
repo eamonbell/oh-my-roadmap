@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { withDiagnosticTiming } from "oh-my-roadmap-core/diagnostics";
+import { registerAdhocTools } from "./register/adhoc-tools";
 import { registerBlockerTools } from "./register/blocker-tools";
 import { registerContextTools } from "./register/context-tools";
 import { registerFindingsReportTool } from "./register/findings-report-tool";
@@ -7,6 +8,7 @@ import { registerGraphTools } from "./register/graph-tools";
 import { registerReportTools } from "./register/report-tools";
 import { registerRoadmapLifecycleTools } from "./register/roadmap-tools";
 import { createToolRegistrationSchemas, toolMetadata, type ToolRegistrationContext } from "./register/shared";
+import { registerStyleTools } from "./register/style-tools";
 import { registerTransitionTools } from "./register/transition-tools";
 import { registerWaveTools } from "./register/wave-tools";
 
@@ -37,4 +39,6 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
   registerReportTools(ctx);
   registerFindingsReportTool(ctx);
   registerGraphTools(ctx);
+  registerStyleTools(ctx);
+  registerAdhocTools(ctx);
 }

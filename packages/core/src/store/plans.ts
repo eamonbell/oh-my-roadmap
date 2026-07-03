@@ -5,7 +5,7 @@ import {appendText, writeMarkdownData, writeText} from '../files'
 import {serializeMarkdownDocument} from '../frontmatter'
 import {withStoreWriteLock} from '../lock'
 import {changeRequestPath, decisionsPath, milestoneCloseoutPath, milestoneDir, milestoneNotesPath, roadmapDocPath} from '../paths'
-import type {ChangeRequest, ImplementationProgress, LoadedState, MilestonePlan, Phase, RoadmapState, TaskPlan, WavePlan} from '../types'
+import type {AdhocPlan, ChangeRequest, ImplementationProgress, LoadedState, MilestonePlan, Phase, RoadmapState, TaskPlan, WavePlan} from '../types'
 import type {CreateChangeRequestInput, CreateMilestonePlanInput, TransitionInput} from './contract'
 import {appendTransitionEvent} from './events'
 import {
@@ -25,6 +25,7 @@ import {
 	storeTiming,
 	withStoreMutationRollback,
 	writeActive,
+	writeAdhocRuntime,
 	writeChangeRequestRuntime,
 	writeMilestonePlan,
 	writeMilestoneRuntime,
@@ -225,6 +226,12 @@ export async function writeActivePointer(
 export async function transitionImpl(cwd: string, input: TransitionInput): Promise<LoadedState> {
 	return await withStoreWriteLock(cwd, async () => {
 		const loaded = await loadState(cwd)
+		// Ad-hoc implementation reuses the wave tools, which drive status via these three
+		// operations. Route them to the ad-hoc runtime; the roadmap path below is untouched.
+		if (!loaded.active && loaded.adhoc) {
+			await applyAdhocStatusTransition(cwd, input, loaded.adhoc)
+			return await loadState(cwd)
+		}
 		if (!loaded.active || !loaded.roadmap) {
 			throw new Error('No active roadmap. Run /omr:rm-new first.')
 		}
@@ -595,6 +602,38 @@ export function updateTaskStatus(
 	})
 	if (!found) throw new Error(`Unknown task: ${taskId}`)
 	return updated
+}
+
+// Ad-hoc plans have no roadmap, so the roadmap `transition` state machine does not apply.
+// Route the three status operations the wave tools use to the ad-hoc runtime.
+async function applyAdhocStatusTransition(cwd: string, input: TransitionInput, adhoc: AdhocPlan): Promise<void> {
+	switch (input.operation) {
+		case 'update_task_status': {
+			if (!input.taskId || !input.taskStatus) throw new Error('update_task_status requires taskId and taskStatus')
+			await writeAdhocRuntime(cwd, {...adhoc, tasks: updateTaskStatus(adhoc.tasks, input.taskId, input.taskStatus)})
+			return
+		}
+		case 'update_wave_status': {
+			if (!input.waveId || !input.waveStatus) throw new Error('update_wave_status requires waveId and waveStatus')
+			await writeAdhocRuntime(cwd, {...adhoc, waves: updateWaveStatus(adhoc.waves, input.waveId, input.waveStatus)})
+			return
+		}
+		case 'update_implementation_progress': {
+			if (!input.progress) throw new Error('update_implementation_progress requires progress input')
+			const progress = {
+				...(input.progress.activeWaveId ? {active_wave_id: input.progress.activeWaveId} : {}),
+				step: input.progress.step,
+				active_task_ids: input.progress.activeTaskIds ?? [],
+				worker_runs: adhoc.progress.worker_runs,
+				...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
+				updated_at: nowIso(),
+			} satisfies ImplementationProgress
+			await writeAdhocRuntime(cwd, {...adhoc, progress})
+			return
+		}
+		default:
+			throw new Error(`Operation ${input.operation} is not supported for ad-hoc plans; use the ad-hoc lifecycle commands`)
+	}
 }
 
 export function updateWaveStatus(
