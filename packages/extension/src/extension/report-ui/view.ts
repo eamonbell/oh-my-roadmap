@@ -1,5 +1,5 @@
 import {Component, matchesKey, ScrollView, TUI} from '@oh-my-pi/pi-tui'
-import type {RoadmapDetailSummary} from '@oh-my-roadmap/core/roadmap-detail-summary/index'
+import type {RoadmapDetailSummary} from 'oh-my-roadmap-core/roadmap-detail-summary/index'
 import {TAB_NAMES} from './constants'
 import {renderRoadmapDetailsFrame} from './frame'
 import {fitFrameToTerminal, getTuiRowsAndCols} from './text'

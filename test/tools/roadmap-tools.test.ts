@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
-import { roadmapStatePath } from "@oh-my-roadmap/core/paths";
-import { initRoadmap, loadState, transition, updateRoadmap } from "@oh-my-roadmap/core/store/index";
-import type { RoadmapState } from "@oh-my-roadmap/core/types";
+import { readYamlFile, writeYamlFile } from "oh-my-roadmap-core/files";
+import { roadmapStatePath } from "oh-my-roadmap-core/paths";
+import { initRoadmap, loadState, transition, updateRoadmap } from "oh-my-roadmap-core/store/index";
+import type { RoadmapState } from "oh-my-roadmap-core/types";
 import { registeredTool, registerTools, roadmapInput, toolContext } from "./helpers";
 
 describe("roadmap lifecycle tools", () => {

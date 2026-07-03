@@ -1,5 +1,5 @@
 import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {transition, type TransitionInput} from '@oh-my-roadmap/core/store/index'
+import {transition, type TransitionInput} from 'oh-my-roadmap-core/store/index'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerTransitionTools(ctx: ToolRegistrationContext): void {

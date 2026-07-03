@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initProject } from "@oh-my-roadmap/core/project-init";
-import { parseMarkdownDocument, parseYaml } from "@oh-my-roadmap/core/frontmatter";
+import { initProject } from "oh-my-roadmap-core/project-init";
+import { parseMarkdownDocument, parseYaml } from "oh-my-roadmap-core/frontmatter";
 
 let cwd = "";
 

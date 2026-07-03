@@ -18,14 +18,14 @@ Agents should use compact `omr_read_state` scopes and `omr_search_context` to in
 
 ## Install
 
-This repo publishes two packages to npm:
+This repo publishes two user-facing packages to npm, plus `oh-my-roadmap-core` as their shared runtime dependency:
 
-- **`omr-cli`** — a standalone CLI to scaffold project config and (re)generate agent definitions.
-- **`oh-my-roadmap`** — the OMP extension (slash commands + tools).
+- **`@oh-my-roadmap/cli`** — a standalone CLI to scaffold project config and (re)generate agent definitions.
+- **`oh-my-roadmap`** — the OMP extension (slash commands + tools). npm package names cannot be a bare scope such as `@oh-my-roadmap`.
 
 ```sh
 # CLI
-npm install -g omr-cli        # or: bunx omr-cli init
+npm install -g @oh-my-roadmap/cli        # or: bunx @oh-my-roadmap/cli init
 
 # Extension (install into a project, then load with OMP)
 npm install oh-my-roadmap

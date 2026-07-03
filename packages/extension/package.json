@@ -1,34 +1,34 @@
 {
-	"name": "oh-my-roadmap",
-	"version": "0.8.0",
-	"description": "OMP extension for roadmap-based planning, milestone orchestration, worker notes, and gated complex implementation workflows.",
-	"type": "module",
-	"license": "MIT",
-	"omp": {
+	"name":             "oh-my-roadmap",
+	"version":          "0.9.0",
+	"description":      "OMP extension for roadmap-based planning, milestone orchestration, worker notes, and gated complex implementation workflows.",
+	"type":             "module",
+	"license":          "MIT",
+	"omp":              {
 		"extensions": [
 			"./src/main.ts"
 		]
 	},
-	"files": [
+	"files":            [
 		"src",
 		"hooks",
 		"prompts"
 	],
-	"dependencies": {
-		"@oh-my-roadmap/core": "workspace:*"
+	"dependencies":     {
+		"oh-my-roadmap-core": "0.8.0"
 	},
 	"peerDependencies": {
 		"@oh-my-pi/pi-coding-agent": "^16.2.6",
-		"@oh-my-pi/pi-tui": "^16.2.6"
+		"@oh-my-pi/pi-tui":          "^16.2.6"
 	},
-	"devDependencies": {
+	"devDependencies":  {
 		"@oh-my-pi/pi-coding-agent": "16.2.6",
-		"@oh-my-pi/pi-tui": "16.2.6"
+		"@oh-my-pi/pi-tui":          "16.2.6"
 	},
-	"engines": {
+	"engines":          {
 		"bun": ">=1.3.14"
 	},
-	"publishConfig": {
+	"publishConfig":    {
 		"access": "public"
 	}
 }

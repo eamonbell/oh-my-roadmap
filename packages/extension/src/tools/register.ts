@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
-import { withDiagnosticTiming } from "@oh-my-roadmap/core/diagnostics";
+import { withDiagnosticTiming } from "oh-my-roadmap-core/diagnostics";
 import { registerBlockerTools } from "./register/blocker-tools";
 import { registerContextTools } from "./register/context-tools";
 import { registerFindingsReportTool } from "./register/findings-report-tool";

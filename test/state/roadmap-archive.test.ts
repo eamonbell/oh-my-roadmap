@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readRoadmapEvents } from "@oh-my-roadmap/core/events";
-import { fileExists } from "@oh-my-roadmap/core/files";
-import { activePointerPath } from "@oh-my-roadmap/core/paths";
+import { readRoadmapEvents } from "oh-my-roadmap-core/events";
+import { fileExists } from "oh-my-roadmap-core/files";
+import { activePointerPath } from "oh-my-roadmap-core/paths";
 import {
   clearActivePointer,
   initRoadmap,
   loadState,
-} from "@oh-my-roadmap/core/store/index";
+} from "oh-my-roadmap-core/store/index";
 import {
   approvedRoadmap as approvedRoadmapForCwd,
   createTempRoadmapCwd,

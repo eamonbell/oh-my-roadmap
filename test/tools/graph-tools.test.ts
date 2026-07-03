@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { approvedMilestone, createTempRoadmapCwd, removeTempRoadmapCwd } from "../state/helpers";
-import { renderMilestoneDependencyGraph } from "@oh-my-roadmap/core/plan-validation";
+import { renderMilestoneDependencyGraph } from "oh-my-roadmap-core/plan-validation";
 import { registeredTool, registerTools, toolContext } from "./helpers";
 
 function firstText(result: unknown): string {

@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { renderReport } from "@oh-my-roadmap/core/report/index";
-import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "@oh-my-roadmap/core/roadmap-detail-summary/index";
+import { renderReport } from "oh-my-roadmap-core/report/index";
+import { applyRoadmapDetailControl, buildRoadmapDetailSummary, NO_ACTIVE_ROADMAP_MESSAGE } from "oh-my-roadmap-core/roadmap-detail-summary/index";
 import {
   appendNote,
   initRoadmap,
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
-} from "@oh-my-roadmap/core/store/index";
-import { recordMainUsage } from "@oh-my-roadmap/core/usage";
+} from "oh-my-roadmap-core/store/index";
+import { recordMainUsage } from "oh-my-roadmap-core/usage";
 
 let cwd = "";
 

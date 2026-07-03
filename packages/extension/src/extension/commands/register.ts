@@ -1,5 +1,5 @@
 import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
+import {withDiagnosticTiming} from 'oh-my-roadmap-core/diagnostics'
 import {COMMANDS, DETAILS_COMMAND, FINDINGS_CLEAR_COMMAND, USAGE_COMMAND} from './catalog'
 import {showRoadmapDetails} from './details'
 import {sendCommandMessage, sendCommandPrompt} from './messages'

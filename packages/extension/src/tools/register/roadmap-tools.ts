@@ -6,7 +6,7 @@ import {
 	type RepairRoadmapInput,
 	updateRoadmap,
 	type UpdateRoadmapInput,
-} from '@oh-my-roadmap/core/store/index'
+} from 'oh-my-roadmap-core/store/index'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): void {

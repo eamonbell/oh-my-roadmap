@@ -8,10 +8,10 @@ import {
   updateRoadmap,
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
-} from "@oh-my-roadmap/core/store/index";
-import { roadmapStatePath } from "@oh-my-roadmap/core/paths";
-import type { CloseoutEvidence, RoadmapState } from "@oh-my-roadmap/core/types";
-import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
+} from "oh-my-roadmap-core/store/index";
+import { roadmapStatePath } from "oh-my-roadmap-core/paths";
+import type { CloseoutEvidence, RoadmapState } from "oh-my-roadmap-core/types";
+import { readYamlFile, writeYamlFile } from "oh-my-roadmap-core/files";
 
 export async function createTempRoadmapCwd(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-"));

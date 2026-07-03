@@ -1,23 +1,26 @@
 {
-	"name": "oh-my-roadmap-monorepo",
-	"version": "0.8.0",
-	"description": "Monorepo for oh-my-roadmap: the OMP extension, the omr-cli tool, and their shared core.",
-	"type": "module",
-	"private": true,
-	"workspaces": [
+	"name":            "oh-my-roadmap-monorepo",
+	"version":         "0.9.0",
+	"description":     "Monorepo for oh-my-roadmap: the OMP extension, the omr-cli tool, and their shared core.",
+	"type":            "module",
+	"private":         true,
+	"workspaces":      [
 		"packages/*"
 	],
-	"scripts": {
-		"check": "tsc --noEmit",
-		"build": "bun run --filter omr-cli build",
-		"test": "bun test",
-		"verify": "bun run check && bun test"
+	"scripts":         {
+		"check":          "tsc --noEmit",
+		"build":          "bun run --filter @oh-my-roadmap/cli build",
+		"test":           "bun test",
+		"verify":         "bun run check && bun test",
+		"pack:check":     "bun run build && npm pack --dry-run --workspaces",
+		"deploy":         "bun run scripts/deploy-npm.ts",
+		"deploy:dry-run": "bun run scripts/deploy-npm.ts --dry-run"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.3.14",
 		"typescript": "^5.9.3"
 	},
-	"engines": {
+	"engines":         {
 		"bun": ">=1.3.14"
 	}
 }

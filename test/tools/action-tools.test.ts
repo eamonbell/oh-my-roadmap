@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { decisionsPath } from "@oh-my-roadmap/core/paths";
-import { initRoadmap, transition, updateRoadmap } from "@oh-my-roadmap/core/store/index";
+import { decisionsPath } from "oh-my-roadmap-core/paths";
+import { initRoadmap, transition, updateRoadmap } from "oh-my-roadmap-core/store/index";
 import { registeredTool, registerTools, roadmapInput, toolContext } from "./helpers";
 
 describe("roadmap action tools", () => {

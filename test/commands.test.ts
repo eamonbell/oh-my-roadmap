@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionWidgetContent } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { registerRoadmapCommands } from "../packages/extension/src/extension/commands";
-import { initRoadmap, openBlocker } from "@oh-my-roadmap/core/store/index";
+import { initRoadmap, openBlocker } from "oh-my-roadmap-core/store/index";
 
 interface RegisteredTestCommand {
   description?: string;

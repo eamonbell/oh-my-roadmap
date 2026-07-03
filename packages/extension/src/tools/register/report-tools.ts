@@ -1,7 +1,7 @@
 import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {amend, type AmendmentInput, createChangeRequest, type CreateChangeRequestInput,} from '@oh-my-roadmap/core/store/index'
-import {applyNextAction, formatValidationIssues, nextActionPlan, renderReport} from '@oh-my-roadmap/core/report/index'
-import {validateRoadmapState} from '@oh-my-roadmap/core/validation'
+import {amend, type AmendmentInput, createChangeRequest, type CreateChangeRequestInput,} from 'oh-my-roadmap-core/store/index'
+import {applyNextAction, formatValidationIssues, nextActionPlan, renderReport} from 'oh-my-roadmap-core/report/index'
+import {validateRoadmapState} from 'oh-my-roadmap-core/validation'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerReportTools(ctx: ToolRegistrationContext): void {

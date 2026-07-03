@@ -9,7 +9,7 @@ import type {
 	RoadmapDetailTask,
 	RoadmapDetailUsageAgent,
 	RoadmapDetailUsageTotals,
-} from '@oh-my-roadmap/core/roadmap-detail-summary/index'
+} from 'oh-my-roadmap-core/roadmap-detail-summary/index'
 import {arrowLines, bulletLines, keyValueLines, s, sectionHeader, styleValue, wrapWords} from './text'
 import type {TabName} from './types'
 

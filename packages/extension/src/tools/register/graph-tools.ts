@@ -1,6 +1,6 @@
 import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {renderMilestoneDependencyGraph} from '@oh-my-roadmap/core/plan-validation'
-import {loadState} from '@oh-my-roadmap/core/store/index'
+import {renderMilestoneDependencyGraph} from 'oh-my-roadmap-core/plan-validation'
+import {loadState} from 'oh-my-roadmap-core/store/index'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerGraphTools(ctx: ToolRegistrationContext): void {

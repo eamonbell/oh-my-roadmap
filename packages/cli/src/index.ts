@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {applyProject, initProject, type ProjectInitResult} from '@oh-my-roadmap/core'
+import {applyProject, initProject, type ProjectInitResult} from 'oh-my-roadmap-core'
 
 const VERSION = '0.8.0'
 

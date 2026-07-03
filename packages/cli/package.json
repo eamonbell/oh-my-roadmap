@@ -1,26 +1,26 @@
 {
-	"name": "omr-cli",
-	"version": "0.8.0",
-	"description": "CLI for oh-my-roadmap: scaffold project config and (re)generate agent definitions from config models.",
-	"type": "module",
-	"license": "MIT",
-	"bin": {
-		"omr-cli": "./dist/index.js"
+	"name":            "@oh-my-roadmap/cli",
+	"version":         "0.9.0",
+	"description":     "CLI for oh-my-roadmap: scaffold project config and (re)generate agent definitions from config models.",
+	"type":            "module",
+	"license":         "MIT",
+	"bin":             {
+		"omr-cli": "dist/index.js"
 	},
-	"files": [
+	"files":           [
 		"dist",
 		"skills"
 	],
-	"scripts": {
-		"build": "cp -R ../core/skills ./skills && bun build ./src/index.ts --target node --outfile ./dist/index.js && chmod +x ./dist/index.js"
+	"scripts":         {
+		"build": "rm -rf ./dist ./skills && cp -R ../core/skills ./skills && bun build ./src/index.ts --target node --outfile ./dist/index.js && chmod +x ./dist/index.js"
 	},
 	"devDependencies": {
-		"@oh-my-roadmap/core": "workspace:*"
+		"oh-my-roadmap-core": "0.8.0"
 	},
-	"engines": {
+	"engines":         {
 		"node": ">=18"
 	},
-	"publishConfig": {
+	"publishConfig":   {
 		"access": "public"
 	}
 }
