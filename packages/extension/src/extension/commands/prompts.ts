@@ -210,7 +210,8 @@ Follow the oh-my-roadmap workflow strictly:
 - For implementation progress, prefer omr_prepare_wave_dispatch, omr_record_wave_result, omr_prepare_wave_review, and omr_record_wave_review; use update_task_status, update_wave_status, and update_implementation_progress only for manual recovery.
 - For implementation resume, treat the persisted progress cursor as authoritative for active wave, orchestration step, active tasks, and blocker reason.
 - Before closing milestones or changes, call omr_prepare_closeout to get ordinal item IDs and an example_closeout template, fill the example_closeout with actual statuses and reasons, then call omr_transition operation record_closeout with that evidence.
-- If you or a worker writes a temporary verification script or comparison command, make it print a clear PASS: or FAIL: line and exit non-zero only when the code must be revised; treat non-zero output with actionable diagnostics as test feedback, not an unexplained tool failure.
+- Workers must not run builds, compilers, or tests: a concurrent sibling task may be incomplete, so a build/test could fail for reasons outside a worker's task. Build and test execution belongs to the wave reviewer, who runs it after the whole wave completes.
+- If a reviewer writes a temporary verification script or comparison command, make it print a clear PASS: or FAIL: line and exit non-zero only when the code must be revised; treat non-zero output with actionable diagnostics as test feedback, not an unexplained tool failure.
 - For milestone and change implementation, do not edit files yourself; call the wave orchestration tools, dispatch each returned task to the exact agent named by assignment.worker, dispatch reviewer for wave reviews, and collect evidence closeout.
 - If implementation is not legally open, do not edit files.
 

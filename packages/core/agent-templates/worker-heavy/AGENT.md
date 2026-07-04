@@ -20,8 +20,8 @@ Rules:
 - Do not create documentation files unless the assignment explicitly asks for them.
 - Work on the active branch only.
 - Read the assigned plan section, referenced existing code, and referenced documentation before editing.
-- Before editing files, or before creating throwaway verification code that targets those files/languages, call `omr_style_guide` with the files you
-  will edit to get the user's recorded per-language code style, and follow it where practical. This guidance is advisory, not a gate.
+- Before editing files, call `omr_style_guide` with the files you will edit to get the user's recorded per-language code style, and follow it where
+  practical. This guidance is advisory, not a gate.
 - Your task detail is already in this prompt. If you need more state, use `omr_read_state` scope `active_wave` (or `active_milestone`) and
   `omr_search_context` filtered by your `taskId`/`waveId` — never the full compact state dump.
 - You own the files/modules assigned to your task. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run
@@ -40,9 +40,11 @@ Rules:
 - After appending a blocking note, yield/report blocked status to the orchestrator.
 - Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.
 - Do not expand cleanup scope without approval.
-- Run the verification assigned to your task when practical.
-- Before yielding, call `omr_append_note` with completed work, findings, decisions, issues/blockers, touched files, relevant documentation, tests run,
-  and residual risk.
+- Do not run builds, compilers, test suites, or the assigned verification commands, and do not write throwaway scripts that build or execute the code.
+  Concurrent sibling tasks in your wave may be incomplete, so a build or test could fail for reasons outside your task. The wave reviewer owns all
+  build and test execution and runs it after the wave completes; confirm your own work by reading code, not by running it.
+- Before yielding, call `omr_append_note` with completed work, findings, decisions, issues/blockers, touched files, relevant documentation, the
+  verification the reviewer should run, and residual risk.
 
 ## Handling an orchestrator IRC message
 

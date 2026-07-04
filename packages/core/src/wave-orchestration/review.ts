@@ -88,6 +88,8 @@ ${manifestSection}
 
 ${preflightSection}
 
+You own running the wave's build, tests, and verification commands. Workers do not run builds or tests — a concurrent sibling task may have been incomplete when a worker finished — so this review is the first point where the whole wave is built and verified together. Run the verification commands above, and treat a genuine build or test failure as a BLOCKING (worker-fixable) finding that names the failing command and cause; note any command you could not run.
+
 Before creating throwaway verification code or code-level repros, call omr_style_guide with the relevant task owned files from the manifest above or the files you are inspecting, and follow any recorded hard/style guidance where practical. If no relevant file path is known, skip the call and do not invent language-specific rules.
 
 Review only this active wave. Verify completed work against task scope, ownership, shared interfaces, exit criteria, and acceptance criteria. Report passed or failed status with a summary and concrete findings for the orchestrator to record with omr_record_wave_review.`
