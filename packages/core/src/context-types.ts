@@ -1,12 +1,14 @@
 export type ContextArtifact = 'notes' | 'decisions' | 'risks' | 'roadmap' | 'plan';
 export type ContextNoteKind = 'worker' | 'review' | 'orchestrator' | 'decision' | 'issue';
 export type ContextNoteStatus = 'open' | 'resolved' | 'deferred';
+export type ContextSearchMode = 'count' | 'ids' | 'snippets' | 'bodies';
 
 export interface SearchContextInput {
 	artifacts?: ContextArtifact[];
 	query?: string;
 	useRegex?: boolean;
 	caseSensitive?: boolean;
+	mode?: ContextSearchMode;
 	maxResults?: number;
 	snippetChars?: number;
 	includeBodies?: boolean;

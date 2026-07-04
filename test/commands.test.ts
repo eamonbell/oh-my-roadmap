@@ -209,6 +209,21 @@ describe("roadmap commands", () => {
     expect(content).toContain("start_milestone_planning to advance from the completed milestone");
     expect(content).toContain("Do not pad the milestone plan with filler tasks");
     expect(content).toContain("every task must directly implement the approved roadmap milestone scope");
+    // Narrow flow scopes for orientation and gating.
+    expect(content).toContain("scope phase for flow-control decisions");
+    expect(content).toContain("scope progress for implementation cursor checks");
+    expect(content).toContain("scope quality_gates before approvals");
+    expect(content).toContain("scope closeout_requirements before closeout");
+    // Staged context search before snippets/bodies.
+    expect(content).toContain("mode: 'count'");
+    expect(content).toContain("mode: 'ids'");
+    // Scout finding reuse before/after dispatching broad scouts.
+    expect(content).toContain("omr_list_scout_findings filtered by subsystem");
+    expect(content).toContain("record a compact finding with omr_record_scout_finding");
+    // Structured PASS/FAIL verification guidance for throwaway checks.
+    expect(content).toContain("PASS:");
+    expect(content).toContain("FAIL:");
+    expect(content).toContain("exit non-zero only when the code must be revised");
     expectFindingsReportInstruction(content, "omr:ms-plan");
   });
 

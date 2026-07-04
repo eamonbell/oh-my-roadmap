@@ -1,6 +1,18 @@
 import {appendRoadmapEvent} from '../events'
 import type {LoadedState, RoadmapBlocker, RoadmapEvent, RoadmapEventScope} from '../types'
-import type {TransitionInput} from './contract'
+import type {TransitionInput, TransitionReceipt} from './contract'
+
+export function receiptFromEvent(event: RoadmapEvent): TransitionReceipt {
+	return {
+		operation: (event.operation ?? '') as TransitionInput['operation'],
+		event_id: event.id,
+		event_type: event.type,
+		summary: event.summary,
+		scope: event.scope,
+		...(event.before !== undefined ? {before: event.before} : {}),
+		...(event.after !== undefined ? {after: event.after} : {}),
+	}
+}
 
 export function scopeFromLoaded(loaded: LoadedState): RoadmapEventScope {
 	const roadmapId = loaded.active?.roadmap_id ?? loaded.roadmap?.roadmap_id
@@ -104,8 +116,8 @@ export function eventSnapshot(loaded: LoadedState, input: TransitionInput): Reco
 
 export function transitionEventScope(loaded: LoadedState, input: TransitionInput): RoadmapEventScope {
 	const scope = scopeFromLoaded(loaded)
-	if (input.taskId) scope.task_id = input.taskId
-	if (input.waveId) scope.wave_id = input.waveId
+	if ('taskId' in input && input.taskId) scope.task_id = input.taskId
+	if ('waveId' in input && input.waveId) scope.wave_id = input.waveId
 	if (input.operation === 'record_wave_flow_check') scope.gate = 'wave_flow_check'
 	if (input.operation === 'record_roadmap_milestone_check') scope.gate = 'roadmap_milestone_check'
 	return scope
@@ -118,7 +130,8 @@ export function transitionActor(input: TransitionInput): string {
 	if (input.operation === 'record_roadmap_milestone_check') {
 		return input.roadmapMilestoneCheck?.checkedBy?.trim() || 'roadmap-milestone-checker'
 	}
-	return input.approver?.trim() || 'user'
+	const approver = 'approver' in input ? input.approver : undefined
+	return approver?.trim() || 'user'
 }
 
 export function transitionEventType(operation: TransitionInput['operation']): string {
@@ -171,14 +184,14 @@ export function transitionEventType(operation: TransitionInput['operation']): st
 
 export function transitionDetails(input: TransitionInput, after?: LoadedState): Record<string, unknown> | undefined {
 	const details: Record<string, unknown> = {}
-	if (input.summary) details.summary = input.summary
-	if (input.reason) details.reason = input.reason
-	if (input.taskStatus) details.task_status = input.taskStatus
-	if (input.waveStatus) details.wave_status = input.waveStatus
-	if (input.progress) details.progress_step = input.progress.step
-	if (input.closeout) details.closeout_status = input.closeout.status
-	if (input.waveFlowCheck) details.gate_status = input.waveFlowCheck.status
-	if (input.roadmapMilestoneCheck) details.gate_status = input.roadmapMilestoneCheck.status
+	if ('summary' in input && input.summary) details.summary = input.summary
+	if ('reason' in input && input.reason) details.reason = input.reason
+	if ('taskStatus' in input && input.taskStatus) details.task_status = input.taskStatus
+	if ('waveStatus' in input && input.waveStatus) details.wave_status = input.waveStatus
+	if ('progress' in input && input.progress) details.progress_step = input.progress.step
+	if ('closeout' in input && input.closeout) details.closeout_status = input.closeout.status
+	if ('waveFlowCheck' in input && input.waveFlowCheck) details.gate_status = input.waveFlowCheck.status
+	if ('roadmapMilestoneCheck' in input && input.roadmapMilestoneCheck) details.gate_status = input.roadmapMilestoneCheck.status
 	if (input.operation === 'record_roadmap_milestone_check' && after?.roadmap) {
 		const check = after.roadmap.roadmap_milestone_check
 		details.roadmap_revision = check.roadmap_revision

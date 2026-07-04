@@ -177,7 +177,7 @@ describe("tool friction improvements", () => {
     });
     action = await nextActionPlan(cwd);
     expect(action.label).toBe("Record closeout evidence");
-    expect(action.description).toContain("Re-record");
+    expect(action.description).toContain("re-record");
 
     // Closed: prompt to complete the milestone with a safe transition tool.
     await transition(cwd, {
@@ -217,5 +217,118 @@ describe("tool friction improvements", () => {
     expect(review.worker_notes[0]?.title).toBe("Note without waveId");
     // The writer-side default should also stamp the active wave id onto the note.
     expect(review.worker_notes[0]?.metadata.wave_id).toBe("w01");
+  });
+
+  test("omr_prepare_closeout returns ordinal item IDs and an itemId-based example", async () => {
+    await closeoutPhaseForCwd(cwd);
+    const prepareTool = registeredTool(registerTools(), "omr_prepare_closeout");
+    const result = await prepareTool?.execute(
+      "prepare",
+      {},
+      new AbortController().signal,
+      undefined,
+      toolContext(cwd),
+    );
+    const details = result?.details as {
+      status: string;
+      next_operation: string;
+      acceptance: Array<{ id: string; item: string }>;
+      verification: Array<{ id: string; item: string }>;
+      example_closeout: {
+        status: string;
+        acceptance_results: Array<{ itemId: string; status: string }>;
+        verification_results: Array<{ itemId: string; status: string }>;
+      };
+    };
+    expect(details.status).toBe("open");
+    expect(details.next_operation).toBe("record_closeout");
+    expect(details.acceptance[0]).toMatchObject({ id: "acceptance:1", item: "State validates" });
+    expect(details.acceptance[1]?.id).toBe("acceptance:2");
+    expect(details.verification[0]).toMatchObject({ id: "verification:1", item: "bun test" });
+    // The example payload references ordinal item IDs, not canonical long text.
+    expect(details.example_closeout.status).toBe("closed");
+    expect(details.example_closeout.acceptance_results[0]).toMatchObject({
+      itemId: "acceptance:1",
+      status: "passed",
+    });
+    expect(details.example_closeout.verification_results[0]).toMatchObject({
+      itemId: "verification:1",
+      status: "passed",
+    });
+  });
+
+  test("record_closeout accepts itemId results and persists canonical text", async () => {
+    await closeoutPhaseForCwd(cwd);
+    await transition(cwd, {
+      operation: "record_closeout",
+      closeout: {
+        roadmap_id: "complex-refactor",
+        milestone_id: "m01-core",
+        status: "closed",
+        acceptance_results: [
+          { itemId: "acceptance:1", status: "passed" },
+          { itemId: "acceptance:2", status: "passed" },
+        ],
+        verification_results: [{ itemId: "verification:1", status: "passed" }],
+        worker_notes_reviewed: true,
+        review_summary: "Closeout evidence reviewed via item IDs.",
+        unresolved_risks: [],
+      },
+    });
+    const state = await loadState(cwd);
+    expect(state.closeout?.status).toBe("closed");
+    // Persisted evidence carries canonical plan text, not the input itemId.
+    expect(state.closeout?.acceptance_results.map((result) => result.item)).toEqual([
+      "State validates",
+      "Gate opens only during implementation",
+    ]);
+    expect(state.closeout?.verification_results[0]?.item).toBe("bun test");
+    expect(JSON.stringify(state.closeout)).not.toContain("itemId");
+  });
+
+  test("record_closeout still accepts legacy exact item text", async () => {
+    await closeoutPhaseForCwd(cwd);
+    await transition(cwd, { operation: "record_closeout", closeout: closedEvidence() });
+    const state = await loadState(cwd);
+    expect(state.closeout?.status).toBe("closed");
+    expect(state.closeout?.acceptance_results[0]?.item).toBe("State validates");
+  });
+
+  test("record_closeout rejects unknown item IDs and mismatched itemId/item pairs", async () => {
+    await closeoutPhaseForCwd(cwd);
+
+    await expect(
+      transition(cwd, {
+        operation: "record_closeout",
+        closeout: {
+          roadmap_id: "complex-refactor",
+          milestone_id: "m01-core",
+          status: "closed",
+          acceptance_results: [{ itemId: "acceptance:9", status: "passed" }],
+          verification_results: [{ itemId: "verification:1", status: "passed" }],
+          worker_notes_reviewed: true,
+          review_summary: "Bad id.",
+          unresolved_risks: [],
+        },
+      }),
+    ).rejects.toThrow("Unknown closeout itemId: acceptance:9");
+
+    await expect(
+      transition(cwd, {
+        operation: "record_closeout",
+        closeout: {
+          roadmap_id: "complex-refactor",
+          milestone_id: "m01-core",
+          status: "closed",
+          acceptance_results: [
+            { itemId: "acceptance:1", item: "Wrong acceptance text", status: "passed" },
+          ],
+          verification_results: [{ itemId: "verification:1", status: "passed" }],
+          worker_notes_reviewed: true,
+          review_summary: "Mismatched pair.",
+          unresolved_risks: [],
+        },
+      }),
+    ).rejects.toThrow("Closeout itemId acceptance:1 does not match item text.");
   });
 });

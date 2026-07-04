@@ -144,6 +144,19 @@ export interface RoadmapBlocker {
 	note_path?: string;
 }
 
+export interface ScoutFinding {
+	id: string;
+	roadmap_id: string;
+	subsystem: string;
+	milestone_ids: string[];
+	source_paths: string[];
+	summary: string;
+	findings: string[];
+	created_by: string;
+	created_at: string;
+	stale?: boolean;
+}
+
 export const IMPLEMENTATION_WORKER_NAMES = ['worker-light', 'worker', 'worker-heavy'] as const
 
 export type ImplementationWorkerName = (typeof IMPLEMENTATION_WORKER_NAMES)[number];

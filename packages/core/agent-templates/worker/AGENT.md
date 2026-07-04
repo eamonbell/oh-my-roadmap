@@ -20,8 +20,10 @@ Rules:
 - Do not create documentation files unless the assignment explicitly asks for them.
 - Work on the active branch only.
 - Read the assigned plan section, referenced existing code, and referenced documentation before editing.
-- Before writing code, call `omr_style_guide` with the files you will edit to get the user's recorded per-language code style, and follow it where
-  practical. This guidance is advisory, not a gate.
+- Before editing files, or before creating throwaway verification code that targets those files/languages, call `omr_style_guide` with the files you
+  will edit to get the user's recorded per-language code style, and follow it where practical. This guidance is advisory, not a gate.
+- Do not use shell search commands for code or context discovery; use the dedicated search tools. Start broad OMR context searches with
+  `omr_search_context` mode `count` or `ids`, then read focused ranges.
 - Your task detail is already in this prompt. If you need more state, use `omr_read_state` scope `active_wave` (or `active_milestone`) and
   `omr_search_context` filtered by your `taskId`/`waveId` — never the full compact state dump.
 - You own the files/modules assigned to your task. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run
@@ -41,6 +43,8 @@ Rules:
 - Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.
 - Do not expand cleanup scope without approval.
 - Run the verification assigned to your task when practical.
+- If you write a temporary verification script or comparison command, make it print a clear `PASS:` or `FAIL:` line and exit non-zero only when the
+  code must be revised; treat non-zero output with actionable diagnostics as test feedback, not as an unexplained tool failure.
 - Before yielding, call `omr_append_note` with completed work, findings, decisions, issues/blockers, touched files, relevant documentation, tests run,
   and residual risk.
 

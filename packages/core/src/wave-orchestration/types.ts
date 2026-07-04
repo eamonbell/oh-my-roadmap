@@ -8,6 +8,22 @@ export interface WaveOrchestrationTargetInput {
 	changeRequestId?: string;
 }
 
+export interface PlanDerivedManifest {
+	owned_files: string[];
+	owned_modules: string[];
+	shared_interfaces: string[];
+	dependencies: string[];
+	reserved_sibling_scope: string[];
+	relevant_existing_code: string[];
+	relevant_documentation: string[];
+}
+
+export interface VerificationPreflightHint {
+	commands: string[];
+	cli_assumption_warnings: string[];
+	guidance: string[];
+}
+
 export interface WaveWorkerAssignment {
 	task_id: string;
 	title: string;
@@ -16,6 +32,8 @@ export interface WaveWorkerAssignment {
 	owned_modules: string[];
 	shared_interfaces: string[];
 	dependencies: string[];
+	manifest?: PlanDerivedManifest;
+	verification_preflight?: VerificationPreflightHint;
 	prompt: string;
 }
 
@@ -102,6 +120,8 @@ export interface PrepareWaveReviewResult {
 	wave_id: string;
 	reviewer: 'reviewer';
 	prompt: string;
+	manifest?: PlanDerivedManifest;
+	verification_preflight?: VerificationPreflightHint;
 	tasks: Array<{
 		task_id: string;
 		title: string;

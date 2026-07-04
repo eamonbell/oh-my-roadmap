@@ -40,15 +40,21 @@ describe("roadmap lifecycle tools", () => {
         toolContext(cwd),
       );
 
+      // Default result is a compact transition receipt, not the full loaded state.
       expect(result?.details).toMatchObject({
-        roadmap: {
-          roadmap_milestone_check: {
-            status: "passed",
-            checked_by: "roadmap-milestone-checker",
-            roadmap_revision: 2,
-          },
+        operation: "record_roadmap_milestone_check",
+        event_type: "quality_gate.recorded",
+        scope: { gate: "roadmap_milestone_check" },
+        after: {
+          status: "passed",
+          checked_by: "roadmap-milestone-checker",
+          roadmap_revision: 2,
         },
       });
+      expect(result?.details).not.toHaveProperty("roadmap");
+      expect(result?.details).toHaveProperty("next_actions");
+      expect(result?.details).toHaveProperty("summary");
+      expect(result?.details).toHaveProperty("before");
       expect(JSON.stringify(result?.details)).toContain('"event_id":"evt_');
 
       const gates = await listQualityGatesTool?.execute(
@@ -74,6 +80,98 @@ describe("roadmap lifecycle tools", () => {
           },
         ],
       });
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("returnScope state restores the full loaded-state shape plus next_actions", async () => {
+    const tools = registerTools();
+    const transitionTool = registeredTool(tools, "omr_transition");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-return-scope-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "return-scope-roadmap", title: "Return Scope Roadmap" });
+      await transition(cwd, {
+        operation: "record_discovery",
+        discovery: { findings: ["Inspected return-scope wiring."] },
+      });
+      await updateRoadmap(cwd, roadmapInput());
+      await transition(cwd, {
+        operation: "record_roadmap_milestone_check",
+        roadmapMilestoneCheck: {
+          status: "passed",
+          checkedBy: "roadmap-milestone-checker",
+          summary: "Milestone flow is coherent and buildable.",
+          findings: [],
+        },
+      });
+      await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+
+      const started = await transitionTool?.execute(
+        "transition-return-scope",
+        { operation: "start_milestone_planning", returnScope: "state" },
+        new AbortController().signal,
+        undefined,
+        toolContext(cwd),
+      );
+      // returnScope: "state" returns the old top-level full loaded-state shape.
+      expect(started?.details).toMatchObject({
+        roadmap: { roadmap_id: "return-scope-roadmap", phase: "milestone_planning" },
+      });
+      expect(started?.details).toHaveProperty("next_actions");
+      // Receipt-only fields are not surfaced at the top level in state scope.
+      expect(started?.details).not.toHaveProperty("event_id");
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects irrelevant operation fields and accepts the bare valid payload", async () => {
+    const tools = registerTools();
+    const transitionTool = registeredTool(tools, "omr_transition");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-strict-input-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "strict-input-roadmap", title: "Strict Input Roadmap" });
+      await transition(cwd, {
+        operation: "record_discovery",
+        discovery: { findings: ["Inspected strict input wiring."] },
+      });
+      await updateRoadmap(cwd, roadmapInput());
+      await transition(cwd, {
+        operation: "record_roadmap_milestone_check",
+        roadmapMilestoneCheck: {
+          status: "passed",
+          checkedBy: "roadmap-milestone-checker",
+          summary: "Milestone flow is coherent and buildable.",
+          findings: [],
+        },
+      });
+      await transition(cwd, { operation: "approve_roadmap", approver: "user" });
+
+      // start_milestone_planning accepts no operation-specific fields; `milestone` is irrelevant
+      // and must be rejected before the core state machine runs, with a focused message.
+      await expect(
+        transitionTool?.execute(
+          "transition-strict-reject",
+          { operation: "start_milestone_planning", milestone: { milestoneId: "m01-core" } },
+          new AbortController().signal,
+          undefined,
+          toolContext(cwd),
+        ),
+      ).rejects.toThrow("Operation start_milestone_planning does not accept field milestone.");
+
+      // The bare valid payload succeeds in the roadmap_approved phase.
+      const started = await transitionTool?.execute(
+        "transition-strict-accept",
+        { operation: "start_milestone_planning" },
+        new AbortController().signal,
+        undefined,
+        toolContext(cwd),
+      );
+      expect(started?.details).toMatchObject({ operation: "start_milestone_planning" });
+      expect((await loadState(cwd)).roadmap?.phase).toBe("milestone_planning");
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }

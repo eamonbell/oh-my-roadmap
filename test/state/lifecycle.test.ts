@@ -524,9 +524,13 @@ describe("roadmap state lifecycle", () => {
     await recordPassedRoadmapMilestoneCheck();
     await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
-    await expect(
-      transition(cwd, { operation: "reopen_roadmap" }),
-    ).rejects.toThrow("reopen_roadmap requires a reason");
+    // The strict R7 discriminated union requires `reason` for reopen_roadmap. Build an
+    // intentionally invalid payload (cast past the compile-time union) to prove the core
+    // runtime guard still rejects a missing reason.
+    const reopenWithoutReason = { operation: "reopen_roadmap" } as unknown as Parameters<typeof transition>[1];
+    await expect(transition(cwd, reopenWithoutReason)).rejects.toThrow(
+      "reopen_roadmap requires a reason",
+    );
   });
 
   test("rejects incomplete roadmap milestone outlines", async () => {

@@ -11,9 +11,11 @@ import {
 	assertTaskDispatchFields,
 } from './context'
 import type {
+	PlanDerivedManifest,
 	PrepareWaveDispatchResult,
 	PrepareWorkerRedispatchInput,
 	PrepareWorkerRedispatchResult,
+	VerificationPreflightHint,
 	WaveOrchestrationTargetInput,
 	WaveWorkerAssignment,
 } from './types'
@@ -48,12 +50,91 @@ function reservedSiblingScope(ctx: ActivePlanContext, task: TaskPlan): string[] 
 	return [...reserved]
 }
 
+// CLIs whose availability we must not assume; commands starting with one of these get a warning.
+const CLI_ASSUMPTION_TOOLS = new Set<string>([
+	'psql',
+	'mysql',
+	'redis-cli',
+	'docker',
+	'kubectl',
+	'aws',
+	'gcloud',
+	'az',
+	'curl',
+])
+
+const VERIFICATION_PREFLIGHT_GUIDANCE =
+	'Run assigned verification when practical. If a verification command depends on an unavailable external CLI or service, stop and append a blocking note with the missing prerequisite instead of inventing a substitute.'
+
+export function manifestForTask(ctx: ActivePlanContext, task: TaskPlan): PlanDerivedManifest {
+	return {
+		owned_files: task.owned_files,
+		owned_modules: task.owned_modules,
+		shared_interfaces: task.shared_interfaces,
+		dependencies: task.depends_on,
+		reserved_sibling_scope: reservedSiblingScope(ctx, task),
+		relevant_existing_code: ctx.plan.relevant_existing_code,
+		relevant_documentation: ctx.plan.relevant_documentation,
+	}
+}
+
+export function verificationPreflightFor(commands: string[]): VerificationPreflightHint {
+	const cliAssumptionWarnings: string[] = []
+	const seen = new Set<string>()
+	for (const command of commands) {
+		const firstToken = command.trim().split(/\s+/)[0]
+		if (firstToken && CLI_ASSUMPTION_TOOLS.has(firstToken) && !seen.has(firstToken)) {
+			seen.add(firstToken)
+			cliAssumptionWarnings.push(
+				`Do not assume ${firstToken} is installed; prefer repo-native helpers or configured MCP/tools unless the plan explicitly requires this CLI.`,
+			)
+		}
+	}
+	return {
+		commands,
+		cli_assumption_warnings: cliAssumptionWarnings,
+		guidance: [VERIFICATION_PREFLIGHT_GUIDANCE],
+	}
+}
+
+function listOrNone(items: string[]): string {
+	return items.length > 0 ? items.join(', ') : '(none)'
+}
+
+export function manifestPromptSection(manifest: PlanDerivedManifest): string {
+	return `Plan-derived manifest:
+- Owned files: ${listOrNone(manifest.owned_files)}
+- Owned modules: ${listOrNone(manifest.owned_modules)}
+- Shared interfaces: ${listOrNone(manifest.shared_interfaces)}
+- Dependencies: ${listOrNone(manifest.dependencies)}
+- Reserved sibling scope: ${listOrNone(manifest.reserved_sibling_scope)}
+- Relevant existing code: ${listOrNone(manifest.relevant_existing_code)}
+- Relevant documentation: ${listOrNone(manifest.relevant_documentation)}
+This manifest is plan-derived and is NOT proof that any listed path exists. If a path is not in this manifest or prior tool output, use glob or omr_search_context to locate it before you read it.`
+}
+
+export function verificationPreflightPromptSection(preflight: VerificationPreflightHint): string {
+	const warnings = preflight.cli_assumption_warnings.length > 0
+		? preflight.cli_assumption_warnings.map((item) => `- ${item}`).join('\n')
+		: '- (none)'
+	return `Verification preflight:
+Commands:
+${preflight.commands.length > 0 ? preflight.commands.map((item) => `- ${item}`).join('\n') : '- (none)'}
+CLI assumption warnings:
+${warnings}
+Guidance:
+${preflight.guidance.map((item) => `- ${item}`).join('\n')}
+If an external CLI warning appears above, do not shell out to that CLI unless the plan explicitly requires it or a repo-native helper is unavailable and the CLI is confirmed to exist.`
+}
+
 function workerPrompt(
 	ctx: ActivePlanContext,
 	task: TaskPlan,
 	continuation?: WorkerContinuation,
 ): string {
 	const reserved = reservedSiblingScope(ctx, task)
+	const manifestSection = manifestPromptSection(manifestForTask(ctx, task))
+	const preflightSection = verificationPreflightPromptSection(verificationPreflightFor(task.verification_commands))
 	const scopeHeader = ctx.isAdhoc
 		? `Ad-hoc plan: ${ctx.roadmapId}\n`
 		: `Roadmap: ${ctx.roadmapId}\nMilestone: ${ctx.milestoneId}\n${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}`
@@ -81,6 +162,10 @@ Ownership:
 
 Reserved by concurrent sibling tasks in THIS wave (do not edit): ${reserved.length > 0 ? reserved.join(', ') : '(none)'}
 
+${manifestSection}
+
+${preflightSection}
+
 You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. Only append a blocking note if you need something genuinely outside the plan or a required decision is ambiguous. Report completed, failed, or blocked status with a concise summary, verification run, and any blocker details for the orchestrator to record with omr_record_wave_result.`
 	return continuation ? `${base}${continuationSection(continuation)}` : base
 }
@@ -94,6 +179,8 @@ function assignment(ctx: ActivePlanContext, task: TaskPlan, continuation?: Worke
 		owned_modules: task.owned_modules,
 		shared_interfaces: task.shared_interfaces,
 		dependencies: task.depends_on,
+		manifest: manifestForTask(ctx, task),
+		verification_preflight: verificationPreflightFor(task.verification_commands),
 		prompt: workerPrompt(ctx, task, continuation),
 	}
 }

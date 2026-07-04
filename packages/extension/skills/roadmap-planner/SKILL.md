@@ -10,6 +10,8 @@ Create a detailed roadmap with concrete milestone outlines, not milestone implem
 Required process:
 
 - Inspect the repo and relevant project documentation before drafting.
+- Before dispatching broad scout agents for a subsystem, call `omr_list_scout_findings` filtered by subsystem and milestone when known, and pass any
+  relevant prior summaries to the new scouts. After a scout returns durable findings, record a compact finding with `omr_record_scout_finding`.
 - When amending or reopening an existing roadmap, orient with `omr_read_state` scope `roadmap` (not the full compact dump) and use
   `omr_search_context` for prior decisions, risks, and notes before reading full context.
 - Use the built-in `ask` tool to interview the user until no material unknowns, decisions, tradeoffs, approvals, scope gaps, milestone-substance gaps,

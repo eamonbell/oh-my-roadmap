@@ -47,6 +47,10 @@ function expectWorkerDirectives(body: string): void {
   expect(body).toContain("Do not create documentation files unless the assignment explicitly asks for them");
   expect(body).toContain("append a blocking note");
   expect(body).toContain("yield/report blocked status to the orchestrator");
+  // R13: style guide is reachable before editing OR before throwaway verification code.
+  expect(body).toContain(
+    "before creating throwaway verification code that targets those files/languages, call `omr_style_guide`",
+  );
   expectNoAskToolDirective(body);
 }
 
@@ -101,6 +105,10 @@ describe("project init scaffold", () => {
     expect(reviewer.body).toContain("# Reviewer");
     expect(reviewer.body).toContain("append a blocking review note");
     expect(reviewer.body).toContain("Do not request user input directly");
+    // R13: reviewer reaches omr_style_guide before throwaway verification code or code-level repros.
+    expect(reviewer.body).toContain(
+      "Before creating throwaway verification code or code-level repros, call `omr_style_guide`",
+    );
     expectNoAskToolDirective(reviewer.body);
 
     const checker = parseMarkdownDocument(await readFile(".omp/agents/wave-flow-checker.md"));
@@ -161,7 +169,7 @@ describe("project init scaffold", () => {
     expectNoAskToolDirective(checker.body);
 
     const roadmapChecker = parseMarkdownDocument(await readFile(".omp/agents/roadmap-milestone-checker.md"));
-    expect(roadmapChecker.body).toContain("milestone flow");
+    expect(roadmapChecker.body).toContain("Start with omr_read_state scope roadmap_checker_package");
     expectNoAskToolDirective(roadmapChecker.body);
   });
 

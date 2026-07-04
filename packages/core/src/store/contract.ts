@@ -1,12 +1,13 @@
 import type {
 	ChangeRequest,
-	CloseoutEvidence,
 	ImplementationProgressStep,
+	LoadedState,
 	MilestonePlan,
 	RoadmapBlocker,
 	RoadmapBlockerSeverity,
 	RoadmapBlockerStatus,
 	RoadmapEvent,
+	RoadmapEventScope,
 	RoadmapMilestoneCheck,
 	RoadmapMilestoneOutline,
 	RoadmapState,
@@ -15,6 +16,7 @@ import type {
 	WaveFlowCheckStatus,
 	WavePlan
 } from '../types'
+import type {CloseoutEvidenceInput} from '../closeout'
 
 export interface InitRoadmapInput {
 	roadmapId: string;
@@ -168,44 +170,50 @@ export interface ListBlockersResult {
 	blockers: RoadmapBlocker[];
 }
 
-export interface TransitionInput {
-	operation:
-		| 'record_discovery'
-		| 'approve_roadmap'
-		| 'reopen_roadmap'
-		| 'record_roadmap_milestone_check'
-		| 'start_milestone_planning'
-		| 'create_milestone_plan'
-		| 'approve_milestone'
-		| 'update_milestone_plan'
-		| 'start_implementation'
-		| 'start_reviewing'
-		| 'start_closeout'
-		| 'complete_milestone'
-		| 'request_bypass'
-		| 'clear_bypass'
-		| 'approve_change'
-		| 'update_change_request_plan'
-		| 'close_change'
-		| 'update_task_status'
-		| 'update_wave_status'
-		| 'update_implementation_progress'
-		| 'record_closeout'
-		| 'record_wave_flow_check';
-	approver?: string;
-	summary?: string;
-	reason?: string;
-	discovery?: Partial<RoadmapState['discovery']>;
-	milestone?: CreateMilestonePlanInput;
-	changeRequest?: CreateChangeRequestInput;
-	taskId?: string;
-	taskStatus?: TaskPlan['status'];
-	waveId?: string;
-	waveStatus?: WavePlan['status'];
-	progress?: UpdateImplementationProgressInput;
-	closeout?: CloseoutEvidence;
-	waveFlowCheck?: WaveFlowCheckInput;
-	roadmapMilestoneCheck?: WaveFlowCheckInput;
+export type TransitionReturnScope = 'receipt' | 'state';
+
+type TransitionBase<Operation extends string> = {
+	operation: Operation;
+	returnScope?: TransitionReturnScope;
+};
+
+export type TransitionInput =
+	| (TransitionBase<'record_discovery'> & {discovery?: Partial<RoadmapState['discovery']>})
+	| (TransitionBase<'approve_roadmap'> & {approver?: string; summary?: string})
+	| (TransitionBase<'reopen_roadmap'> & {reason: string})
+	| (TransitionBase<'record_roadmap_milestone_check'> & {roadmapMilestoneCheck: WaveFlowCheckInput})
+	| TransitionBase<'start_milestone_planning'>
+	| (TransitionBase<'create_milestone_plan'> & {milestone: CreateMilestonePlanInput})
+	| (TransitionBase<'approve_milestone'> & {approver?: string; summary?: string})
+	| (TransitionBase<'update_milestone_plan'> & {milestone: CreateMilestonePlanInput})
+	| TransitionBase<'start_implementation'>
+	| TransitionBase<'start_reviewing'>
+	| TransitionBase<'start_closeout'>
+	| TransitionBase<'complete_milestone'>
+	| (TransitionBase<'request_bypass'> & {reason: string; approver?: string})
+	| TransitionBase<'clear_bypass'>
+	| (TransitionBase<'approve_change'> & {approver?: string; summary?: string})
+	| (TransitionBase<'update_change_request_plan'> & {changeRequest: CreateChangeRequestInput})
+	| TransitionBase<'close_change'>
+	| (TransitionBase<'update_task_status'> & {taskId: string; taskStatus: TaskPlan['status']})
+	| (TransitionBase<'update_wave_status'> & {waveId: string; waveStatus: WavePlan['status']})
+	| (TransitionBase<'update_implementation_progress'> & {progress: UpdateImplementationProgressInput})
+	| (TransitionBase<'record_closeout'> & {closeout: CloseoutEvidenceInput})
+	| (TransitionBase<'record_wave_flow_check'> & {waveFlowCheck: WaveFlowCheckInput});
+
+export interface TransitionReceipt {
+	operation: TransitionInput['operation'];
+	event_id: string;
+	event_type: string;
+	summary: string;
+	scope: RoadmapEventScope;
+	before?: Record<string, unknown>;
+	after?: Record<string, unknown>;
+}
+
+export interface TransitionResult {
+	state: LoadedState;
+	receipt: TransitionReceipt;
 }
 
 export interface AmendmentInput {
