@@ -36,7 +36,7 @@ export function parseUsageArgs(args: string): UsageCommandOptions {
 
 export function renderUsageReport(
 	usage: RoadmapUsageSummary,
-	options: {format: 'markdown' | 'json'; milestoneId?: string; changeRequestId?: string},
+	options: { format: 'markdown' | 'json'; milestoneId?: string; changeRequestId?: string },
 ): string {
 	if (options.format === 'json') return JSON.stringify(usage, null, 2)
 	const lines = usageLines(usage, options.milestoneId, options.changeRequestId)

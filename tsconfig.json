@@ -10,7 +10,7 @@
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
   },
   "include": [
     "packages/core/src/**/*.ts",

@@ -201,7 +201,7 @@ export function buildTaskDependencyGraph(tasks: TaskPlan[]): TaskDependencyGraph
 }
 
 function escapeMermaidLabel(text: string): string {
-	return text.replace(/"/g, "'").replace(/[\r\n]+/g, ' ').trim()
+	return text.replace(/"/g, '\'').replace(/[\r\n]+/g, ' ').trim()
 }
 
 export function renderMilestoneDependencyGraph(tasks: TaskPlan[]): string {

@@ -38,9 +38,21 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 			const noteSections = activeWaveId
 				? [
 					...(activeWaveTasks.length > 0
-						? (await searchContext(ctx.cwd, {artifacts: ['notes'], kinds: ['worker'], taskIds: activeWaveTasks, maxResults: 80, snippetChars: 1})).results
+						? (await searchContext(ctx.cwd, {
+							artifacts: ['notes'],
+							kinds: ['worker'],
+							taskIds: activeWaveTasks,
+							maxResults: 80,
+							snippetChars: 1
+						})).results
 						: []),
-					...(await searchContext(ctx.cwd, {artifacts: ['notes'], kinds: ['review'], waveId: activeWaveId, maxResults: 80, snippetChars: 1})).results,
+					...(await searchContext(ctx.cwd, {
+						artifacts: ['notes'],
+						kinds: ['review'],
+						waveId: activeWaveId,
+						maxResults: 80,
+						snippetChars: 1
+					})).results,
 				]
 				: undefined
 			const summary = summarizeState(state, scope, {

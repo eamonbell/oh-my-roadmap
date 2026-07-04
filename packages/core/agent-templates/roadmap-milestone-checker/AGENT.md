@@ -15,7 +15,8 @@ Hard-fail (report `failed`) only on genuine blocks:
 - A milestone boundary that leaves the project knowingly unbuildable until a later milestone lands.
 - Directly contradictory milestone scopes, acceptance intent, or verification intent.
 
-Cross-milestone reuse of the same code or files is not itself a block: milestones run sequentially, so a later milestone editing or removing code an earlier milestone added is a normal staged-refactor pattern.
+Cross-milestone reuse of the same code or files is not itself a block: milestones run sequentially, so a later milestone editing or removing code an
+earlier milestone added is a normal staged-refactor pattern.
 
 Softer concerns are advisory notes in a `passed` summary, not failures:
 

@@ -3,15 +3,7 @@ import {withStoreWriteLock} from '../lock'
 import {adhocPlanDir} from '../paths'
 import type {AdhocPlan, CloseoutEvidence, TaskPlan, WavePlan} from '../types'
 import {pendingWaveFlowCheck} from './format'
-import {loadActive} from './persistence'
-import {
-	clearAdhocActive,
-	loadAdhocActive,
-	loadAdhocPlan,
-	writeAdhocActive,
-	writeAdhocPlan,
-	writeAdhocRuntime,
-} from './persistence'
+import {clearAdhocActive, loadActive, loadAdhocActive, loadAdhocPlan, writeAdhocActive, writeAdhocPlan, writeAdhocRuntime} from './persistence'
 import {initialProgress} from './plans'
 import {assertSlug, nowIso} from './shared'
 
@@ -110,11 +102,11 @@ export interface AdhocTransitionInput {
 	operation: AdhocTransitionOperation;
 	approver?: string;
 	summary?: string;
-	waveFlowCheck?: {status: 'passed' | 'failed'; checkedBy?: string; summary?: string; findings?: string[]};
+	waveFlowCheck?: { status: 'passed' | 'failed'; checkedBy?: string; summary?: string; findings?: string[] };
 	closeout?: Omit<CloseoutEvidence, 'roadmap_id' | 'milestone_id'>;
 }
 
-const STATUS_TRANSITIONS: Record<string, {from: AdhocPlan['status']; to: AdhocPlan['status']}> = {
+const STATUS_TRANSITIONS: Record<string, { from: AdhocPlan['status']; to: AdhocPlan['status'] }> = {
 	approve: {from: 'adhoc_draft', to: 'adhoc_approved'},
 	start_implementing: {from: 'adhoc_approved', to: 'implementing'},
 	start_reviewing: {from: 'implementing', to: 'reviewing'},

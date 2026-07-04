@@ -7,7 +7,8 @@ description: Use to check milestone or change-plan waves for dependency, ownersh
 
 Review a draft milestone or change plan after tasks and waves are written but before user approval is requested.
 
-Sequence the plan on a best-effort basis, checking for flow contradictions. Only genuine hard blocks stop approval; softer concerns are advisory notes, not failures.
+Sequence the plan on a best-effort basis, checking for flow contradictions. Only genuine hard blocks stop approval; softer concerns are advisory
+notes, not failures.
 
 Hard-fail (report `failed`) only on genuine blocks:
 
@@ -16,7 +17,8 @@ Hard-fail (report `failed`) only on genuine blocks:
 - Same-wave ownership collisions — two tasks that run concurrently in the SAME wave editing the same file or module.
 - A wave that literally cannot build or verify until a later wave lands.
 
-Cross-wave editing of the same file is NOT a collision. Waves run strictly sequentially (only one wave runs at a time), so a task in one wave editing a file another wave owns is a normal staged-refactor pattern and must not fail the check.
+Cross-wave editing of the same file is NOT a collision. Waves run strictly sequentially (only one wave runs at a time), so a task in one wave editing
+a file another wave owns is a normal staged-refactor pattern and must not fail the check.
 
 Softer concerns are advisory notes in a `passed` summary, not failures:
 

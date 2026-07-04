@@ -1,6 +1,6 @@
 {
-	"name":            "oh-my-roadmap-monorepo",
-	"version":         "0.9.0",
+	"name":            "oh-my-roadmap",
+	"version":         "1.0.0",
 	"description":     "Monorepo for oh-my-roadmap: the OMP extension, the omr-cli tool, and their shared core.",
 	"type":            "module",
 	"private":         true,
@@ -10,6 +10,8 @@
 	"scripts":         {
 		"check":          "tsc --noEmit",
 		"build":          "bun run --filter @oh-my-roadmap/cli build",
+		"link:cli":       "bun run --filter @oh-my-roadmap/cli link",
+		"unlink:cli":     "bun run --filter @oh-my-roadmap/cli unlink",
 		"test":           "bun test",
 		"verify":         "bun run check && bun test",
 		"pack:check":     "bun run build && npm pack --dry-run --workspaces",

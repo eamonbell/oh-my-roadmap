@@ -1,11 +1,23 @@
-import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import type {ExtensionAPI} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {withDiagnosticTiming} from 'oh-my-roadmap-core/diagnostics'
 import {setProjectDisabled} from 'oh-my-roadmap-core/project-init'
 import {loadState, markActivePaused, markActiveResumed, nowIso} from 'oh-my-roadmap-core/store/index'
-import {ADHOC_COMMANDS, COMMANDS, DETAILS_COMMAND, DISABLE_COMMAND, ENABLE_COMMAND, FINDINGS_CLEAR_COMMAND, LEARN_STYLE_COMMAND, PLAN_DETAILS_COMMAND, USAGE_COMMAND} from './catalog'
+import {
+	ADHOC_COMMANDS,
+	COMMANDS,
+	DETAILS_COMMAND,
+	DISABLE_COMMAND,
+	ENABLE_COMMAND,
+	FINDINGS_CLEAR_COMMAND,
+	LEARN_STYLE_COMMAND,
+	PLAN_DETAILS_COMMAND,
+	USAGE_COMMAND
+} from './catalog'
 import {showPlanDetails, showRoadmapDetails} from './details'
 import {adhocCommandPrompt, learnStylePrompt} from './prompts'
 import {queueCommandPrompt, sendCommandMessage, sendCommandPrompt} from './messages'
+import {showRoadmapUsage} from './usage'
+import {clearFindingsReportTile} from '../../findings.ts'
 
 async function adhocSummary(cwd: string): Promise<string> {
 	const state = await loadState(cwd)
@@ -18,11 +30,6 @@ async function adhocSummary(cwd: string): Promise<string> {
 		`Tasks ${done}/${plan.tasks.length} done across ${plan.waves.length} wave(s); step ${plan.progress.step}`,
 	].join('\n')
 }
-import {showRoadmapUsage} from './usage'
-import {clearFindingsReportTile} from '../../findings.ts'
-import {AutocompleteItem} from '@oh-my-pi/pi-tui'
-
-import type {CustomCommandAPI} from '@oh-my-pi/pi-coding-agent'
 
 
 export function registerRoadmapCommands(api: ExtensionAPI): void {

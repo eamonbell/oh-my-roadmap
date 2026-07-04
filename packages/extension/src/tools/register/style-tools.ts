@@ -17,7 +17,7 @@ export function registerStyleTools(ctx: ToolRegistrationContext): void {
 			guidelines: z.array(z.string()).describe('Compact imperative style rules, e.g. "Naming: camelCase functions".'),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
-			const {language, summary, guidelines} = params as {language: string; summary?: string; guidelines: string[]}
+			const {language, summary, guidelines} = params as { language: string; summary?: string; guidelines: string[] }
 			const guide: StyleGuide = {guidelines}
 			if (summary) guide.summary = summary
 			await setProjectStyle(ctx.cwd, language, guide)
@@ -37,7 +37,7 @@ export function registerStyleTools(ctx: ToolRegistrationContext): void {
 			files: z.array(z.string()).describe('File paths the worker will edit; language is detected by extension.'),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
-			const {files} = params as {files: string[]}
+			const {files} = params as { files: string[] }
 			const entries = await styleGuideForFiles(ctx.cwd, files)
 			return textResult(renderStyleGuide(entries), {
 				languages: entries.map((entry) => entry.language),

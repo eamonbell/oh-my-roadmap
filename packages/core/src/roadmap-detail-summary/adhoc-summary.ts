@@ -12,11 +12,7 @@ import {
 	taskDetail,
 	wavesSummary,
 } from './formatters'
-import type {
-	ActiveRoadmapDetailSummary,
-	RoadmapDetailQualityGate,
-	RoadmapDetailSummary,
-} from './types'
+import type {ActiveRoadmapDetailSummary, RoadmapDetailQualityGate, RoadmapDetailSummary,} from './types'
 
 // Ad-hoc plans have no roadmap-milestone check; surface the wave-flow check in the same slot.
 function qualityGateFor(plan: AdhocPlan): RoadmapDetailQualityGate {
@@ -34,7 +30,7 @@ function qualityGateFor(plan: AdhocPlan): RoadmapDetailQualityGate {
 }
 
 // Map ad-hoc status to the next command the user should run.
-function nextCommandFor(plan: AdhocPlan): {command: string; description: string} {
+function nextCommandFor(plan: AdhocPlan): { command: string; description: string } {
 	switch (plan.status) {
 		case 'adhoc_draft':
 			return {command: '/omr:adhoc-plan', description: 'Finish planning, pass the wave-flow check, and approve.'}
