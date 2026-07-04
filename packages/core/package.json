@@ -1,6 +1,6 @@
 {
 	"name":          "@oh-my-roadmap/core",
-	"version":       "1.1.0",
+	"version":       "1.1.1",
 	"description":   "Shared core for oh-my-roadmap: project config, agent-definition generation, and roadmap state store.",
 	"type":          "module",
 	"license":       "MIT",

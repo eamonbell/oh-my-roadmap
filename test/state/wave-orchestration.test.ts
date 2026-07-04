@@ -777,6 +777,11 @@ describe("roadmap wave orchestration state", () => {
     expect(assignment!.prompt).toContain("Plan-derived manifest:");
     expect(assignment!.prompt).toContain("Verification preflight:");
     expect(assignment!.prompt).toContain("NOT proof that any listed path exists");
+    // Workers must not build or test; the reviewer runs verification after the wave.
+    expect(assignment!.prompt).toContain("do NOT run them yourself");
+    expect(assignment!.prompt).toContain(
+      "Do NOT run builds, compilers, test suites, or these verification commands",
+    );
   });
 
   test("review package carries a de-duplicated manifest and verification preflight", async () => {
@@ -811,6 +816,8 @@ describe("roadmap wave orchestration state", () => {
     expect(reviewPreflight.guidance).toHaveLength(1);
     expect(review.prompt).toContain("Plan-derived manifest:");
     expect(review.prompt).toContain("Verification preflight:");
+    // Reviewer explicitly owns build/test execution for the wave.
+    expect(review.prompt).toContain("You own running the wave's build, tests, and verification commands");
   });
 });
 

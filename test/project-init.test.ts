@@ -47,9 +47,13 @@ function expectWorkerDirectives(body: string): void {
   expect(body).toContain("Do not create documentation files unless the assignment explicitly asks for them");
   expect(body).toContain("append a blocking note");
   expect(body).toContain("yield/report blocked status to the orchestrator");
-  // R13: style guide is reachable before editing OR before throwaway verification code.
+  // R13: style guide is reachable before editing.
   expect(body).toContain(
-    "before creating throwaway verification code that targets those files/languages, call `omr_style_guide`",
+    "Before editing files, call `omr_style_guide` with the files you will edit",
+  );
+  // Workers must not run builds or tests — that is the reviewer's job.
+  expect(body).toContain(
+    "Do not run builds, compilers, test suites, or the assigned verification commands",
   );
   expectNoAskToolDirective(body);
 }
@@ -108,6 +112,10 @@ describe("project init scaffold", () => {
     // R13: reviewer reaches omr_style_guide before throwaway verification code or code-level repros.
     expect(reviewer.body).toContain(
       "Before creating throwaway verification code or code-level repros, call `omr_style_guide`",
+    );
+    // Reviewer owns build/test execution for the wave; workers do not run them.
+    expect(reviewer.body).toContain(
+      "You own running the wave's build, tests, and verification commands",
     );
     expectNoAskToolDirective(reviewer.body);
 

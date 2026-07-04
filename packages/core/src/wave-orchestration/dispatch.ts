@@ -66,6 +66,12 @@ const CLI_ASSUMPTION_TOOLS = new Set<string>([
 const VERIFICATION_PREFLIGHT_GUIDANCE =
 	'Run assigned verification when practical. If a verification command depends on an unavailable external CLI or service, stop and append a blocking note with the missing prerequisite instead of inventing a substitute.'
 
+const WORKER_VERIFICATION_GUIDANCE = [
+	'Do NOT run builds, compilers, test suites, or these verification commands, and do not write throwaway scripts that build or execute the code. Concurrent sibling tasks in THIS wave may still be incomplete, so a build or test can fail for reasons entirely outside your task.',
+	'The wave reviewer owns all build and test execution and runs it after every task in the wave is done. Record the verification the reviewer should run (and anything you could not confirm by reading code) in your worker note.',
+	'If a verification command depends on an unavailable external CLI or service, still stop and append a blocking note with the missing prerequisite instead of inventing a substitute.',
+]
+
 export function manifestForTask(ctx: ActivePlanContext, task: TaskPlan): PlanDerivedManifest {
 	return {
 		owned_files: task.owned_files,
@@ -127,6 +133,22 @@ ${preflight.guidance.map((item) => `- ${item}`).join('\n')}
 If an external CLI warning appears above, do not shell out to that CLI unless the plan explicitly requires it or a repo-native helper is unavailable and the CLI is confirmed to exist.`
 }
 
+// Worker-facing preflight: workers must NOT build or test. A concurrent sibling task in the
+// same wave may be incomplete, so a build/test could fail for reasons outside this task; the
+// reviewer runs the wave's build and verification after every task is done.
+export function workerVerificationPreflightPromptSection(preflight: VerificationPreflightHint): string {
+	const warnings = preflight.cli_assumption_warnings.length > 0
+		? preflight.cli_assumption_warnings.map((item) => `- ${item}`).join('\n')
+		: '- (none)'
+	return `Verification preflight:
+Commands the reviewer will run after this wave (do NOT run them yourself):
+${preflight.commands.length > 0 ? preflight.commands.map((item) => `- ${item}`).join('\n') : '- (none)'}
+CLI assumption warnings:
+${warnings}
+Guidance:
+${WORKER_VERIFICATION_GUIDANCE.map((item) => `- ${item}`).join('\n')}`
+}
+
 function workerPrompt(
 	ctx: ActivePlanContext,
 	task: TaskPlan,
@@ -134,7 +156,7 @@ function workerPrompt(
 ): string {
 	const reserved = reservedSiblingScope(ctx, task)
 	const manifestSection = manifestPromptSection(manifestForTask(ctx, task))
-	const preflightSection = verificationPreflightPromptSection(verificationPreflightFor(task.verification_commands))
+	const preflightSection = workerVerificationPreflightPromptSection(verificationPreflightFor(task.verification_commands))
 	const scopeHeader = ctx.isAdhoc
 		? `Ad-hoc plan: ${ctx.roadmapId}\n`
 		: `Roadmap: ${ctx.roadmapId}\nMilestone: ${ctx.milestoneId}\n${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}`
@@ -151,7 +173,7 @@ ${task.implementation_notes.map((item) => `- ${item}`).join('\n')}
 Done criteria:
 ${task.done_criteria.map((item) => `- ${item}`).join('\n')}
 
-Verification commands:
+Verification commands (the reviewer runs these after the wave — you do not run builds or tests):
 ${task.verification_commands.map((item) => `- ${item}`).join('\n')}
 
 Ownership:
@@ -166,7 +188,7 @@ ${manifestSection}
 
 ${preflightSection}
 
-You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. Only append a blocking note if you need something genuinely outside the plan or a required decision is ambiguous. Report completed, failed, or blocked status with a concise summary, verification run, and any blocker details for the orchestrator to record with omr_record_wave_result.`
+You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. Do NOT run builds, compilers, or tests — the wave reviewer owns build and test execution and runs it once the whole wave is complete. Only append a blocking note if you need something genuinely outside the plan or a required decision is ambiguous. Report completed, failed, or blocked status with a concise summary, the verification the reviewer should run, and any blocker details for the orchestrator to record with omr_record_wave_result.`
 	return continuation ? `${base}${continuationSection(continuation)}` : base
 }
 
