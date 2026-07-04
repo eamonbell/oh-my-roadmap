@@ -16,6 +16,7 @@ import {
   globalAgentsDir,
   homeConfigDir,
   initScoped,
+  loadMergedConfig,
   ROLE_NAMES,
 } from "@oh-my-roadmap/core/project-init";
 import { installExtension, resolvePluginRoot } from "@oh-my-roadmap/core/cli/install";
@@ -171,6 +172,26 @@ describe("scoped apply + install with profiles", () => {
     await expect(
       applyScoped({ scope: "global", cwd, homeDir: home, profile: "ghost" }),
     ).rejects.toThrow(/No global config found[\s\S]*omr init --global --profile ghost/);
+  });
+
+  test("reads profile-global moshi opt-in from the profile config root", async () => {
+    const profileConfigPath = path.join(
+      home,
+      ".omp",
+      "profiles",
+      "work",
+      "oh-my-roadmap",
+      "config.yml",
+    );
+    await fs.mkdir(path.dirname(profileConfigPath), { recursive: true });
+    await fs.writeFile(
+      profileConfigPath,
+      "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  enabled: true\n",
+      "utf8",
+    );
+
+    const merged = await loadMergedConfig(cwd, home, "work");
+    expect(merged.moshi?.enabled).toBe(true);
   });
 
   test("installExtension writes into the profile plugin root", async () => {

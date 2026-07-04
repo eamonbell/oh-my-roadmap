@@ -158,6 +158,47 @@ Both `model` and `thinking` are optional. Supported thinking values are `inherit
 
 `omr init` does not create or modify active roadmap workflow state.
 
+## Moshi notifications
+
+oh-my-roadmap can send low-volume, OMR-specific lifecycle updates to a local [Moshi](https://github.com/rjyo/homebrew-moshi) daemon so you can watch wave dispatch, worker spawns, blockers, reviews, and stops from Moshi's inbox. It is opt-in and off by default: with no `moshi` config present, the extension has zero notification behavior.
+
+The integration talks to Moshi's documented local-socket `session.update` protocol over a Unix socket. It does **not** require Moshi API tokens, host secrets, or host ids in OMR config, and it never falls back to any HTTP endpoint.
+
+Prerequisites:
+
+- Install, pair, and run Moshi's daemon: `moshi-hook pair --token <pairing-token>` then `moshi-hook serve` (or `brew services start moshi-hook`).
+- When using OMP profiles, install OMR into the desired profile: `omr install --global --profile <name>`.
+- Enable it per project or per profile with `moshi.enabled: true` in `.omr/config.yml` or `<ompRoot>/profiles/<profile>/oh-my-roadmap/config.yml`.
+
+Enable for a profile (profile-global config):
+
+```yaml
+moshi:
+  enabled: true
+```
+
+Enable or override for a project (applies to every profile that runs in that project):
+
+```yaml
+moshi:
+  enabled: true
+  socket_path: "/Users/eamon/Library/Application Support/Moshi/moshi-hook.sock"
+```
+
+Disable a profile-global opt-in for a specific project:
+
+```yaml
+moshi:
+  enabled: false
+```
+
+`socket_path` is optional; when omitted the platform default Moshi socket is used, and `MOSHI_SOCKET_PATH` in the environment can override it. Config is merged global-then-project, so a project can enable, adjust the socket, or disable a profile-global opt-in.
+
+Notes:
+
+- Approval/question notifications are **notify-only**: they tell you to return to OMP and cannot approve, deny, or answer from Moshi.
+- OMR sends only its own OMR-specific notifications. It does not duplicate Moshi's generated generic OMP lifecycle hook — that hook says a turn ended; OMR's messages say what the roadmap needs next.
+
 ## Roadmap Approval
 
 `/omr:rm-new` creates draft roadmap state, records discovery, then must finalize the generated roadmap with `omr_update_roadmap` before approval. Approval is blocked unless the roadmap includes concrete goals, success criteria, constraints, non-goals, context, evidence, risks, and at least one roadmap-level milestone outline.

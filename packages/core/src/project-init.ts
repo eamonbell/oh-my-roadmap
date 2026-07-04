@@ -38,6 +38,18 @@ export interface StyleGuide {
 	guidelines: string[];
 }
 
+// Opt-in Moshi notifications. Absent means disabled; notifications are sent only
+// when `enabled` is exactly true after global/project merge. `socket_path` overrides
+// the platform default Moshi local-socket path.
+//
+// `enabled` is optional in the stored shape so shallow merging preserves the source's
+// intent: a project config that sets only `socket_path` must not clobber a
+// profile-global `enabled: true`. A missing `enabled` reads as disabled.
+export interface MoshiConfig {
+	enabled?: boolean;
+	socket_path?: string;
+}
+
 export interface RoadmapProjectConfig {
 	agents: Record<AgentRole, AgentConfig>;
 	orchestration: OrchestrationConfig;
@@ -45,6 +57,8 @@ export interface RoadmapProjectConfig {
 	disabled?: boolean;
 	// Code-style guidance keyed by language id (e.g. `typescript`, `go`).
 	style?: Record<string, StyleGuide>;
+	// Opt-in Moshi notification settings.
+	moshi?: MoshiConfig;
 }
 
 export interface ProjectInitResult {
@@ -183,9 +197,30 @@ function parseStyle(value: unknown): Record<string, StyleGuide> | undefined {
 	return result
 }
 
+function parseMoshi(value: unknown): MoshiConfig | undefined {
+	if (value === undefined) return undefined
+	const moshi = requirePlainObject(value, 'moshi')
+	rejectUnknownKeys(moshi, ['enabled', 'socket_path'], 'moshi')
+
+	// Only store `enabled`/`socket_path` when explicitly provided so shallow merge
+	// preserves per-field intent. A missing `enabled` reads as disabled downstream.
+	const result: MoshiConfig = {}
+	if (moshi.enabled !== undefined) {
+		if (typeof moshi.enabled !== 'boolean') throw new Error('moshi.enabled must be a boolean')
+		result.enabled = moshi.enabled
+	}
+	if (moshi.socket_path !== undefined) {
+		if (typeof moshi.socket_path !== 'string' || moshi.socket_path.trim() === '') {
+			throw new Error('moshi.socket_path must be a non-empty string')
+		}
+		result.socket_path = moshi.socket_path.trim()
+	}
+	return result
+}
+
 function parseConfig(raw: unknown): RoadmapProjectConfig {
 	const root = requirePlainObject(raw, 'config')
-	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style'], 'config')
+	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style', 'moshi'], 'config')
 
 	const agents = requirePlainObject(root.agents, 'agents')
 	rejectUnknownKeys(agents, ROLE_NAMES, 'agents')
@@ -201,6 +236,8 @@ function parseConfig(raw: unknown): RoadmapProjectConfig {
 	if (disabled !== undefined) config.disabled = disabled
 	const style = parseStyle(root.style)
 	if (style !== undefined) config.style = style
+	const moshi = parseMoshi(root.moshi)
+	if (moshi !== undefined) config.moshi = moshi
 	return config
 }
 
@@ -234,7 +271,7 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 
 	const raw = await readYamlFile<unknown>(targetConfigPath)
 	const root = requirePlainObject(raw, 'config')
-	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style'], 'config')
+	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style', 'moshi'], 'config')
 	const agents = requirePlainObject(root.agents, 'agents')
 	rejectUnknownKeys(agents, ROLE_NAMES, 'agents')
 
@@ -254,9 +291,10 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 		expanded.orchestration = defaultOrchestrationConfig()
 		changed = true
 	}
-	// Preserve optional lockout/style keys unchanged.
+	// Preserve optional lockout/style/moshi keys unchanged.
 	if (root.disabled !== undefined) expanded.disabled = root.disabled
 	if (root.style !== undefined) expanded.style = root.style
+	if (root.moshi !== undefined) expanded.moshi = root.moshi
 	parseConfig(expanded)
 	if (changed) await writeYamlFile(targetConfigPath, expanded)
 	return false
@@ -296,6 +334,13 @@ function mergeConfigs(base: RoadmapProjectConfig, override: RoadmapProjectConfig
 	if (base.style !== undefined || override.style !== undefined) {
 		merged.style = {...(base.style ?? {}), ...(override.style ?? {})}
 	}
+
+	// Shallow-merge moshi so a profile-global config can enable it while a project
+	// config overrides only socket_path (or disables with `enabled: false`). The
+	// leading `enabled: false` guarantees a defined flag; later spreads win.
+	if (base.moshi !== undefined || override.moshi !== undefined) {
+		merged.moshi = {enabled: false, ...(base.moshi ?? {}), ...(override.moshi ?? {})}
+	}
 	return merged
 }
 
@@ -308,6 +353,13 @@ export async function loadMergedConfig(cwd: string, homeDir?: string, profile?: 
 	if (!global) return project ?? defaultConfig()
 	if (!project) return global
 	return mergeConfigs(global, project)
+}
+
+// Opt-in Moshi settings from the unified (global + project) config. Missing config
+// resolves to disabled. Parse errors are not swallowed — invalid config fails loudly
+// like the rest of the config surface.
+export async function loadMoshiConfig(cwd: string, homeDir?: string, profile?: string): Promise<MoshiConfig> {
+	return (await loadMergedConfig(cwd, homeDir, profile)).moshi ?? {enabled: false}
 }
 
 // Lockout: whether omr is paused via the unified (global + project) config.
@@ -468,6 +520,7 @@ function buildConfigFromAgents(
 	}
 	if (existing?.disabled !== undefined) config.disabled = existing.disabled
 	if (existing?.style !== undefined) config.style = existing.style
+	if (existing?.moshi !== undefined) config.moshi = existing.moshi
 	return config
 }
 

@@ -1,6 +1,6 @@
 {
 	"name":            "@oh-my-roadmap/cli",
-	"version":         "1.1.1",
+	"version":         "1.2.0",
 	"description":     "CLI for oh-my-roadmap: scaffold project config and (re)generate agent definitions from config models.",
 	"type":            "module",
 	"license":         "MIT",
@@ -16,7 +16,7 @@
 		"unlink": "bun unlink"
 	},
 	"devDependencies": {
-		"@oh-my-roadmap/core": "1.1.1"
+		"@oh-my-roadmap/core": "1.2.0"
 	},
 	"engines":         {
 		"node": ">=18"

@@ -1,5 +1,6 @@
 import type {ExtensionAPI, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
+import {notifyMoshiForRoadmapToolResult} from '../extension/moshi-notifications'
 import {registerAdhocTools} from './register/adhoc-tools'
 import {registerBlockerTools} from './register/blocker-tools'
 import {registerContextTools} from './register/context-tools'
@@ -19,13 +20,16 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
 		api.registerTool({
 			...tool,
 			async execute(toolCallId, params, signal, update, ctx) {
-				return await withDiagnosticTiming({
+				const result = await withDiagnosticTiming({
 					component: 'tool',
 					operation: tool.name,
 					cwd: ctx.cwd,
 					slowMs: 1000,
 					metadata: toolMetadata(tool, toolCallId, params),
 				}, async () => await tool.execute(toolCallId, params, signal, update, ctx))
+				// Fire-and-forget: opt-in Moshi notification never delays or fails the result.
+				void notifyMoshiForRoadmapToolResult(ctx, tool.name, params, result, api.logger).catch(() => {})
+				return result
 			},
 		} as ToolDefinition)
 

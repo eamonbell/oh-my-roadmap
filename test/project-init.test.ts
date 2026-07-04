@@ -384,6 +384,62 @@ describe("project init scaffold", () => {
       await expect(initProject(cwd), invalid.name).rejects.toThrow(invalid.message);
     }
   });
+
+  test("does not scaffold moshi into a new config", async () => {
+    await initProject(cwd);
+    const config = parseYaml<Record<string, unknown>>(await readFile(".omr/config.yml"));
+    expect(config).not.toHaveProperty("moshi");
+  });
+
+  test("preserves configured moshi on rerun", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      [
+        "agents:",
+        "  worker: {}",
+        "  reviewer: {}",
+        "moshi:",
+        "  enabled: true",
+        "  socket_path: /tmp/moshi.sock",
+        "",
+      ].join("\n"),
+    );
+
+    await initProject(cwd);
+
+    const config = parseYaml<Record<string, any>>(await readFile(".omr/config.yml"));
+    expect(config.moshi).toEqual({ enabled: true, socket_path: "/tmp/moshi.sock" });
+  });
+
+  test("rejects invalid moshi values", async () => {
+    const invalidConfigs = [
+      {
+        name: "non-object moshi",
+        text: "agents:\n  worker: {}\n  reviewer: {}\nmoshi: true\n",
+        message: "moshi must be an object",
+      },
+      {
+        name: "non-boolean enabled",
+        text: "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  enabled: yes\n",
+        message: "moshi.enabled must be a boolean",
+      },
+      {
+        name: "empty socket_path",
+        text: 'agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  socket_path: ""\n',
+        message: "moshi.socket_path must be a non-empty string",
+      },
+      {
+        name: "unknown moshi key",
+        text: "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  extra: true\n",
+        message: "moshi contains unsupported key: extra",
+      },
+    ];
+
+    for (const invalid of invalidConfigs) {
+      await writeFile(".omr/config.yml", invalid.text);
+      await expect(initProject(cwd), invalid.name).rejects.toThrow(invalid.message);
+    }
+  });
 });
 
 describe("merged global + project config", () => {
@@ -466,5 +522,33 @@ describe("merged global + project config", () => {
 
     expect(merged.agents.worker.model).toBe("project/only");
     expect(merged.disabled).toBeUndefined();
+  });
+
+  test("shallow-merges moshi so project overrides only socket_path", async () => {
+    await writeGlobal(
+      "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  enabled: true\n  socket_path: /tmp/global.sock\n",
+    );
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  socket_path: /tmp/project.sock\n",
+    );
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    // Global enables Moshi; project overrides only the socket path.
+    expect(merged.moshi).toEqual({ enabled: true, socket_path: "/tmp/project.sock" });
+  });
+
+  test("project can disable a profile-global moshi opt-in", async () => {
+    await writeGlobal(
+      "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  enabled: true\n  socket_path: /tmp/global.sock\n",
+    );
+    await writeFile(".omr/config.yml", "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  enabled: false\n");
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    expect(merged.moshi?.enabled).toBe(false);
+    // The global socket_path survives where the project does not override it.
+    expect(merged.moshi?.socket_path).toBe("/tmp/global.sock");
   });
 });

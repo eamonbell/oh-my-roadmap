@@ -13,6 +13,7 @@ export {
 	ensureConfig,
 	loadGlobalConfig,
 	loadMergedConfig,
+	loadMoshiConfig,
 	loadDisabled,
 	setProjectDisabled,
 	setProjectStyle,
@@ -25,6 +26,7 @@ export {
 export type {
 	ProjectInitResult,
 	RoadmapProjectConfig,
+	MoshiConfig,
 	AgentConfig,
 	AgentRole,
 	OrchestrationConfig,
