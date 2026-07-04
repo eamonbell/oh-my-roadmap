@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initProject, setProjectStyle } from "oh-my-roadmap-core/project-init";
-import { detectLanguages, renderStyleGuide, styleGuideForFiles } from "oh-my-roadmap-core/style";
-import { parseYaml } from "oh-my-roadmap-core/frontmatter";
+import { initProject, setProjectStyle } from "@oh-my-roadmap/core/project-init";
+import { detectLanguages, renderStyleGuide, styleGuideForFiles } from "@oh-my-roadmap/core/style";
+import { parseYaml } from "@oh-my-roadmap/core/frontmatter";
 
 let cwd = "";
 let home = "";

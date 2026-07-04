@@ -1,9 +1,9 @@
 import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import {usageLines} from 'oh-my-roadmap-core/report/shared'
-import {loadState} from 'oh-my-roadmap-core/store/index'
-import type {RoadmapUsageSummary} from 'oh-my-roadmap-core/usage'
+import {usageLines} from '@oh-my-roadmap/core/report/shared'
+import {loadState} from '@oh-my-roadmap/core/store/index'
+import type {RoadmapUsageSummary} from '@oh-my-roadmap/core/usage'
 import {sendCommandMessage} from './messages'
 
 export interface UsageCommandOptions {

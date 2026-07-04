@@ -1,7 +1,7 @@
 import type {ExtensionAPI} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {withDiagnosticTiming} from 'oh-my-roadmap-core/diagnostics'
-import {setProjectDisabled} from 'oh-my-roadmap-core/project-init'
-import {loadState, markActivePaused, markActiveResumed, nowIso} from 'oh-my-roadmap-core/store/index'
+import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
+import {setProjectDisabled} from '@oh-my-roadmap/core/project-init'
+import {loadState, markActivePaused, markActiveResumed, nowIso} from '@oh-my-roadmap/core/store/index'
 import {
 	ADHOC_COMMANDS,
 	COMMANDS,

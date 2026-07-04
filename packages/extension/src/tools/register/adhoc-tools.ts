@@ -5,7 +5,7 @@ import {
 	createAdhocPlan,
 	type CreateAdhocPlanInput,
 	updateAdhocPlan,
-} from 'oh-my-roadmap-core/store/index'
+} from '@oh-my-roadmap/core/store/index'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerAdhocTools(ctx: ToolRegistrationContext): void {

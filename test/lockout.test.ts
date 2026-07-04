@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { shouldBlockToolCall } from "oh-my-roadmap-core/gate";
-import { loadDisabled, setProjectDisabled } from "oh-my-roadmap-core/project-init";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { loadDisabled, setProjectDisabled } from "@oh-my-roadmap/core/project-init";
 import {
   clearActivePauseMarkers,
   loadActive,
   markActivePaused,
   markActiveResumed,
   writeActive,
-} from "oh-my-roadmap-core/store/index";
+} from "@oh-my-roadmap/core/store/index";
 
 let cwd = "";
 let home = "";

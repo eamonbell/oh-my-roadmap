@@ -2,7 +2,7 @@ import type { AgentToolResult } from "@oh-my-pi/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { z } from "zod";
 import { registerRoadmapTools } from "../../packages/extension/src/tools/register";
-import type { UpdateRoadmapInput } from "oh-my-roadmap-core/store/index";
+import type { UpdateRoadmapInput } from "@oh-my-roadmap/core/store/index";
 
 export interface RegisteredTool extends ToolDefinition {
   name: string;

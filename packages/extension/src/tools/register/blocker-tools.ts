@@ -10,7 +10,7 @@ import {
 	type OpenBlockerInput,
 	resolveBlocker,
 	type ResolveBlockerInput,
-} from 'oh-my-roadmap-core/store/index'
+} from '@oh-my-roadmap/core/store/index'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerBlockerTools(ctx: ToolRegistrationContext): void {

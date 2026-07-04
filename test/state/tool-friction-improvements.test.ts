@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { nextActionPlan } from "oh-my-roadmap-core/report/index";
+import { nextActionPlan } from "@oh-my-roadmap/core/report/index";
 import {
   appendNote,
   createChangeRequest,
   loadState,
   transition,
-} from "oh-my-roadmap-core/store/index";
+} from "@oh-my-roadmap/core/store/index";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
   recordWaveResult,
-} from "oh-my-roadmap-core/wave-orchestration/index";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
 import type { AgentToolResult } from "@oh-my-pi/pi-coding-agent";
 import {
   approvedMilestone as approvedMilestoneForCwd,

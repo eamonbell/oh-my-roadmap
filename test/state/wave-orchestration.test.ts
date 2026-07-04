@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { readRoadmapEvents } from "oh-my-roadmap-core/events";
-import { shouldBlockToolCall } from "oh-my-roadmap-core/gate";
-import { applyNextAction, nextActionPlan, renderReport } from "oh-my-roadmap-core/report/index";
+import { readRoadmapEvents } from "@oh-my-roadmap/core/events";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { applyNextAction, nextActionPlan, renderReport } from "@oh-my-roadmap/core/report/index";
 import {
   appendNote,
   createChangeRequest,
@@ -20,7 +20,7 @@ import {
   transition,
   updateRoadmap,
   writeRoadmapState,
-} from "oh-my-roadmap-core/store/index";
+} from "@oh-my-roadmap/core/store/index";
 import {
   changeRequestPath,
   changeRequestRuntimePath,
@@ -31,11 +31,11 @@ import {
   roadmapBlockersPath,
   roadmapDocPath,
   storeLockPath,
-} from "oh-my-roadmap-core/paths";
-import { validateImplementationGate, validateRoadmapState } from "oh-my-roadmap-core/validation";
-import { summarizeState } from "oh-my-roadmap-core/state-summary";
-import { searchContext } from "oh-my-roadmap-core/context";
-import { readYamlFile, writeYamlFile } from "oh-my-roadmap-core/files";
+} from "@oh-my-roadmap/core/paths";
+import { validateImplementationGate, validateRoadmapState } from "@oh-my-roadmap/core/validation";
+import { summarizeState } from "@oh-my-roadmap/core/state-summary";
+import { searchContext } from "@oh-my-roadmap/core/context";
+import { readYamlFile, writeYamlFile } from "@oh-my-roadmap/core/files";
 import {
   prepareWaveDispatch,
   prepareWaveReview,
@@ -45,7 +45,7 @@ import {
   recordWorkerTransportFailed,
   recordWaveResult,
   recordWaveReview,
-} from "oh-my-roadmap-core/wave-orchestration/index";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
 import {
   additionalMilestone,
   approvedMilestone as approvedMilestoneForCwd,

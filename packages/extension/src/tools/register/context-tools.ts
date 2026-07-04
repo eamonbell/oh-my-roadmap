@@ -1,8 +1,8 @@
 import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {readRoadmapEvents, type ReadRoadmapEventsInput} from 'oh-my-roadmap-core/events'
-import {readContext, type ReadContextInput, searchContext, type SearchContextInput,} from 'oh-my-roadmap-core/context'
-import {listQualityGates, type ListQualityGatesInput, loadRoadmapBlockers, loadState,} from 'oh-my-roadmap-core/store/index'
-import {type StateReadScope, summarizeState} from 'oh-my-roadmap-core/state-summary'
+import {readRoadmapEvents, type ReadRoadmapEventsInput} from '@oh-my-roadmap/core/events'
+import {readContext, type ReadContextInput, searchContext, type SearchContextInput,} from '@oh-my-roadmap/core/context'
+import {listQualityGates, type ListQualityGatesInput, loadRoadmapBlockers, loadState,} from '@oh-my-roadmap/core/store/index'
+import {type StateReadScope, summarizeState} from '@oh-my-roadmap/core/state-summary'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerContextTools(ctx: ToolRegistrationContext): void {

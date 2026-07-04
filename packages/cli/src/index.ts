@@ -13,8 +13,8 @@ import {
 	resolveScopeAndProfile,
 	ROLE_NAMES,
 	THINKING_LEVELS,
-} from 'oh-my-roadmap-core'
-import {EXTENSION_PACKAGE, installExtension, resolvePluginRoot} from 'oh-my-roadmap-core/cli/install'
+} from '@oh-my-roadmap/core'
+import {EXTENSION_PACKAGE, installExtension, resolvePluginRoot} from '@oh-my-roadmap/core/cli/install'
 import {
 	checkForUpdates,
 	CLI_PACKAGE,
@@ -26,7 +26,7 @@ import {
 	shouldCheck,
 	updateCli,
 	updateExtension,
-} from 'oh-my-roadmap-core/cli/update'
+} from '@oh-my-roadmap/core/cli/update'
 
 const require = createRequire(import.meta.url)
 const {version: VERSION} = require('../package.json') as { version: string }

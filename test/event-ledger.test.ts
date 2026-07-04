@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readRoadmapEvents } from "oh-my-roadmap-core/events";
-import { roadmapEventsPath } from "oh-my-roadmap-core/paths";
+import { readRoadmapEvents } from "@oh-my-roadmap/core/events";
+import { roadmapEventsPath } from "@oh-my-roadmap/core/paths";
 import {
   amend,
   appendNote,
@@ -14,8 +14,8 @@ import {
   updateRoadmap,
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
-} from "oh-my-roadmap-core/store/index";
-import type { CloseoutEvidence } from "oh-my-roadmap-core/types";
+} from "@oh-my-roadmap/core/store/index";
+import type { CloseoutEvidence } from "@oh-my-roadmap/core/types";
 
 let cwd = "";
 

@@ -1,6 +1,6 @@
 import type {ExtensionAPI, MessageEndEvent, ToolExecutionEndEvent} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {recordMainUsage, recordTaskUsage} from 'oh-my-roadmap-core/usage'
-import {withDiagnosticTiming} from 'oh-my-roadmap-core/diagnostics'
+import {recordMainUsage, recordTaskUsage} from '@oh-my-roadmap/core/usage'
+import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
 
 export function registerRoadmapUsageTracking(api: ExtensionAPI): void {
 	api.on('message_end', async (event: MessageEndEvent, ctx) => {

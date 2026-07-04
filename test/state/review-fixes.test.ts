@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { validateMilestonePlan } from "oh-my-roadmap-core/plan-validation";
-import { shouldBlockToolCall } from "oh-my-roadmap-core/gate";
-import { milestoneNotesPath } from "oh-my-roadmap-core/paths";
-import { appendNote, initRoadmap, loadState, transition } from "oh-my-roadmap-core/store/index";
+import { validateMilestonePlan } from "@oh-my-roadmap/core/plan-validation";
+import { shouldBlockToolCall } from "@oh-my-roadmap/core/gate";
+import { milestoneNotesPath } from "@oh-my-roadmap/core/paths";
+import { appendNote, initRoadmap, loadState, transition } from "@oh-my-roadmap/core/store/index";
 import {
   prepareWaveDispatch,
   recordWaveResult,
   recordWorkerDispatch,
-} from "oh-my-roadmap-core/wave-orchestration/index";
-import type { CreateMilestonePlanInput } from "oh-my-roadmap-core/store/index";
-import type { ValidationIssue } from "oh-my-roadmap-core/types";
+} from "@oh-my-roadmap/core/wave-orchestration/index";
+import type { CreateMilestonePlanInput } from "@oh-my-roadmap/core/store/index";
+import type { ValidationIssue } from "@oh-my-roadmap/core/types";
 import {
   approvedMilestone,
   approvedRoadmap,

@@ -1,6 +1,6 @@
 import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {applyRoadmapDetailControl, buildAdhocDetailSummary, buildRoadmapDetailSummary} from 'oh-my-roadmap-core/roadmap-detail-summary/index'
-import {withDiagnosticTiming} from 'oh-my-roadmap-core/diagnostics'
+import {applyRoadmapDetailControl, buildAdhocDetailSummary, buildRoadmapDetailSummary} from '@oh-my-roadmap/core/roadmap-detail-summary/index'
+import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
 import {RoadmapDetailsView} from '../report-ui/index'
 import {queueCommandPrompt, sendCommandMessage} from './messages'
 

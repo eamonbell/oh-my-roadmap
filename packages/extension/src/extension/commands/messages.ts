@@ -1,7 +1,7 @@
 import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {loadTransportResumeAttempts} from 'oh-my-roadmap-core/project-init'
-import {renderReport} from 'oh-my-roadmap-core/report/index'
-import {clearActivePauseMarkers, loadActive} from 'oh-my-roadmap-core/store/index'
+import {loadTransportResumeAttempts} from '@oh-my-roadmap/core/project-init'
+import {renderReport} from '@oh-my-roadmap/core/report/index'
+import {clearActivePauseMarkers, loadActive} from '@oh-my-roadmap/core/store/index'
 import {COMMAND_MESSAGE_TYPE} from './catalog'
 import {commandPrompt} from './prompts'
 

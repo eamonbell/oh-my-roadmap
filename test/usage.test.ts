@@ -4,8 +4,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { registerRoadmapUsageTracking } from "../packages/extension/src/extension/usage-tracking";
-import { roadmapDocPath, roadmapUsagePath, milestonePlanPath } from "oh-my-roadmap-core/paths";
-import { renderReport } from "oh-my-roadmap-core/report/index";
+import { roadmapDocPath, roadmapUsagePath, milestonePlanPath } from "@oh-my-roadmap/core/paths";
+import { renderReport } from "@oh-my-roadmap/core/report/index";
 import {
   createChangeRequest,
   initRoadmap,
@@ -13,9 +13,9 @@ import {
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
-} from "oh-my-roadmap-core/store/index";
-import { recordMainUsage, recordTaskUsage } from "oh-my-roadmap-core/usage";
-import { validateRoadmapState } from "oh-my-roadmap-core/validation";
+} from "@oh-my-roadmap/core/store/index";
+import { recordMainUsage, recordTaskUsage } from "@oh-my-roadmap/core/usage";
+import { validateRoadmapState } from "@oh-my-roadmap/core/validation";
 import type { ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { parseUsageArgs, renderUsageReport, showRoadmapUsage } from "../packages/extension/src/extension/commands/usage";
 

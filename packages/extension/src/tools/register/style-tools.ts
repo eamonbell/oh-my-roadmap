@@ -1,6 +1,6 @@
 import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {setProjectStyle, type StyleGuide} from 'oh-my-roadmap-core/project-init'
-import {renderStyleGuide, styleGuideForFiles} from 'oh-my-roadmap-core/style'
+import {setProjectStyle, type StyleGuide} from '@oh-my-roadmap/core/project-init'
+import {renderStyleGuide, styleGuideForFiles} from '@oh-my-roadmap/core/style'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerStyleTools(ctx: ToolRegistrationContext): void {

@@ -10,16 +10,16 @@ import {
   resolveOmpRoot,
   resolveScopeAndProfile,
   validateProfileName,
-} from "oh-my-roadmap-core/omp-paths";
+} from "@oh-my-roadmap/core/omp-paths";
 import {
   applyScoped,
   globalAgentsDir,
   homeConfigDir,
   initScoped,
   ROLE_NAMES,
-} from "oh-my-roadmap-core/project-init";
-import { installExtension, resolvePluginRoot } from "oh-my-roadmap-core/cli/install";
-import { readInstalledExtensionVersion, updateExtension } from "oh-my-roadmap-core/cli/update";
+} from "@oh-my-roadmap/core/project-init";
+import { installExtension, resolvePluginRoot } from "@oh-my-roadmap/core/cli/install";
+import { readInstalledExtensionVersion, updateExtension } from "@oh-my-roadmap/core/cli/update";
 
 // The resolvers read OMP_PROFILE / PI_PROFILE / PI_CONFIG_DIR from the env; snapshot
 // and clear them so tests are hermetic and don't leak into other suites.

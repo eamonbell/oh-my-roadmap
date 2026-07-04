@@ -14,7 +14,7 @@ import {
 	type RecordWorkerRunStatusInput,
 	recordWorkerTransportFailed,
 	type WaveOrchestrationTargetInput,
-} from 'oh-my-roadmap-core/wave-orchestration/index'
+} from '@oh-my-roadmap/core/wave-orchestration/index'
 import {textResult, type ToolRegistrationContext} from './shared'
 
 export function registerWaveTools(ctx: ToolRegistrationContext): void {

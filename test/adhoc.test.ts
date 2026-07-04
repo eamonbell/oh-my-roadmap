@@ -2,18 +2,18 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AdhocPlan } from "oh-my-roadmap-core/types";
+import type { AdhocPlan } from "@oh-my-roadmap/core/types";
 import {
   loadAdhocActive,
   loadAdhocPlan,
   writeAdhocActive,
   writeAdhocPlan,
   writeAdhocRuntime,
-} from "oh-my-roadmap-core/store/index";
-import { adhocTransition, createAdhocPlan } from "oh-my-roadmap-core/store/index";
-import { prepareWaveDispatch, recordWaveResult } from "oh-my-roadmap-core/wave-orchestration/index";
-import { buildAdhocDetailSummary } from "oh-my-roadmap-core/roadmap-detail-summary/index";
-import { validateImplementationGate, validateRoadmapState } from "oh-my-roadmap-core/validation";
+} from "@oh-my-roadmap/core/store/index";
+import { adhocTransition, createAdhocPlan } from "@oh-my-roadmap/core/store/index";
+import { prepareWaveDispatch, recordWaveResult } from "@oh-my-roadmap/core/wave-orchestration/index";
+import { buildAdhocDetailSummary } from "@oh-my-roadmap/core/roadmap-detail-summary/index";
+import { validateImplementationGate, validateRoadmapState } from "@oh-my-roadmap/core/validation";
 import { ScrollView } from "@oh-my-pi/pi-tui";
 import { renderRoadmapDetailsFrame } from "../packages/extension/src/extension/report-ui/index";
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { configureDiagnosticLogger, logDiagnostic, withDiagnosticTiming } from "oh-my-roadmap-core/diagnostics";
+import { configureDiagnosticLogger, logDiagnostic, withDiagnosticTiming } from "@oh-my-roadmap/core/diagnostics";
 
 let homeDir = "";
 let originalLevel: string | undefined;

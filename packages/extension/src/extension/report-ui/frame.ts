@@ -1,4 +1,4 @@
-import type {ActiveRoadmapDetailSummary, RoadmapDetailControl, RoadmapDetailSummary} from 'oh-my-roadmap-core/roadmap-detail-summary/index'
+import type {ActiveRoadmapDetailSummary, RoadmapDetailControl, RoadmapDetailSummary} from '@oh-my-roadmap/core/roadmap-detail-summary/index'
 import {
 	COLUMN_GAP,
 	DETAILS_VIEW_HEIGHT,

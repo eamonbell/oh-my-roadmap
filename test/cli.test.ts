@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initScoped, globalAgentsDir } from "oh-my-roadmap-core/project-init";
-import { parseMarkdownDocument, parseYaml } from "oh-my-roadmap-core/frontmatter";
+import { initScoped, globalAgentsDir } from "@oh-my-roadmap/core/project-init";
+import { parseMarkdownDocument, parseYaml } from "@oh-my-roadmap/core/frontmatter";
 import {
   EXTENSION_PACKAGE,
   installExtension,
   resolvePluginRoot,
   writePluginDependency,
-} from "oh-my-roadmap-core/cli/install";
+} from "@oh-my-roadmap/core/cli/install";
 import {
   checkForUpdates,
   compareVersions,
   shouldCheck,
   updateCli,
-} from "oh-my-roadmap-core/cli/update";
+} from "@oh-my-roadmap/core/cli/update";
 
 let cwd = "";
 let home = "";
