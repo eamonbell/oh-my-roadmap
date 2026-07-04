@@ -22,11 +22,16 @@ Command-specific workflow for /omr:ms-implement:
 - Use the built-in \`ask\` tool from the orchestrator/main-agent role if implementation uncovers missing decisions, ownership gaps, unplanned files, acceptance ambiguity, cleanup scope questions, or approval needs.
 - Do not write or modify code yourself.
 - Drive the whole milestone/change implementation in this turn: loop dispatch -> collect results -> review -> advance to the next wave, one wave at a time, until no waves remain or the run terminally pauses. Do not end the turn after a single wave when more waves remain.
+- If the current roadmap phase is milestone_approved, first call omr_transition with operation start_implementation; do not call omr_prepare_wave_dispatch until implementation is legally open.
+- If the active change request status is approved, first call omr_transition with operation start_implementation before dispatching change-request workers.
+- If the current phase is reviewing or closeout, do not dispatch workers; follow omr_next_action and closeout next actions instead.
 - Call omr_prepare_wave_dispatch before dispatching implementation work. If it returns active_runs, do not redispatch those tasks.
 - For each active run, first check the current session's background jobs and IRC peers for the run's jobId/job_id or agentId/agent_id. If neither background jobs nor IRC peers list that run, call omr_record_worker_abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session.
 - Dispatch returned active-wave assignments as background jobs using each assignment's exact worker and prompt.
 - Immediately after each spawn, call omr_record_worker_dispatch with the returned agentId and jobId.
 - Never redispatch a task until the prior worker run is completed, blocked, failed, cancelled, or abandoned.
+- After dispatching all worker or reviewer jobs for the current wave and recording their job ids, if you are blocked waiting for those jobs, issue one blocking job wait for the relevant job ids or for all running jobs with a meaningful timeout. Do not loop short job polls; retry only after an interrupt, timeout, or new liveness evidence.
+- Use IRC liveness checks only after a timeout/interruption or when state says a worker should exist but the job handle is absent.
 
 IRC recovery/rework pattern (prefer waking the existing worker over spawning a replacement):
 - Before recovering or reworking a run, use the built-in \`irc\` tool op:list to get the worker's exact peer id and status (running, idle, parked, or aborted).

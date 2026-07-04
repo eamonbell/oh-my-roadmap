@@ -1,7 +1,7 @@
 import type {TransitionInput} from '../store/index'
 import type {ImplementationProgress, LoadedState, RoadmapBlocker, RoadmapState, TaskPlan, ValidationResult, WavePlan,} from '../types'
 import type {RoadmapUsageSummary, UsageScopeSummary, UsageTotals} from '../usage'
-import type {NextActionPlan, NextActionScope} from './types'
+import type {NextActionHint, NextActionPlan, NextActionScope} from './types'
 
 export function formatValidationIssues(result: ValidationResult): string[] {
 	return [
@@ -125,6 +125,11 @@ export function plan(input: Omit<NextActionPlan, 'safe_to_apply' | 'blockers' | 
 
 export function transitionTool(input: TransitionInput): NonNullable<NextActionPlan['tool']> {
 	return {name: 'omr_transition', input: input as unknown as Record<string, unknown>}
+}
+
+export function nextActionHint(plan: NextActionPlan, why: string): NextActionHint[] {
+	if (!plan.tool) return []
+	return [{label: plan.label, tool: plan.tool, why}]
 }
 
 export function blockerLabels(blockers: RoadmapBlocker[]): string[] {

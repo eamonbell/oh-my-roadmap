@@ -1,6 +1,6 @@
 import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {amend, type AmendmentInput, createChangeRequest, type CreateChangeRequestInput,} from '@oh-my-roadmap/core/store/index'
-import {applyNextAction, formatValidationIssues, nextActionPlan, renderReport} from '@oh-my-roadmap/core/report/index'
+import {applyNextAction, formatValidationIssues, nextActionHint, nextActionPlan, renderReport, type NextActionHint} from '@oh-my-roadmap/core/report/index'
 import {validateRoadmapState} from '@oh-my-roadmap/core/validation'
 import {textResult, type ToolRegistrationContext} from './shared'
 
@@ -18,8 +18,17 @@ export function registerReportTools(ctx: ToolRegistrationContext): void {
 			const result = await validateRoadmapState(ctx.cwd)
 			const summary = result.valid ? 'Roadmap state is valid.' : 'Roadmap state is invalid.'
 			const issueLines = formatValidationIssues(result)
-			const text = issueLines.length > 0 ? `${summary}\n${issueLines.join('\n')}` : summary
-			return textResult(text, result)
+			const baseText = issueLines.length > 0 ? `${summary}\n${issueLines.join('\n')}` : summary
+			let next_actions: NextActionHint[] = []
+			try {
+				const next = await nextActionPlan(ctx.cwd)
+				next_actions = nextActionHint(next, 'Roadmap validation completed; this is the next executable workflow action.')
+			} catch {
+				next_actions = []
+			}
+			const hint = next_actions[0]
+			const text = hint ? `${baseText}\nNext action: ${hint.label}.` : baseText
+			return textResult(text, {...result, next_actions})
 		},
 	} as ToolDefinition)
 

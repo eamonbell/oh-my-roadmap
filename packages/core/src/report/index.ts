@@ -1,5 +1,5 @@
 export {renderReport} from './render'
-export {formatValidationIssues} from './shared'
+export {formatValidationIssues, nextActionHint} from './shared'
 export {nextAction, nextActionPlan} from './next-action'
 export {applyNextAction} from './apply-next-action'
-export type {ApplyNextActionResult, NextActionPlan, NextActionScope, NextActionStatus} from './types'
+export type {ApplyNextActionResult, NextActionHint, NextActionPlan, NextActionScope, NextActionStatus, NextActionTool} from './types'

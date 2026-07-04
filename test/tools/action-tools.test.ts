@@ -4,7 +4,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { decisionsPath } from "@oh-my-roadmap/core/paths";
 import { initRoadmap, transition, updateRoadmap } from "@oh-my-roadmap/core/store/index";
+import {
+  prepareWaveDispatch,
+  prepareWaveReview,
+  recordWaveResult,
+  recordWaveReview,
+} from "@oh-my-roadmap/core/wave-orchestration/index";
+import { approvedMilestone } from "../state/helpers";
 import { registeredTool, registerTools, roadmapInput, toolContext } from "./helpers";
+
+async function captureRejection(run: () => Promise<unknown> | undefined): Promise<string> {
+  try {
+    await run();
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error("Expected the tool call to reject");
+}
 
 describe("roadmap action tools", () => {
   test("registers action tools with expected approval modes", () => {
@@ -122,6 +138,71 @@ describe("roadmap action tools", () => {
         status: "deferred",
         defer_reason: "Accepted follow-up risk.",
       });
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare_wave_dispatch before start_implementation appends the start-implementation next action", async () => {
+    const tools = registerTools();
+    const prepareWaveDispatchTool = registeredTool(tools, "omr_prepare_wave_dispatch");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-dispatch-gate-"));
+    try {
+      // Milestone is approved but implementation is not legally open yet.
+      await approvedMilestone(cwd);
+
+      const message = await captureRejection(() =>
+        prepareWaveDispatchTool?.execute(
+          "prepare-dispatch",
+          {},
+          new AbortController().signal,
+          undefined,
+          toolContext(cwd),
+        ),
+      );
+      // The original implementation-gate failure is preserved.
+      expect(message).toContain("Implementation gate is closed");
+      // ...and the tool appends the next executable action.
+      expect(message).toContain("Next action: Start implementation via omr_transition");
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare_wave_dispatch on a completed active wave appends the advance-to-next-wave action", async () => {
+    const tools = registerTools();
+    const prepareWaveDispatchTool = registeredTool(tools, "omr_prepare_wave_dispatch");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-dispatch-complete-"));
+    try {
+      await approvedMilestone(cwd);
+      await transition(cwd, { operation: "start_implementation" });
+      await prepareWaveDispatch(cwd);
+      await recordWaveResult(cwd, {
+        taskId: "t01-state",
+        status: "completed",
+        summary: "State task completed.",
+      });
+      await prepareWaveReview(cwd);
+      await recordWaveReview(cwd, {
+        status: "passed",
+        summary: "Wave implementation passed review.",
+      });
+      // Progress still points at the now-complete w01; dispatch must refuse and steer to w02.
+
+      const message = await captureRejection(() =>
+        prepareWaveDispatchTool?.execute(
+          "prepare-dispatch",
+          {},
+          new AbortController().signal,
+          undefined,
+          toolContext(cwd),
+        ),
+      );
+      expect(message).toContain("Active wave w01 is already complete");
+      expect(message).toContain("update_implementation_progress");
+      expect(message).toContain("w02");
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }

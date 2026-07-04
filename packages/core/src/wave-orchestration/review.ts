@@ -1,6 +1,7 @@
 import {withDiagnosticTiming} from '../diagnostics'
 import {searchContext} from '../context'
 import {listBlockers, openBlocker, transition,} from '../store/index'
+import type {NextActionHint} from '../report/index'
 import type {RoadmapBlocker} from '../types'
 import {activePlanContext, type ActivePlanContext, assertImplementationReady,} from './context'
 import {setProgress} from './dispatch'
@@ -140,6 +141,42 @@ function sameReviewBlocker(blocker: RoadmapBlocker, ctx: ActivePlanContext, titl
 	)
 }
 
+function passedWaveNextActions(ctx: ActivePlanContext): NextActionHint[] | undefined {
+	// Waves are ordered by their position in ctx.plan.waves, so the "next wave" is the
+	// first later wave (after the active wave's index) that is not yet complete.
+	const activeWaveIndex = ctx.plan.waves.findIndex((wave) => wave.id === ctx.activeWave.id)
+	if (activeWaveIndex < 0) return undefined
+	const nextWave = ctx.plan.waves.slice(activeWaveIndex + 1).find((wave) => wave.status !== 'complete')
+	if (nextWave) {
+		// Only advance into a wave that has not started. If the next pending wave is already
+		// running, reviewing, or blocked, its existing state stays authoritative and we emit
+		// no hint.
+		if (nextWave.status !== 'pending') return undefined
+		return [{
+			label: 'Advance to next wave',
+			tool: {
+				name: 'omr_transition',
+				input: {
+					operation: 'update_implementation_progress',
+					progress: {activeWaveId: nextWave.id, step: 'not_started', activeTaskIds: []},
+				},
+			},
+			why: `Wave ${ctx.activeWave.id} passed review and progress is ready_for_next_wave; ${nextWave.id} is the next pending wave.`,
+		}]
+	}
+	return [{
+		label: 'Mark closeout ready',
+		tool: {
+			name: 'omr_transition',
+			input: {
+				operation: 'update_implementation_progress',
+				progress: {step: 'closeout_ready', activeTaskIds: []},
+			},
+		},
+		why: `Wave ${ctx.activeWave.id} passed review and all waves are complete.`,
+	}]
+}
+
 export async function recordWaveReview(
 	cwd: string,
 	input: RecordWaveReviewInput,
@@ -166,11 +203,13 @@ export async function recordWaveReview(
 				summary: input.summary,
 			})
 			await setProgress(cwd, ctx, 'ready_for_next_wave', [])
+			const nextActions = passedWaveNextActions(ctx)
 			return {
 				wave_id: ctx.activeWave.id,
 				wave_status: 'complete',
 				progress_step: 'ready_for_next_wave',
 				blockers: [],
+				...(nextActions ? {next_actions: nextActions} : {}),
 			}
 		}
 
