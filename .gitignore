@@ -3,8 +3,6 @@
 /build/
 /dist/
 dist/
-# CLI ships a copy of the core skills, generated at build time
-/packages/cli/skills/
 *.exe
 *.exe~
 *.dll

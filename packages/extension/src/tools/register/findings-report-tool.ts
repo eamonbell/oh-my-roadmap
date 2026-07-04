@@ -1,6 +1,6 @@
-import {type AgentToolResult, type Theme} from '@oh-my-pi/pi-coding-agent'
+import {type AgentToolResult} from '@oh-my-pi/pi-coding-agent'
 import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {Box, type Component, Markdown, type MarkdownTheme, Text} from '@oh-my-pi/pi-tui'
+import {type Component, Text} from '@oh-my-pi/pi-tui'
 import type {ToolRegistrationContext} from './shared'
 import {clearFindingsReportTile, createReportTile, FINDINGS_REPORT_WIDGET_KEY} from '../../findings.ts'
 

@@ -1,16 +1,22 @@
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
-import {fileURLToPath} from 'node:url'
-import {fileExists, readText, readYamlFile, writeText, writeYamlFile} from './files'
+import reviewerTemplate from '../agent-templates/reviewer/AGENT.md' with {type: 'text'}
+import roadmapMilestoneCheckerTemplate from '../agent-templates/roadmap-milestone-checker/AGENT.md' with {type: 'text'}
+import styleScoutTemplate from '../agent-templates/style-scout/AGENT.md' with {type: 'text'}
+import waveFlowCheckerTemplate from '../agent-templates/wave-flow-checker/AGENT.md' with {type: 'text'}
+import workerTemplate from '../agent-templates/worker/AGENT.md' with {type: 'text'}
+import workerHeavyTemplate from '../agent-templates/worker-heavy/AGENT.md' with {type: 'text'}
+import workerLightTemplate from '../agent-templates/worker-light/AGENT.md' with {type: 'text'}
+import {fileExists, readYamlFile, writeText, writeYamlFile} from './files'
 import {parseMarkdownDocument, serializeMarkdownDocument} from './frontmatter'
 import {withStoreWriteLock} from './lock'
+import {activeProfileFromEnv, ompAgentsDir, ompOmrConfigDir} from './omp-paths'
 import {roadmapsDir} from './paths'
 
 const CONFIG_FILE = 'config.yml'
 const OMP_AGENTS_DIR = path.join('.omp', 'agents')
-export const ROLE_NAMES = ['worker-light', 'worker', 'worker-heavy', 'reviewer', 'wave-flow-checker', 'roadmap-milestone-checker'] as const
-export const THINKING_LEVELS = ['inherit', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export const ROLE_NAMES = ['worker-light', 'worker', 'worker-heavy', 'reviewer', 'wave-flow-checker', 'roadmap-milestone-checker', 'style-scout'] as const
+export const THINKING_LEVELS = ['inherit', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 const THINKING_LEVELS_SET = new Set<string>(THINKING_LEVELS)
 export const DEFAULT_TRANSPORT_RESUME_ATTEMPTS = 3
 
@@ -55,23 +61,30 @@ function agentsDir(cwd: string): string {
 	return path.join(cwd, OMP_AGENTS_DIR)
 }
 
-// User-level (global) agents are discovered by OMP at ~/.omp/agent/agents/*.md
-// (respecting PI_CONFIG_DIR). Project agents live at <cwd>/.omp/agents/*.md.
-export function globalAgentsDir(homeDir: string = os.homedir()): string {
-	const configDirName = process.env.PI_CONFIG_DIR || '.omp'
-	return path.join(homeDir, configDirName, 'agent', 'agents')
+// User-level (global) agents are discovered by OMP at <ompRoot>/agent/agents/*.md
+// (respecting PI_CONFIG_DIR and the active profile). Project agents live at
+// <cwd>/.omp/agents/*.md. A missing profile falls back to the ambient OMP profile.
+export function globalAgentsDir(homeDir?: string, profile?: string): string {
+	return ompAgentsDir({homeDir, profile: profile ?? activeProfileFromEnv()})
 }
 
 // Auxiliary agents generated alongside the configurable worker/reviewer roles. These
 // are not model-configurable in config.yml; they inherit OMP's model/reasoning.
 export const AUX_AGENT_NAMES = ['style-scout'] as const
 
-function skillPath(name: string): string {
-	// `here` is the directory of the running module. Skills ship one level up:
-	//  - extension (core loaded as source):   packages/core/src -> ../skills = packages/core/skills
-	//  - bundled CLI (dist/index.js):          packages/cli/dist -> ../skills = packages/cli/skills
-	const here = path.dirname(fileURLToPath(import.meta.url))
-	return path.resolve(here, '..', 'skills', name, 'SKILL.md')
+// Sub-agent prompt templates (one per role), bundled as text via import. Not OMP
+// skills — these are the source bodies that generateAgents() renders into OMP agent
+// definitions with config-driven model/reasoning. They travel with the code (inlined
+// by the bundler, resolved as text by the runtime), so nothing is read from disk.
+// Genuine OMP skills live in the plugin's own skills/ folder.
+const AGENT_TEMPLATE_SOURCES: Record<AgentRole, string> = {
+	'worker-light': workerLightTemplate,
+	worker: workerTemplate,
+	'worker-heavy': workerHeavyTemplate,
+	reviewer: reviewerTemplate,
+	'wave-flow-checker': waveFlowCheckerTemplate,
+	'roadmap-milestone-checker': roadmapMilestoneCheckerTemplate,
+	'style-scout': styleScoutTemplate,
 }
 
 function objectKeys(value: object): string[] {
@@ -249,17 +262,19 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 	return false
 }
 
-export function homeConfigDir(homeDir: string = os.homedir()): string {
-	return path.join(homeDir, '.omp', 'oh-my-roadmap')
+// Our omr global config dir: <ompRoot>/oh-my-roadmap (honoring PI_CONFIG_DIR and
+// the active profile). A missing profile falls back to the ambient OMP profile.
+export function homeConfigDir(homeDir?: string, profile?: string): string {
+	return ompOmrConfigDir({homeDir, profile: profile ?? activeProfileFromEnv()})
 }
 
-function homeConfigPath(homeDir?: string): string {
-	return path.join(homeConfigDir(homeDir), CONFIG_FILE)
+function homeConfigPath(homeDir?: string, profile?: string): string {
+	return path.join(homeConfigDir(homeDir, profile), CONFIG_FILE)
 }
 
-// Global config lives at ~/.omp/oh-my-roadmap/config.yml. Absent by default.
-export async function loadGlobalConfig(homeDir?: string): Promise<RoadmapProjectConfig | undefined> {
-	const targetPath = homeConfigPath(homeDir)
+// Global config lives at <ompRoot>/oh-my-roadmap/config.yml. Absent by default.
+export async function loadGlobalConfig(homeDir?: string, profile?: string): Promise<RoadmapProjectConfig | undefined> {
+	const targetPath = homeConfigPath(homeDir, profile)
 	if (!(await fileExists(targetPath))) return undefined
 	return parseConfig(await readYamlFile(targetPath))
 }
@@ -284,10 +299,11 @@ function mergeConfigs(base: RoadmapProjectConfig, override: RoadmapProjectConfig
 	return merged
 }
 
-// Unified config: global (~/.omp/oh-my-roadmap) as the base, project (.omr) overriding.
-// Project values win per role/field, per style language, and for the lockout flag.
-export async function loadMergedConfig(cwd: string, homeDir?: string): Promise<RoadmapProjectConfig> {
-	const global = await loadGlobalConfig(homeDir)
+// Unified config: global (<ompRoot>/oh-my-roadmap) as the base, project (.omr)
+// overriding. Project values win per role/field, per style language, and for the
+// lockout flag. The active profile selects which global config is the base.
+export async function loadMergedConfig(cwd: string, homeDir?: string, profile?: string): Promise<RoadmapProjectConfig> {
+	const global = await loadGlobalConfig(homeDir, profile)
 	const project = (await fileExists(configPath(cwd))) ? await loadConfig(cwd) : undefined
 	if (!global) return project ?? defaultConfig()
 	if (!project) return global
@@ -295,9 +311,9 @@ export async function loadMergedConfig(cwd: string, homeDir?: string): Promise<R
 }
 
 // Lockout: whether omr is paused via the unified (global + project) config.
-export async function loadDisabled(cwd: string, homeDir?: string): Promise<boolean> {
+export async function loadDisabled(cwd: string, homeDir?: string, profile?: string): Promise<boolean> {
 	try {
-		return (await loadMergedConfig(cwd, homeDir)).disabled === true
+		return (await loadMergedConfig(cwd, homeDir, profile)).disabled === true
 	} catch {
 		return false
 	}
@@ -326,13 +342,13 @@ export async function setProjectStyle(cwd: string, language: string, guide: Styl
 	})
 }
 
-async function loadSkill(name: string): Promise<{ description: string; body: string }> {
-	const doc = parseMarkdownDocument<{ name: string; description: string }>(await readText(skillPath(name)))
+function loadAgentTemplate(name: AgentRole): { description: string; body: string } {
+	const doc = parseMarkdownDocument<{ name: string; description: string }>(AGENT_TEMPLATE_SOURCES[name])
 	if (doc.data.name !== name) {
-		throw new Error(`Expected ${name} skill, found ${doc.data.name}`)
+		throw new Error(`Expected ${name} agent template, found ${doc.data.name}`)
 	}
 	if (!doc.data.description) {
-		throw new Error(`${name} skill is missing a description`)
+		throw new Error(`${name} agent template is missing a description`)
 	}
 	return {description: doc.data.description, body: doc.body}
 }
@@ -348,8 +364,8 @@ function renderAgent(name: string, description: string, body: string, config: Ag
 }
 
 export async function generateAgentsAt(targetAgentsDir: string, config: RoadmapProjectConfig): Promise<Record<AgentRole, string>> {
-	const skills = Object.fromEntries(
-		await Promise.all(ROLE_NAMES.map(async (role) => [role, await loadSkill(role)])),
+	const templates = Object.fromEntries(
+		ROLE_NAMES.map((role) => [role, loadAgentTemplate(role)]),
 	) as Record<AgentRole, { description: string; body: string }>
 
 	await fs.mkdir(targetAgentsDir, {recursive: true})
@@ -359,17 +375,19 @@ export async function generateAgentsAt(targetAgentsDir: string, config: RoadmapP
 	) as Record<AgentRole, string>
 
 	for (const role of ROLE_NAMES) {
+		// A config may omit a role (global/project configs list only a subset); an
+		// absent role inherits OMP defaults.
 		await writeText(
 			targetAgentPaths[role],
-			renderAgent(role, skills[role].description, skills[role].body, config.agents[role]),
+			renderAgent(role, templates[role].description, templates[role].body, config.agents[role] ?? {}),
 		)
 	}
 
 	// Auxiliary agents (e.g. style-scout) inherit OMP's model/reasoning; not config-driven.
-	for (const name of AUX_AGENT_NAMES) {
-		const skill = await loadSkill(name)
-		await writeText(path.join(targetAgentsDir, `${name}.md`), renderAgent(name, skill.description, skill.body, {}))
-	}
+	/*for (const name of AUX_AGENT_NAMES) {
+		const template = loadAgentTemplate(name)
+		await writeText(path.join(targetAgentsDir, `${name}.md`), renderAgent(name, template.description, template.body, {}))
+	}*/
 
 	return targetAgentPaths
 }
@@ -414,6 +432,30 @@ export async function applyProject(cwd: string): Promise<ProjectInitResult> {
 	})
 }
 
+// `omr apply` scoped to project or global. Regenerates agent definitions from an
+// already-existing config; never scaffolds one. A missing config yields an
+// actionable "run init first" error naming the scope + profile.
+export async function applyScoped(opts: {
+	scope: InitScope;
+	cwd: string;
+	homeDir?: string | undefined;
+	profile?: string | undefined;
+}): Promise<ProjectInitResult> {
+	const {scope, cwd, homeDir, profile} = opts
+	if (scope === 'project') return applyProject(cwd)
+
+	return await withStoreWriteLock(cwd, async () => {
+		const targetConfigPath = homeConfigPath(homeDir, profile)
+		if (!(await fileExists(targetConfigPath))) {
+			const initHint = profile ? `omr init --global --profile ${profile}` : 'omr init --global'
+			throw new Error(`No global config found at ${targetConfigPath}. Run \`${initHint}\` first.`)
+		}
+		const config = parseConfig(await readYamlFile(targetConfigPath))
+		const agentPaths = await generateAgentsAt(globalAgentsDir(homeDir, profile), config)
+		return {configPath: targetConfigPath, agentPaths, createdConfig: false}
+	})
+}
+
 export type InitScope = 'project' | 'global';
 
 function buildConfigFromAgents(
@@ -436,18 +478,19 @@ export async function initScoped(opts: {
 	scope: InitScope;
 	cwd: string;
 	agents: Record<AgentRole, AgentConfig>;
-	homeDir?: string;
+	homeDir?: string | undefined;
+	profile?: string | undefined;
 }): Promise<ProjectInitResult> {
-	const {scope, cwd, agents, homeDir} = opts
+	const {scope, cwd, agents, homeDir, profile} = opts
 	return await withStoreWriteLock(cwd, async () => {
 		if (scope === 'global') {
-			const targetConfigPath = homeConfigPath(homeDir)
+			const targetConfigPath = homeConfigPath(homeDir, profile)
 			const existed = await fileExists(targetConfigPath)
 			const existing = existed ? parseConfig(await readYamlFile(targetConfigPath)) : undefined
 			const config = buildConfigFromAgents(agents, existing)
 			parseConfig(config as unknown)
 			await writeYamlFile(targetConfigPath, config)
-			const agentPaths = await generateAgentsAt(globalAgentsDir(homeDir), config)
+			const agentPaths = await generateAgentsAt(globalAgentsDir(homeDir, profile), config)
 			// Always scaffold a model-free project config in the current folder.
 			await ensureConfig(cwd)
 			return {configPath: targetConfigPath, agentPaths, createdConfig: !existed}

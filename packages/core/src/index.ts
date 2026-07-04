@@ -5,6 +5,7 @@ export {
 	initProject,
 	initScoped,
 	applyProject,
+	applyScoped,
 	generateAgents,
 	generateAgentsAt,
 	globalAgentsDir,
@@ -30,3 +31,13 @@ export type {
 	StyleGuide,
 	InitScope,
 } from './project-init'
+export {
+	validateProfileName,
+	activeProfileFromEnv,
+	resolveOmpRoot,
+	ompPluginRoot,
+	ompAgentsDir,
+	ompOmrConfigDir,
+	resolveScopeAndProfile,
+} from './omp-paths'
+export type {OmpScope, OmpRootOptions} from './omp-paths'

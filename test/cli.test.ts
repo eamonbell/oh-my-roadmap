@@ -11,10 +11,10 @@ import {
   writePluginDependency,
 } from "oh-my-roadmap-core/cli/install";
 import {
-  applyUpdates,
   checkForUpdates,
   compareVersions,
   shouldCheck,
+  updateCli,
 } from "oh-my-roadmap-core/cli/update";
 
 let cwd = "";
@@ -59,6 +59,7 @@ describe("scoped init", () => {
         reviewer: {},
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
+        "style-scout": {},
       },
       homeDir: home,
     });
@@ -83,6 +84,7 @@ describe("scoped init", () => {
         reviewer: { model: "global/reviewer", thinking: "high" },
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
+        "style-scout": {},
       },
       homeDir: home,
     });
@@ -109,8 +111,13 @@ describe("scoped init", () => {
 describe("plugin install", () => {
   test("resolvePluginRoot maps scope to OMP plugin roots", () => {
     expect(resolvePluginRoot("project", { cwd })).toBe(path.join(cwd, ".omp", "plugins"));
+    // Global root is the top-level <ompRoot>/plugins (not .../agent/plugins).
     expect(resolvePluginRoot("global", { cwd, homeDir: home })).toBe(
-      path.join(home, ".omp", "agent", "plugins"),
+      path.join(home, ".omp", "plugins"),
+    );
+    // A profile relocates the whole root under profiles/<name>.
+    expect(resolvePluginRoot("global", { cwd, homeDir: home, profile: "work" })).toBe(
+      path.join(home, ".omp", "profiles", "work", "plugins"),
     );
   });
 
@@ -163,27 +170,22 @@ describe("update checks", () => {
   test("checkForUpdates flags packages with newer versions", async () => {
     const latest: Record<string, string> = {
       "@oh-my-roadmap/cli": "0.10.0",
-      "oh-my-roadmap": "0.9.0",
+      [EXTENSION_PACKAGE]: "0.9.0",
     };
     const check = await checkForUpdates({ cli: "0.9.0", extension: "0.9.0" }, async (name) => latest[name]!);
 
     expect(check.hasUpdate).toBe(true);
     const cli = check.packages.find((p) => p.name === "@oh-my-roadmap/cli");
-    const ext = check.packages.find((p) => p.name === "oh-my-roadmap");
+    const ext = check.packages.find((p) => p.name === EXTENSION_PACKAGE);
     expect(cli?.hasUpdate).toBe(true);
     expect(ext?.hasUpdate).toBe(false);
   });
 
-  test("applyUpdates only runs for packages with updates", async () => {
-    const check = await checkForUpdates({ cli: "0.9.0", extension: "0.9.0" }, async (name) =>
-      name === "@oh-my-roadmap/cli" ? "1.0.0" : "0.9.0",
-    );
+  test("updateCli runs the injected runner with the target version", async () => {
     const ran: string[] = [];
-    const updated = await applyUpdates(check, async (name) => {
-      ran.push(name);
+    await updateCli("1.2.3", async (version) => {
+      ran.push(version);
     });
-
-    expect(updated).toEqual(["@oh-my-roadmap/cli"]);
-    expect(ran).toEqual(["@oh-my-roadmap/cli"]);
+    expect(ran).toEqual(["1.2.3"]);
   });
 });

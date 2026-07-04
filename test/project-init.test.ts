@@ -63,6 +63,7 @@ describe("project init scaffold", () => {
         reviewer: {},
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
+        "style-scout": {},
       },
       orchestration: { transport_resume_attempts: 3 },
     });
@@ -137,6 +138,7 @@ describe("project init scaffold", () => {
         reviewer: {},
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
+        "style-scout": {},
       },
       orchestration: { transport_resume_attempts: 3 },
     });
@@ -247,6 +249,7 @@ describe("project init scaffold", () => {
         reviewer: {},
         "wave-flow-checker": {},
         "roadmap-milestone-checker": {},
+        "style-scout": {},
       },
       orchestration: { transport_resume_attempts: 3 },
     });

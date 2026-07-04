@@ -50,11 +50,11 @@ export async function styleGuideForFiles(cwd: string, files: string[], homeDir?:
 export function renderStyleGuide(entries: StyleGuideEntry[]): string {
 	if (entries.length === 0) return 'No recorded code-style guidance for these files.'
 	return entries
-		.map(({language, guide}) => {
-			const lines = [`## ${language}`]
-			if (guide.summary) lines.push(guide.summary)
-			for (const rule of guide.guidelines) lines.push(`- ${rule}`)
-			return lines.join('\n')
-		})
-		.join('\n\n')
+	.map(({language, guide}) => {
+		const lines = [`## ${language}`]
+		if (guide.summary) lines.push(guide.summary)
+		for (const rule of guide.guidelines) lines.push(`- ${rule}`)
+		return lines.join('\n')
+	})
+	.join('\n\n')
 }

@@ -1,6 +1,6 @@
 {
-	"name":             "oh-my-roadmap",
-	"version":          "0.9.0",
+	"name":             "@oh-my-roadmap/plugin",
+	"version":          "1.0.0",
 	"description":      "OMP extension for roadmap-based planning, milestone orchestration, worker notes, and gated complex implementation workflows.",
 	"type":             "module",
 	"license":          "MIT",
@@ -13,10 +13,11 @@
 	"files":            [
 		"src",
 		"hooks",
-		"prompts"
+		"prompts",
+		"skills"
 	],
 	"dependencies":     {
-		"oh-my-roadmap-core": "0.9.0"
+		"@oh-my-roadmap/core": "1.0.0"
 	},
 	"peerDependencies": {
 		"@oh-my-pi/pi-coding-agent": "^16.2.6",
