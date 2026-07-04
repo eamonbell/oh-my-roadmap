@@ -160,9 +160,19 @@ Both `model` and `thinking` are optional. Supported thinking values are `inherit
 
 ## Moshi notifications
 
-oh-my-roadmap can send low-volume, OMR-specific lifecycle updates to a local [Moshi](https://github.com/rjyo/homebrew-moshi) daemon so you can watch wave dispatch, worker spawns, blockers, reviews, and stops from Moshi's inbox. It is opt-in and off by default: with no `moshi` config present, the extension has zero notification behavior.
+oh-my-roadmap can drive a **live activity** in a local [Moshi](https://github.com/rjyo/homebrew-moshi) daemon so you can watch each workflow progress from Moshi's inbox. It is opt-in and off by default: with no `moshi` config present, the extension has zero notification behavior.
 
-The integration talks to Moshi's documented local-socket `session.update` protocol over a Unix socket. It does **not** require Moshi API tokens, host secrets, or host ids in OMR config, and it never falls back to any HTTP endpoint.
+The integration talks to Moshi's documented local-socket `session.update` protocol over a Unix socket. It does **not** require Moshi API tokens, host secrets, or host ids in OMR config, and it never falls back to any HTTP endpoint. A "live activity" in Moshi is the single inbox row per session that updates in place; OMR walks that row through each workflow's phases, sharing the OMP session's id, so it **enriches** the same row Moshi's built-in OMP hook maintains rather than creating a duplicate.
+
+**Coverage.** OMR emits phase-level updates for all three workflows plus the existing wave/worker detail during implementation:
+
+- **New roadmap** — created → discovery recorded → finalized → gate passed/failed → approved → milestone planning.
+- **Milestone plan + implement** — plan created/revised → wave-flow gate → approved → implementing → per-wave dispatch/worker/review → reviewing → closeout → milestone complete.
+- **Ad-hoc plan + implement** — created → gate → approved → implementing → (shared wave detail) → reviewing → closeout → complete/cancelled.
+
+**Quiet vs. push.** Routine progress (starts, phase moves, dispatch) updates the row quietly. Only **needs-input** (asks, blockers, failed gates, bypass requests) and **completions** (milestone/ad-hoc complete, wave review passed) are high-priority pushes to your device.
+
+**Terminal binding & context gauge.** Frames carry tmux/herdr/zellij correlation fields (resolved once, best-effort) so the activity attaches to the right pane, plus a `contextRemaining` gauge — matching Moshi's own client.
 
 Prerequisites:
 
@@ -197,7 +207,7 @@ moshi:
 Notes:
 
 - Approval/question notifications are **notify-only**: they tell you to return to OMP and cannot approve, deny, or answer from Moshi.
-- OMR sends only its own OMR-specific notifications. It does not duplicate Moshi's generated generic OMP lifecycle hook — that hook says a turn ended; OMR's messages say what the roadmap needs next.
+- OMR sends only its own OMR-specific updates and does not duplicate Moshi's generated generic OMP lifecycle hook — that hook says a turn ended; OMR's updates say what each workflow is doing and needs next. Because both write to the same session row, Moshi's built-in `AgentEnd` hook may occasionally overwrite the OMR title at turn end.
 
 ## Roadmap Approval
 

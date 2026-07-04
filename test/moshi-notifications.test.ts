@@ -5,12 +5,46 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import {
+  adhocStopEventFromPlan,
   buildMoshiSessionUpdate,
   mapRoadmapToolResult,
   type MoshiContextLike,
   notifyMoshiForRoadmapToolResult,
+  resetTerminalContextCache,
   sendMoshiFrame,
 } from "../packages/extension/src/extension/moshi-notifications";
+
+// Terminal-context env vars that resolveTerminalContext() reads. Cleared before
+// building frames whose projectName/terminal fields must be deterministic, so tests
+// don't inherit the ambient tmux/herdr/zellij session of the machine running them.
+const TERMINAL_ENV_KEYS = [
+  "TMUX",
+  "TMUX_PANE",
+  "ZELLIJ",
+  "ZELLIJ_SESSION_NAME",
+  "ZELLIJ_PANE_ID",
+  "HERDR_ENV",
+  "HERDR_SESSION",
+  "HERDR_PANE_ID",
+];
+
+function clearTerminalEnv(): Record<string, string | undefined> {
+  const saved: Record<string, string | undefined> = {};
+  for (const key of TERMINAL_ENV_KEYS) {
+    saved[key] = process.env[key];
+    delete process.env[key];
+  }
+  resetTerminalContextCache();
+  return saved;
+}
+
+function restoreTerminalEnv(saved: Record<string, string | undefined>): void {
+  for (const key of TERMINAL_ENV_KEYS) {
+    if (saved[key] === undefined) delete process.env[key];
+    else process.env[key] = saved[key];
+  }
+  resetTerminalContextCache();
+}
 
 interface FakeServer {
   received: string[];
@@ -54,6 +88,14 @@ function fakeCtx(overrides: Partial<MoshiContextLike> = {}): MoshiContextLike {
 }
 
 describe("buildMoshiSessionUpdate", () => {
+  let savedEnv: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    savedEnv = clearTerminalEnv();
+  });
+  afterEach(() => {
+    restoreTerminalEnv(savedEnv);
+  });
+
   test("produces a documented session.update frame", () => {
     const frame = buildMoshiSessionUpdate(fakeCtx(), {
       eventName: "omr.worker.blocked",
@@ -68,9 +110,23 @@ describe("buildMoshiSessionUpdate", () => {
     expect(frame.sessionId).toBe("/sessions/session-abc.jsonl");
     expect(frame.projectName).toBe("omr-project");
     expect(frame.category).toBe("approval_required");
-    expect(frame.contextPercent).toBe(43);
+    // approval frames carry the daemon-meaningful phase, not the internal label.
+    expect(frame.phase).toBe("waitingForApproval");
+    // contextRemaining = 100 - round(42.6) = 57 (remaining, not used).
+    expect(frame.contextRemaining).toBe(57);
     expect(frame.modelName).toBe("claude-test");
     expect(typeof frame.requestedAt).toBe("string");
+  });
+
+  test("keeps the internal phase label for non-approval frames", () => {
+    const frame = buildMoshiSessionUpdate(fakeCtx(), {
+      eventName: "omr.progress.updated",
+      category: "tool_running",
+      phase: "omr_progress",
+      title: "OMR progress updated",
+      message: "step: workers_running",
+    });
+    expect(frame.phase).toBe("omr_progress");
   });
 
   test("falls back to session id then cwd for sessionId", () => {
@@ -85,6 +141,38 @@ describe("buildMoshiSessionUpdate", () => {
       { eventName: "e", category: "tool_running", phase: "p", title: "t", message: "m" },
     );
     expect(viaCwd.sessionId).toBe("/tmp/only-cwd");
+  });
+
+  test("stamps zellij terminal-correlation fields and prefers session name", () => {
+    process.env.ZELLIJ_SESSION_NAME = "my-zellij";
+    process.env.ZELLIJ_PANE_ID = "pane-7";
+    resetTerminalContextCache();
+
+    const frame = buildMoshiSessionUpdate(fakeCtx(), {
+      eventName: "e",
+      category: "tool_running",
+      phase: "p",
+      title: "t",
+      message: "m",
+    });
+    expect(frame.terminalKind).toBe("zellij");
+    expect(frame.zellijSession).toBe("my-zellij");
+    expect(frame.zellijPane).toBe("pane-7");
+    // projectName prefers the terminal session over the cwd basename.
+    expect(frame.projectName).toBe("my-zellij");
+  });
+
+  test("omits terminal fields when no multiplexer is present", () => {
+    const frame = buildMoshiSessionUpdate(fakeCtx(), {
+      eventName: "e",
+      category: "tool_running",
+      phase: "p",
+      title: "t",
+      message: "m",
+    });
+    expect(frame.terminalKind).toBeUndefined();
+    expect(frame.tmuxSession).toBeUndefined();
+    expect(frame.herdrSession).toBeUndefined();
   });
 });
 
@@ -210,20 +298,155 @@ describe("mapRoadmapToolResult", () => {
     expect(event?.message).toContain("b1");
   });
 
-  test("progress transition to a completion step uses task_complete", () => {
+  test("progress transitions are always quiet (tool_running)", () => {
     const event = mapRoadmapToolResult(
       "omr_transition",
       {},
       { details: { operation: "update_implementation_progress", after: { step: "closeout_ready", active_wave_id: "w1", active_task_ids: [] } } },
     );
     expect(event?.eventName).toBe("omr.progress.updated");
-    expect(event?.category).toBe("task_complete");
+    expect(event?.category).toBe("tool_running");
+  });
+
+  test("maps roadmap creation to session_started", () => {
+    const event = mapRoadmapToolResult(
+      "omr_init",
+      {},
+      { details: { roadmap_id: "r1", title: "My roadmap", phase: "discovery" } },
+    );
+    expect(event?.eventName).toBe("omr.roadmap.created");
+    expect(event?.category).toBe("session_started");
+    expect(event?.message).toContain("r1");
+  });
+
+  test("maps quiet planning transitions to tool_running", () => {
+    for (const [operation, eventName] of [
+      ["record_discovery", "omr.roadmap.discovery_recorded"],
+      ["approve_roadmap", "omr.roadmap.approved"],
+      ["start_milestone_planning", "omr.milestone.planning_started"],
+      ["create_milestone_plan", "omr.milestone.plan_created"],
+      ["approve_milestone", "omr.milestone.approved"],
+      ["start_implementation", "omr.implementation.started"],
+      ["start_reviewing", "omr.milestone.reviewing"],
+      ["start_closeout", "omr.closeout.started"],
+      ["record_closeout", "omr.closeout.recorded"],
+    ] as const) {
+      const event = mapRoadmapToolResult(
+        "omr_transition",
+        {},
+        { details: { operation, summary: `did ${operation}`, scope: { roadmap_id: "r1", milestone_id: "m1" } } },
+      );
+      expect(event?.eventName, operation).toBe(eventName);
+      expect(event?.category, operation).toBe("tool_running");
+    }
+  });
+
+  test("gate transitions push only on failure (from params status)", () => {
+    const passed = mapRoadmapToolResult(
+      "omr_transition",
+      { roadmapMilestoneCheck: { status: "passed" } },
+      { details: { operation: "record_roadmap_milestone_check", scope: { roadmap_id: "r1" } } },
+    );
+    expect(passed?.eventName).toBe("omr.gate.roadmap_passed");
+    expect(passed?.category).toBe("tool_running");
+
+    const failed = mapRoadmapToolResult(
+      "omr_transition",
+      { waveFlowCheck: { status: "failed" } },
+      { details: { operation: "record_wave_flow_check", scope: { roadmap_id: "r1", milestone_id: "m1" } } },
+    );
+    expect(failed?.eventName).toBe("omr.gate.wave_flow_failed");
+    expect(failed?.category).toBe("approval_required");
+  });
+
+  test("complete_milestone pushes as task_complete; closeout stays quiet", () => {
+    const complete = mapRoadmapToolResult(
+      "omr_transition",
+      {},
+      { details: { operation: "complete_milestone", summary: "done", scope: { roadmap_id: "r1", milestone_id: "m1" } } },
+    );
+    expect(complete?.eventName).toBe("omr.milestone.completed");
+    expect(complete?.category).toBe("task_complete");
+
+    const bypass = mapRoadmapToolResult(
+      "omr_transition",
+      { reason: "urgent" },
+      { details: { operation: "request_bypass", summary: "bypass", scope: { roadmap_id: "r1" } } },
+    );
+    expect(bypass?.category).toBe("approval_required");
+    expect(bypass?.message).toContain("urgent");
+  });
+
+  test("maps ad-hoc init and lifecycle transitions", () => {
+    const created = mapRoadmapToolResult(
+      "omr_init_adhoc",
+      {},
+      { details: { adhoc_id: "ah1", title: "Quick fix", status: "adhoc_draft" } },
+    );
+    expect(created?.eventName).toBe("omr.adhoc.created");
+    expect(created?.category).toBe("session_started");
+
+    const implementing = mapRoadmapToolResult(
+      "omr_adhoc_transition",
+      { operation: "start_implementing" },
+      { details: { adhoc_id: "ah1", status: "implementing" } },
+    );
+    expect(implementing?.eventName).toBe("omr.adhoc.implementing");
+    expect(implementing?.category).toBe("tool_running");
+
+    const complete = mapRoadmapToolResult(
+      "omr_adhoc_transition",
+      { operation: "complete" },
+      { details: { adhoc_id: "ah1", status: "complete" } },
+    );
+    expect(complete?.eventName).toBe("omr.adhoc.completed");
+    expect(complete?.category).toBe("task_complete");
+  });
+
+  test("ad-hoc failed wave-flow gate pushes; cancel emits with null details", () => {
+    const gate = mapRoadmapToolResult(
+      "omr_adhoc_transition",
+      { operation: "record_wave_flow_check" },
+      { details: { adhoc_id: "ah1", status: "adhoc_draft", wave_flow_check: { status: "failed" } } },
+    );
+    expect(gate?.eventName).toBe("omr.adhoc.wave_flow_failed");
+    expect(gate?.category).toBe("approval_required");
+
+    // cancel returns null details — must still emit.
+    const cancelled = mapRoadmapToolResult("omr_adhoc_transition", { operation: "cancel" }, { details: null });
+    expect(cancelled?.eventName).toBe("omr.adhoc.cancelled");
+    expect(cancelled?.category).toBe("task_complete");
   });
 
   test("returns undefined for unmapped tools and malformed details", () => {
     expect(mapRoadmapToolResult("omr_read_state", {}, { details: {} })).toBeUndefined();
     expect(mapRoadmapToolResult("omr_prepare_wave_dispatch", {}, {})).toBeUndefined();
     expect(mapRoadmapToolResult("omr_record_worker_dispatch", {}, { details: {} })).toBeUndefined();
+    expect(mapRoadmapToolResult("omr_transition", {}, { details: { operation: "update_task_status" } })).toBeUndefined();
+  });
+});
+
+describe("adhocStopEventFromPlan", () => {
+  test("derives an ad-hoc summary instead of a bogus 'Create roadmap'", () => {
+    const running = adhocStopEventFromPlan({ adhoc_id: "ah1", status: "implementing", progress: { step: "workers_running" } });
+    expect(running.eventName).toBe("omr.adhoc.stopped");
+    expect(running.category).toBe("tool_running");
+    expect(running.title).toContain("implementing");
+    expect(running.message).not.toContain("Create roadmap");
+  });
+
+  test("flags blocked/failed-gate ad-hoc plans as approval_required", () => {
+    const blocked = adhocStopEventFromPlan({ adhoc_id: "ah1", status: "implementing", progress: { blocked_reason: "stuck" } });
+    expect(blocked.category).toBe("approval_required");
+    expect(blocked.message).toContain("stuck");
+
+    const gateFailed = adhocStopEventFromPlan({ adhoc_id: "ah1", status: "adhoc_draft", wave_flow_check: { status: "failed" } });
+    expect(gateFailed.category).toBe("approval_required");
+  });
+
+  test("marks a completed ad-hoc plan as task_complete", () => {
+    const done = adhocStopEventFromPlan({ adhoc_id: "ah1", status: "complete" });
+    expect(done.category).toBe("task_complete");
   });
 });
 
