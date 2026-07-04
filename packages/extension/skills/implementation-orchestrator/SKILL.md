@@ -35,6 +35,10 @@ Required process:
 - Dispatch each task as a background job using the exact agent named in the task's `worker` field: `worker-light`, `worker`, or `worker-heavy`.
 - Immediately after each spawn, call `omr_record_worker_dispatch` with the task ID, returned `agentId`, and returned `jobId`.
 - Never redispatch a task until its prior worker run is terminal: `abandoned`, `completed`, `blocked`, `failed`, or `cancelled`.
+- After dispatching all worker or reviewer jobs for the current wave and recording their job ids, if you are blocked waiting for those jobs, issue one
+  blocking `job` wait for the relevant job ids or for all running jobs with a meaningful timeout. Do not loop short job polls; retry only after an
+  interrupt, timeout, or new liveness evidence. Use IRC liveness checks only after a timeout/interruption or when state says a worker should exist but
+  the job handle is absent.
 - To recover or rework a run, prefer waking the existing worker. Use `irc` `op:list` to get its exact peer id and status (`running`/`idle`/`parked`/
   `aborted`), then `op:send` directly to that peer id — never broadcast with `to:"all"` (it skips `parked` peers and can wake unrelated agents). Do
   not resend to a worker that is still `running`.

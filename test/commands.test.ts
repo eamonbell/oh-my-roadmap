@@ -279,6 +279,15 @@ describe("roadmap commands", () => {
     expect(content).toContain("Do not submit a findings report after an individual wave");
     // Runtime agent cannot open the extension repo's docs
     expect(content).not.toContain("docs/irc.md");
+    // start_implementation must be instructed, and before the first wave dispatch
+    expect(content).toContain("first call omr_transition with operation start_implementation");
+    expect(content.indexOf("first call omr_transition with operation start_implementation")).toBeLessThan(
+      content.indexOf("omr_prepare_wave_dispatch before dispatching implementation work"),
+    );
+    // One blocking job wait, not a short polling loop
+    expect(content).toContain("one blocking job wait");
+    expect(content).toContain("Do not loop short job polls");
+    expect(content).toContain("Use IRC liveness checks only after a timeout");
     expectFindingsReportInstruction(content, "omr:ms-implement");
   });
 

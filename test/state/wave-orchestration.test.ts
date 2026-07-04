@@ -467,13 +467,77 @@ describe("roadmap wave orchestration state", () => {
       progress_step: "ready_for_next_wave",
       blockers: [],
     });
+    // A later pending wave exists, so the hint advances to it without mutating progress.
+    expect(result.next_actions).toHaveLength(1);
+    expect(result.next_actions?.[0]).toMatchObject({
+      label: "Advance to next wave",
+      tool: {
+        name: "omr_transition",
+        input: {
+          operation: "update_implementation_progress",
+          progress: { activeWaveId: "w02", step: "not_started", activeTaskIds: [] },
+        },
+      },
+    });
     const state = await loadState(cwd);
     expect(state.milestone?.waves.find((wave) => wave.id === "w01")?.status).toBe("complete");
+    // Progress is NOT auto-advanced: it stays on the completed wave in ready_for_next_wave.
     expect(state.milestone?.progress).toMatchObject({
       active_wave_id: "w01",
       step: "ready_for_next_wave",
       active_task_ids: [],
     });
+  });
+
+  test("a passing FINAL wave hints closeout ready without auto-advancing progress", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    // A single-wave milestone: w01 is the final (and only) wave.
+    const input = milestoneInput();
+    input.tasks = [{ ...input.tasks[0]! }];
+    input.waves = [testWave("w01", ["t01-state"])];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+    await prepareWaveReview(cwd);
+
+    const result = await recordWaveReview(cwd, {
+      status: "passed",
+      summary: "Final wave passed review.",
+    });
+
+    expect(result).toMatchObject({
+      wave_id: "w01",
+      wave_status: "complete",
+      progress_step: "ready_for_next_wave",
+    });
+    // No waves remain, so the hint marks closeout ready — but does not mutate progress.
+    expect(result.next_actions).toHaveLength(1);
+    expect(result.next_actions?.[0]).toMatchObject({
+      label: "Mark closeout ready",
+      tool: {
+        name: "omr_transition",
+        input: {
+          operation: "update_implementation_progress",
+          progress: { step: "closeout_ready", activeTaskIds: [] },
+        },
+      },
+    });
+    const state = await loadState(cwd);
+    // Progress is NOT auto-advanced to closeout_ready.
+    expect(state.milestone?.progress).toMatchObject({
+      active_wave_id: "w01",
+      step: "ready_for_next_wave",
+      active_task_ids: [],
+    });
+    expect(state.milestone?.progress.step).not.toBe("closeout_ready");
   });
 
   test("prepareWaveReview package carries the active wave's worker notes", async () => {

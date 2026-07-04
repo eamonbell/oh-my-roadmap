@@ -1,4 +1,5 @@
 import type {ContextEntryResult} from '../context-types'
+import type {NextActionHint} from '../report/index'
 import type {ImplementationProgressStep, ImplementationWorkerName, RoadmapBlocker, TaskPlan, WavePlan, WorkerRun,} from '../types'
 
 export interface WaveOrchestrationTargetInput {
@@ -28,6 +29,7 @@ export interface PrepareWaveDispatchResult {
 	assignments: WaveWorkerAssignment[];
 	active_runs: WorkerRun[];
 	instructions: string;
+	next_actions?: NextActionHint[];
 }
 
 export interface RecordWorkerDispatchInput extends WaveOrchestrationTargetInput {
@@ -122,4 +124,5 @@ export interface RecordWaveReviewResult {
 	wave_status: WavePlan['status'];
 	progress_step: ImplementationProgressStep;
 	blockers: RoadmapBlocker[];
+	next_actions?: NextActionHint[];
 }

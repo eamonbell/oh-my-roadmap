@@ -79,6 +79,61 @@ describe("roadmap lifecycle tools", () => {
     }
   });
 
+  test("surfaces the next executable action on transition and validate tool success", async () => {
+    const tools = registerTools();
+    const transitionTool = registeredTool(tools, "omr_transition");
+    const validateTool = registeredTool(tools, "omr_validate");
+
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-next-action-tool-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "tool-next-action-roadmap", title: "Tool Next Action Roadmap" });
+      await transition(cwd, {
+        operation: "record_discovery",
+        discovery: { findings: ["Inspected next-action wiring."] },
+      });
+      await updateRoadmap(cwd, roadmapInput());
+      await transition(cwd, {
+        operation: "record_roadmap_milestone_check",
+        roadmapMilestoneCheck: {
+          status: "passed",
+          checkedBy: "roadmap-milestone-checker",
+          summary: "Milestone flow is coherent and buildable.",
+          findings: [],
+        },
+      });
+
+      const approved = await transitionTool?.execute(
+        "transition-approve",
+        { operation: "approve_roadmap", approver: "user" },
+        new AbortController().signal,
+        undefined,
+        toolContext(cwd),
+      );
+      const approvedActions = (approved?.details as {
+        next_actions?: Array<{ label: string; tool: { name: string; input: { operation?: string } } }>;
+      } | undefined)?.next_actions;
+      expect(approvedActions?.[0]?.label).toBe("Start milestone planning");
+      expect(approvedActions?.[0]?.tool.name).toBe("omr_transition");
+      expect(approvedActions?.[0]?.tool.input.operation).toBe("start_milestone_planning");
+
+      const validated = await validateTool?.execute(
+        "validate",
+        {},
+        new AbortController().signal,
+        undefined,
+        toolContext(cwd),
+      );
+      const validatedActions = (validated?.details as {
+        valid?: boolean;
+        next_actions?: Array<{ tool: { input: { operation?: string } } }>;
+      } | undefined);
+      expect(validatedActions?.valid).toBe(true);
+      expect(validatedActions?.next_actions?.[0]?.tool.input.operation).toBe("start_milestone_planning");
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("repairs roadmap hash drift through the repair tool", async () => {
     const tools = registerTools();
     const repairRoadmapTool = registeredTool(tools, "omr_repair_roadmap");

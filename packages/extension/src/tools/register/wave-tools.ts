@@ -15,7 +15,24 @@ import {
 	recordWorkerTransportFailed,
 	type WaveOrchestrationTargetInput,
 } from '@oh-my-roadmap/core/wave-orchestration/index'
+import {nextActionHint, nextActionPlan} from '@oh-my-roadmap/core/report/index'
 import {textResult, type ToolRegistrationContext} from './shared'
+
+async function appendNextActionToError(cwd: string, error: unknown, why: string): Promise<Error> {
+	const original = error instanceof Error ? error.message : String(error)
+	try {
+		const plan = await nextActionPlan(cwd)
+		const [hint] = nextActionHint(plan, why)
+		if (hint) {
+			return new Error(
+				`${original}\nNext action: ${hint.label} via ${hint.tool.name} ${JSON.stringify(hint.tool.input)} — ${hint.why}`,
+			)
+		}
+	} catch {
+		// Fall through to the original message when the hint cannot be computed.
+	}
+	return new Error(original)
+}
 
 export function registerWaveTools(ctx: ToolRegistrationContext): void {
 	const {z, register} = ctx
@@ -28,8 +45,16 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		approval: 'write',
 		parameters: waveOrchestrationTargetSchema,
 		async execute(_id, params, _signal, _update, ctx) {
-			const result = await prepareWaveDispatch(ctx.cwd, params as WaveOrchestrationTargetInput)
-			return textResult(JSON.stringify(result), result)
+			try {
+				const result = await prepareWaveDispatch(ctx.cwd, params as WaveOrchestrationTargetInput)
+				return textResult(JSON.stringify(result), result)
+			} catch (error) {
+				throw await appendNextActionToError(
+					ctx.cwd,
+					error,
+					'Dispatch preparation failed; this is the next executable workflow action from current state.',
+				)
+			}
 		},
 	} as ToolDefinition)
 

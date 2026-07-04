@@ -35,6 +35,8 @@ Required process:
   milestone planning resumes.
 - Use `omr_update_roadmap` to generate the final `roadmap.md` before asking for roadmap approval.
 - Dispatch roadmap-milestone-checker after omr_update_roadmap writes the finalized roadmap and before asking for roadmap approval.
+- After dispatching roadmap-milestone-checker and recording its job id, wait once with a meaningful blocking `job` wait for the checker result; do not
+  loop short polls. Use IRC only when a live checker peer already has context, or after a timeout/interruption.
 - Record the checker result with omr_transition operation record_roadmap_milestone_check.
 - If the checker fails, revise the roadmap with omr_update_roadmap, rerun roadmap-milestone-checker, and record the new result.
 - Use omr_validate only after the recorded roadmap-milestone check has passed, then ask for roadmap approval.

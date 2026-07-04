@@ -16,6 +16,17 @@ export interface NextActionScope {
 	wave_id?: string;
 }
 
+export interface NextActionTool {
+	name: string;
+	input: Record<string, unknown>;
+}
+
+export interface NextActionHint {
+	label: string;
+	tool: NextActionTool;
+	why: string;
+}
+
 export interface NextActionPlan {
 	id: string;
 	label: string;
@@ -25,10 +36,7 @@ export interface NextActionPlan {
 	blockers: string[];
 	missing_inputs: string[];
 	scope: NextActionScope;
-	tool?: {
-		name: string;
-		input: Record<string, unknown>;
-	};
+	tool?: NextActionTool;
 }
 
 export interface ApplyNextActionResult {
