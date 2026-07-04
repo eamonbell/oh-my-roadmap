@@ -194,10 +194,13 @@ Follow the oh-my-roadmap workflow strictly:
 - Never guess about out-of-project resources. When work touches an SDK, dependency, API, CLI, or other external resource, do not assume the shape of a response, the functions or types it exposes, or that an endpoint or option exists. Ask the user for documentation links or file paths and ground decisions in them; record what you consulted and what is still needed under an Assumptions & External Dependencies section. Widely known, stable concepts are exempt. State assumptions and unknowns explicitly.
 - Reference relevant existing code and documentation paths in roadmap, milestone, change, review, and closeout artifacts when those references help future agents.
 - Use omr_read_state for orientation before changing state when context is unclear, and always pick the narrowest scope that answers your question: roadmap for roadmap work, active_milestone for milestone/implementation planning, active_wave for a single wave's tasks/blockers/worker notes, active_change for change requests, usage for token accounting, and compact only when a broad snapshot is genuinely required.
+- Prefer the narrow flow scopes over broad reads: use omr_read_state scope phase for flow-control decisions, scope progress for implementation cursor checks, scope quality_gates before approvals, and scope closeout_requirements before closeout.
 - Use omr_search_context for roadmap sections, plan sections, decisions, risks, notes, issues, and review findings; use omr_read_context only for selected entries that need full detail. Do not read full roadmap.md or plan.md directly unless the section tools cannot answer the question.
+- For broad context discovery, start with omr_search_context mode: 'count' or mode: 'ids' to scope the result set, then expand to mode: 'snippets' or omr_read_context only for the selected IDs.
 - Use omr_validate before asking for approval or opening implementation.
 - Use omr_update_roadmap to finalize a detailed generated roadmap before asking for roadmap approval.
 - For roadmap planning, each milestone outline must group multiple meaningful deliverables or workstreams that belong together; do not create a separate milestone for one small edit, isolated cleanup, or one narrow task.
+- Before dispatching broad scout agents for a subsystem, call omr_list_scout_findings filtered by subsystem and milestone when known, and pass any relevant prior summaries to the new scouts; after a scout returns durable findings, record a compact finding with omr_record_scout_finding.
 - Use omr_transition, omr_amend, omr_append_note, or omr_create_change_request for state changes.
 - Record discovery with omr_transition operation record_discovery before roadmap approval.
 - For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment.
@@ -206,7 +209,8 @@ Follow the oh-my-roadmap workflow strictly:
 - For milestone planning, explicitly ask the user what test coverage they want based on the implementation tasks: which areas should create tests, which should run existing tests, what detail those tests should cover, and what coverage is intentionally deferred or not required.
 - For implementation progress, prefer omr_prepare_wave_dispatch, omr_record_wave_result, omr_prepare_wave_review, and omr_record_wave_review; use update_task_status, update_wave_status, and update_implementation_progress only for manual recovery.
 - For implementation resume, treat the persisted progress cursor as authoritative for active wave, orchestration step, active tasks, and blocker reason.
-- Before closing milestones or changes, record structured closeout evidence with record_closeout.
+- Before closing milestones or changes, call omr_prepare_closeout to get ordinal item IDs and an example_closeout template, fill the example_closeout with actual statuses and reasons, then call omr_transition operation record_closeout with that evidence.
+- If you or a worker writes a temporary verification script or comparison command, make it print a clear PASS: or FAIL: line and exit non-zero only when the code must be revised; treat non-zero output with actionable diagnostics as test feedback, not an unexplained tool failure.
 - For milestone and change implementation, do not edit files yourself; call the wave orchestration tools, dispatch each returned task to the exact agent named by assignment.worker, dispatch reviewer for wave reviews, and collect evidence closeout.
 - If implementation is not legally open, do not edit files.
 

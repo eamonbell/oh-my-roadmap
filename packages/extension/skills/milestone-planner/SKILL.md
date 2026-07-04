@@ -17,6 +17,8 @@ Required process:
 - Do not pad a milestone plan with filler tasks to make the milestone feel larger; every task must directly implement the approved roadmap milestone
   scope.
 - Inspect relevant existing code and project documentation before planning ownership, waves, or verification.
+- Before dispatching broad scout agents for a subsystem, call `omr_list_scout_findings` filtered by subsystem and milestone when known, and pass any
+  relevant prior summaries to the new scouts. After a scout returns durable findings, record a compact finding with `omr_record_scout_finding`.
 - Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy
   questions, and approval questions are closed.
 - Interview for intent, not just mechanics. Beyond "how would you like to handle X" questions, explore the user's underlying goals when they are

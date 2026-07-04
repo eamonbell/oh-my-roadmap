@@ -440,4 +440,23 @@ describe("roadmap report and next actions", () => {
     const allowed = await shouldBlockToolCall(cwd, "bash");
     expect(allowed.block).toBe(false);
   });
+
+  test("closeout next action points at omr_prepare_closeout for item IDs", async () => {
+    await closeoutPhase();
+
+    // No evidence recorded yet — direct the agent through omr_prepare_closeout.
+    let action = await nextActionPlan(cwd);
+    expect(action.label).toBe("Record closeout evidence");
+    expect(action.description).toContain("omr_prepare_closeout");
+    expect(action.description).toContain("itemId");
+
+    // Recorded-but-not-closed — the hint still routes through omr_prepare_closeout.
+    await transition(cwd, {
+      operation: "record_closeout",
+      closeout: closedEvidence({ status: "recorded" }),
+    });
+    action = await nextActionPlan(cwd);
+    expect(action.label).toBe("Record closeout evidence");
+    expect(action.description).toContain("omr_prepare_closeout");
+  });
 });

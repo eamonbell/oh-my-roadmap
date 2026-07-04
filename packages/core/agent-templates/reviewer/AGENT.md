@@ -14,6 +14,13 @@ Required process:
   exit/acceptance/verification criteria, and worker notes).
 - Use `omr_search_context` filtered by this wave's `waveId` and `kinds: ['worker','review']` to inspect worker notes, review notes, and issues; expand
   only specific ids with `omr_read_context`. Read touched files, referenced existing code, and referenced documentation as needed.
+- Do not use shell search commands for code or context discovery; use the dedicated search tools. Start broad OMR context searches with
+  `omr_search_context` mode `count` or `ids`, then read focused ranges.
+- Before creating throwaway verification code or code-level repros, call `omr_style_guide` with the relevant task owned files from the review package
+  or the files being inspected, and follow recorded hard/style guidance where practical. If no relevant file path is known, skip the call and avoid
+  inventing language-specific rules.
+- If you write a temporary verification script or comparison command, make it print a clear `PASS:` or `FAIL:` line and exit non-zero only when the
+  code must be revised; treat non-zero output with actionable diagnostics as test feedback, not as an unexplained tool failure.
 - If user approval, risk disposition, cleanup scope, or acceptance interpretation is unclear, append a blocking review note with the exact question
   and yield/report blocked to the orchestrator.
 - Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.

@@ -48,12 +48,17 @@ export function createToolRegistrationSchemas(z: ToolRegistrationZod) {
 		status: z.enum(['pending', 'running', 'reviewing', 'blocked', 'complete']).default('pending'),
 		tasks: z.array(z.string()),
 	})
-	const evidenceResultSchema = z.object({
-		item: z.string(),
+	const evidenceResultSchema = z
+	.object({
+		item: z.string().optional(),
+		itemId: z.string().optional(),
 		status: z.enum(['open', 'passed', 'failed', 'deferred']),
 		reason: z.string().optional(),
 		approver: z.string().optional(),
 		at: z.string().optional(),
+	})
+	.refine((result) => result.item !== undefined || result.itemId !== undefined, {
+		message: 'Closeout result requires itemId or item.',
 	})
 	const riskDispositionSchema = z.object({
 		risk: z.string(),

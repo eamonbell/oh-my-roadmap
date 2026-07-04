@@ -236,8 +236,8 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 				})
 			}
 			const description = closeoutStatus === 'recorded'
-				? 'Re-record closeout evidence with status "closed" (record_closeout), then complete_milestone.'
-				: 'Record structured closeout evidence with status "closed" (record_closeout), then complete_milestone.'
+				? 'Call omr_prepare_closeout for item IDs, then re-record closeout evidence with status "closed" (record_closeout using itemId results), then complete_milestone.'
+				: 'Call omr_prepare_closeout for item IDs, then record structured closeout evidence with status "closed" (record_closeout using itemId results), then complete_milestone.'
 			return plan({
 				id: `milestone:${state.active.milestone_id ?? 'none'}:record-closeout`,
 				label: 'Record closeout evidence',

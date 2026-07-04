@@ -22,6 +22,85 @@ export function openCloseoutEvidence(
 	}
 }
 
+export type CloseoutItemKind = 'acceptance' | 'verification';
+
+export function closeoutItemId(kind: CloseoutItemKind, index: number): string {
+	return `${kind}:${index + 1}`
+}
+
+export interface CloseoutRequirement {
+	id: string;
+	item: string;
+	result?: EvidenceResult;
+}
+
+export function closeoutRequirements(
+	acceptance: string[],
+	verification: string[],
+	evidence?: CloseoutEvidence,
+): {acceptance: CloseoutRequirement[]; verification: CloseoutRequirement[]} {
+	const mapItems = (items: string[], kind: CloseoutItemKind, results: EvidenceResult[] | undefined): CloseoutRequirement[] =>
+		items.map((item, index) => {
+			const result = results?.find((candidate) => candidate.item === item)
+			return {
+				id: closeoutItemId(kind, index),
+				item,
+				...(result ? {result} : {}),
+			}
+		})
+	return {
+		acceptance: mapItems(acceptance, 'acceptance', evidence?.acceptance_results),
+		verification: mapItems(verification, 'verification', evidence?.verification_results),
+	}
+}
+
+export interface EvidenceResultInput extends Omit<EvidenceResult, 'item'> {
+	item?: string;
+	itemId?: string;
+}
+
+export interface CloseoutEvidenceInput extends Omit<CloseoutEvidence, 'acceptance_results' | 'verification_results'> {
+	acceptance_results: EvidenceResultInput[];
+	verification_results: EvidenceResultInput[];
+}
+
+function canonicalCloseoutItem(kind: CloseoutItemKind, itemId: string, expected: string[]): string {
+	const match = /^(acceptance|verification):(\d+)$/.exec(itemId)
+	if (!match || match[1] !== kind) throw new Error(`Unknown closeout itemId: ${itemId}`)
+	const index = Number(match[2]) - 1
+	if (!Number.isInteger(index) || index < 0 || index >= expected.length) {
+		throw new Error(`Unknown closeout itemId: ${itemId}`)
+	}
+	return expected[index]!
+}
+
+function normalizeCloseoutResult(result: EvidenceResultInput, kind: CloseoutItemKind, expected: string[]): EvidenceResult {
+	const {item, itemId, ...rest} = result
+	if (itemId !== undefined) {
+		const canonical = canonicalCloseoutItem(kind, itemId, expected)
+		if (item !== undefined && item !== canonical) {
+			throw new Error(`Closeout itemId ${itemId} does not match item text.`)
+		}
+		return {...rest, item: canonical}
+	}
+	if (item !== undefined) {
+		return {...rest, item}
+	}
+	throw new Error('Closeout result requires itemId or item.')
+}
+
+export function normalizeCloseoutEvidenceInput(
+	input: CloseoutEvidenceInput,
+	expectedAcceptance: string[],
+	expectedVerification: string[],
+): CloseoutEvidence {
+	return {
+		...input,
+		acceptance_results: input.acceptance_results.map((result) => normalizeCloseoutResult(result, 'acceptance', expectedAcceptance)),
+		verification_results: input.verification_results.map((result) => normalizeCloseoutResult(result, 'verification', expectedVerification)),
+	}
+}
+
 export async function loadMilestoneCloseout(
 	cwd: string,
 	roadmapId: string,

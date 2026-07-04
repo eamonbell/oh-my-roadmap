@@ -7,6 +7,7 @@ import {registerFindingsReportTool} from './register/findings-report-tool'
 import {registerGraphTools} from './register/graph-tools'
 import {registerReportTools} from './register/report-tools'
 import {registerRoadmapLifecycleTools} from './register/roadmap-tools'
+import {registerScoutTools} from './register/scout-tools'
 import {createToolRegistrationSchemas, toolMetadata, type ToolRegistrationContext} from './register/shared'
 import {registerStyleTools} from './register/style-tools'
 import {registerTransitionTools} from './register/transition-tools'
@@ -41,4 +42,5 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
 	registerGraphTools(ctx)
 	registerStyleTools(ctx)
 	registerAdhocTools(ctx)
+	registerScoutTools(ctx)
 }

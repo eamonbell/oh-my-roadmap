@@ -7,6 +7,7 @@ import type {
 	ContextNoteKind,
 	ContextNoteStatus,
 	ContextReadResult,
+	ContextSearchMode,
 	ContextSearchResult,
 	ReadContextInput,
 	SearchContextInput,
@@ -18,6 +19,7 @@ export type {
 	ContextNoteKind,
 	ContextNoteStatus,
 	ContextReadResult,
+	ContextSearchMode,
 	ContextSearchResult,
 	ReadContextInput,
 	SearchContextInput,
@@ -127,6 +129,19 @@ function resultFor(
 	return result
 }
 
+function idResultFor(entry: ContextEntry): ContextEntryResult {
+	return {
+		id: entry.id,
+		artifact: entry.artifact,
+		path: entry.path,
+		...(entry.milestoneId ? {milestoneId: entry.milestoneId} : {}),
+		title: entry.title,
+		metadata: entry.metadata,
+		snippet: '',
+		snippetTruncated: false,
+	}
+}
+
 function uniqueArtifacts(artifacts: ContextArtifact[] | undefined): ContextArtifact[] {
 	if (!artifacts || artifacts.length === 0) return DEFAULT_ARTIFACTS
 	return Array.from(new Set(artifacts))
@@ -164,6 +179,7 @@ export async function searchContext(cwd: string, input: SearchContextInput): Pro
 		cwd,
 		slowMs: 250,
 	}, async () => {
+		const mode: ContextSearchMode = input.mode ?? 'snippets'
 		const matcher = createMatcher(input)
 		const snippetChars = positiveNumber(input.snippetChars, DEFAULT_SNIPPET_CHARS)
 		const maxBodyChars = positiveNumber(input.maxBodyChars, DEFAULT_MAX_BODY_CHARS)
@@ -172,13 +188,26 @@ export async function searchContext(cwd: string, input: SearchContextInput): Pro
 		const filtered = sortEntries(
 			entries.filter((entry) => matchesFilters(entry, input) && (!matcher || matcher.matches(entry))),
 		)
+		// count mode reports the full match total but builds no result entries.
+		if (mode === 'count') {
+			return {
+				...(roadmapId ? {roadmapId} : {}),
+				total: filtered.length,
+				returned: 0,
+				results: [],
+			}
+		}
 		const returned = filtered.slice(0, maxResults)
+		// bodies mode always includes bodies; snippets mode honors legacy includeBodies for compatibility.
+		const includeBody = mode === 'bodies' || (mode === 'snippets' && (input.includeBodies ?? false))
 		return {
 			...(roadmapId ? {roadmapId} : {}),
 			total: filtered.length,
 			returned: returned.length,
 			results: returned.map((entry) =>
-				resultFor(entry, matcher, snippetChars, input.includeBodies ?? false, maxBodyChars),
+				mode === 'ids'
+					? idResultFor(entry)
+					: resultFor(entry, matcher, snippetChars, includeBody, maxBodyChars),
 			),
 		}
 	})

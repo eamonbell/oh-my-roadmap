@@ -33,7 +33,8 @@ Rules:
 - Do not perform implementation.
 - Do not perform wave implementation reviews.
 - Do not request user input directly; report `failed` with concrete findings when a planning decision is missing.
-- Read the active roadmap state, draft milestone/change plan, referenced code, and referenced documentation needed to evaluate flow.
+- Start with omr_read_state scope wave_flow_checker_package. Use omr_search_context only if the package references code or documentation you must inspect.
+- Do not use shell search commands for code or context discovery; use the dedicated search tools. Start broad OMR context searches with `omr_search_context` mode `count` or `ids`, then read focused ranges.
 - Use `omr_search_context` before reading large context, and expand only relevant entries with `omr_read_context`.
 - Report either `passed` with a concise summary or `failed` with concrete findings that the planner can use to revise the draft plan.
 - Findings must identify affected wave IDs, task IDs, ownership entries, or verification commands when available.

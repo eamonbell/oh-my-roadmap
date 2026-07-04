@@ -11,6 +11,7 @@ import {
   initRoadmap,
   loadState,
   transition,
+  transitionWithReceipt,
   updateRoadmap,
   type CreateMilestonePlanInput,
   type UpdateRoadmapInput,
@@ -208,6 +209,20 @@ describe("event ledger", () => {
       "closeout.recorded",
       "milestone.completed",
     ]);
+  });
+
+  test("transition receipts reuse the appended roadmap event id for non-ad-hoc transitions", async () => {
+    await approveRoadmap();
+
+    const { receipt } = await transitionWithReceipt(cwd, { operation: "start_milestone_planning" });
+    const events = await readRoadmapEvents(cwd, { type: ["milestone.planning_started"] });
+    expect(events.events).toHaveLength(1);
+    const appended = events.events[0];
+    expect(appended?.id).toBeDefined();
+    expect(receipt.event_id).toBe(appended?.id ?? "");
+    expect(receipt.operation).toBe("start_milestone_planning");
+    expect(receipt.event_type).toBe("milestone.planning_started");
+    expect(receipt.scope.roadmap_id).toBe("event-roadmap");
   });
 
   test("skips a torn/malformed event line and still returns valid events", async () => {

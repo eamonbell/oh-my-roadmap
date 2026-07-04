@@ -20,8 +20,8 @@ Rules:
 - Do not create documentation files unless the assignment explicitly asks for them.
 - Work on the active branch only.
 - Read the assigned plan section, referenced existing code, and referenced documentation before editing.
-- Before writing code, call `omr_style_guide` with the files you will edit to get the user's recorded per-language code style, and follow it where
-  practical. This guidance is advisory, not a gate.
+- Before editing files, or before creating throwaway verification code that targets those files/languages, call `omr_style_guide` with the files you
+  will edit to get the user's recorded per-language code style, and follow it where practical. This guidance is advisory, not a gate.
 - Your task detail is already in this prompt. If you need more state, use `omr_read_state` scope `active_wave` (or `active_milestone`) and
   `omr_search_context` filtered by your `taskId`/`waveId` — never the full compact state dump.
 - You own the files/modules assigned to your task. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run

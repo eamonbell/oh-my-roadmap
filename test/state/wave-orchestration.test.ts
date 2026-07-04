@@ -746,6 +746,72 @@ describe("roadmap wave orchestration state", () => {
       },
     ]);
   });
+
+  test("dispatch assignments carry a plan-derived manifest and verification preflight", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+
+    const result = await prepareWaveDispatch(cwd);
+    const assignment = result.assignments.find((entry) => entry.task_id === "t01-state");
+    expect(assignment).toBeDefined();
+    const manifest = assignment!.manifest!;
+    const preflight = assignment!.verification_preflight!;
+
+    // Manifest is derived from the task/plan fields, not filesystem discovery.
+    expect(manifest).toMatchObject({
+      owned_files: ["src/core/store.ts"],
+      owned_modules: [],
+      dependencies: [],
+      reserved_sibling_scope: [],
+    });
+    expect(manifest.relevant_existing_code).toBeDefined();
+    expect(manifest.relevant_documentation).toBeDefined();
+
+    // Verification preflight echoes the task commands plus guidance.
+    expect(preflight.commands).toEqual(["bun test"]);
+    expect(preflight.cli_assumption_warnings).toEqual([]);
+    expect(preflight.guidance).toHaveLength(1);
+    expect(preflight.guidance[0]).toContain("append a blocking note");
+
+    // The worker prompt embeds both sections and warns the manifest is not proof paths exist.
+    expect(assignment!.prompt).toContain("Plan-derived manifest:");
+    expect(assignment!.prompt).toContain("Verification preflight:");
+    expect(assignment!.prompt).toContain("NOT proof that any listed path exists");
+  });
+
+  test("review package carries a de-duplicated manifest and verification preflight", async () => {
+    await approvedRoadmap();
+    await transition(cwd, { operation: "start_milestone_planning" });
+    // Two concurrent tasks in one wave so the review manifest must de-duplicate across them.
+    const input = milestoneInput();
+    input.tasks = [
+      { ...input.tasks[0]! },
+      { ...input.tasks[1]!, depends_on: [] },
+    ];
+    input.waves = [testWave("w01", ["t01-state", "t02-report"])];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck();
+    await transition(cwd, { operation: "approve_milestone", approver: "user" });
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWaveResult(cwd, { taskId: "t01-state", status: "completed", summary: "State done." });
+    await recordWaveResult(cwd, { taskId: "t02-report", status: "completed", summary: "Report done." });
+
+    const review = await prepareWaveReview(cwd);
+    const reviewManifest = review.manifest!;
+    const reviewPreflight = review.verification_preflight!;
+    // Reviewer inspects the whole wave, so no sibling reservation applies.
+    expect(reviewManifest.reserved_sibling_scope).toEqual([]);
+    expect(reviewManifest.owned_files).toEqual(
+      expect.arrayContaining(["src/core/store.ts", "src/core/report.ts"]),
+    );
+    // De-duplicated concatenation: no repeated entries.
+    expect(new Set(reviewManifest.owned_files).size).toBe(reviewManifest.owned_files.length);
+    expect(reviewPreflight.commands).toEqual(["bun test"]);
+    expect(reviewPreflight.guidance).toHaveLength(1);
+    expect(review.prompt).toContain("Plan-derived manifest:");
+    expect(review.prompt).toContain("Verification preflight:");
+  });
 });
 
 describe("part 7 operational gaps", () => {

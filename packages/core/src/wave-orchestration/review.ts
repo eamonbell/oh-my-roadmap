@@ -4,8 +4,20 @@ import {listBlockers, openBlocker, transition,} from '../store/index'
 import type {NextActionHint} from '../report/index'
 import type {RoadmapBlocker} from '../types'
 import {activePlanContext, type ActivePlanContext, assertImplementationReady,} from './context'
-import {setProgress} from './dispatch'
-import type {PrepareWaveReviewResult, RecordWaveReviewInput, RecordWaveReviewResult, WaveOrchestrationTargetInput,} from './types'
+import {
+	manifestPromptSection,
+	setProgress,
+	verificationPreflightFor,
+	verificationPreflightPromptSection,
+} from './dispatch'
+import type {
+	PlanDerivedManifest,
+	PrepareWaveReviewResult,
+	RecordWaveReviewInput,
+	RecordWaveReviewResult,
+	VerificationPreflightHint,
+	WaveOrchestrationTargetInput,
+} from './types'
 
 async function assertNoOpenBlockingBlockers(cwd: string, ctx: ActivePlanContext): Promise<void> {
 	const result = await listBlockers(cwd, {
@@ -20,10 +32,38 @@ async function assertNoOpenBlockingBlockers(cwd: string, ctx: ActivePlanContext)
 	}
 }
 
+function dedupeConcat(lists: string[][]): string[] {
+	const seen = new Set<string>()
+	for (const list of lists) {
+		for (const item of list) seen.add(item)
+	}
+	return [...seen]
+}
+
+// Review manifest spans the whole wave: reviewers inspect all active tasks together, so
+// sibling reservation does not apply (reserved_sibling_scope is empty).
+export function reviewManifest(ctx: ActivePlanContext): PlanDerivedManifest {
+	return {
+		owned_files: dedupeConcat(ctx.activeTasks.map((task) => task.owned_files)),
+		owned_modules: dedupeConcat(ctx.activeTasks.map((task) => task.owned_modules)),
+		shared_interfaces: dedupeConcat(ctx.activeTasks.map((task) => task.shared_interfaces)),
+		dependencies: dedupeConcat(ctx.activeTasks.map((task) => task.depends_on)),
+		reserved_sibling_scope: [],
+		relevant_existing_code: ctx.plan.relevant_existing_code,
+		relevant_documentation: ctx.plan.relevant_documentation,
+	}
+}
+
+export function reviewVerificationPreflight(ctx: ActivePlanContext): VerificationPreflightHint {
+	return verificationPreflightFor(ctx.plan.verification_commands)
+}
+
 function reviewPrompt(ctx: ActivePlanContext): string {
 	const taskLines = ctx.activeTasks
 	.map((task) => `- ${task.id}: ${task.title} (${task.worker}); owned files ${task.owned_files.join(', ') || '(none)'}; owned modules ${task.owned_modules.join(', ') || '(none)'}`)
 	.join('\n')
+	const manifestSection = manifestPromptSection(reviewManifest(ctx))
+	const preflightSection = verificationPreflightPromptSection(reviewVerificationPreflight(ctx))
 	const scopeHeader = ctx.isAdhoc
 		? `Ad-hoc plan: ${ctx.roadmapId}\n`
 		: `Roadmap: ${ctx.roadmapId}\nMilestone: ${ctx.milestoneId}\n${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}`
@@ -43,6 +83,12 @@ ${ctx.plan.acceptance_criteria.map((item) => `- ${item}`).join('\n')}
 
 Verification commands:
 ${ctx.plan.verification_commands.map((item) => `- ${item}`).join('\n')}
+
+${manifestSection}
+
+${preflightSection}
+
+Before creating throwaway verification code or code-level repros, call omr_style_guide with the relevant task owned files from the manifest above or the files you are inspecting, and follow any recorded hard/style guidance where practical. If no relevant file path is known, skip the call and do not invent language-specific rules.
 
 Review only this active wave. Verify completed work against task scope, ownership, shared interfaces, exit criteria, and acceptance criteria. Report passed or failed status with a summary and concrete findings for the orchestrator to record with omr_record_wave_review.`
 }
@@ -92,6 +138,8 @@ export async function prepareWaveReview(
 			wave_id: ctx.activeWave.id,
 			reviewer: 'reviewer',
 			prompt: reviewPrompt(ctx),
+			manifest: reviewManifest(ctx),
+			verification_preflight: reviewVerificationPreflight(ctx),
 			tasks: ctx.activeTasks.map((task) => ({
 				task_id: task.id,
 				title: task.title,
@@ -200,7 +248,6 @@ export async function recordWaveReview(
 				operation: 'update_wave_status',
 				waveId: ctx.activeWave.id,
 				waveStatus: 'complete',
-				summary: input.summary,
 			})
 			await setProgress(cwd, ctx, 'ready_for_next_wave', [])
 			const nextActions = passedWaveNextActions(ctx)
@@ -242,7 +289,6 @@ export async function recordWaveReview(
 			operation: 'update_wave_status',
 			waveId: ctx.activeWave.id,
 			waveStatus: 'blocked',
-			summary: input.summary,
 		})
 		await setProgress(cwd, ctx, 'resolving_blockers', [], input.summary)
 		return {

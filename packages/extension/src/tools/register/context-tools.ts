@@ -15,7 +15,7 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		description: 'Read compact active roadmap, milestone, and change-request state. Full detail is available through omr_search_context and omr_read_context.',
 		approval: 'read',
 		parameters: z.object({
-			scope: z.enum(['compact', 'roadmap', 'active_milestone', 'active_wave', 'active_change', 'usage']).optional(),
+			scope: z.enum(['compact', 'roadmap', 'active_milestone', 'active_wave', 'active_change', 'usage', 'phase', 'progress', 'quality_gates', 'milestone_outlines', 'closeout_requirements', 'roadmap_checker_package', 'wave_flow_checker_package']).optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const scope = ((params as { scope?: StateReadScope }).scope ?? 'compact') as StateReadScope
@@ -68,13 +68,14 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 	register({
 		name: 'omr_search_context',
 		label: 'Search Roadmap Context',
-		description: 'Search active-roadmap notes, decisions, risks, roadmap sections, and plan sections with compact snippet results.',
+		description: 'Search active-roadmap notes, decisions, risks, roadmap sections, and plan sections with compact snippet results. Use mode=count or mode=ids before snippets/bodies for broad discovery.',
 		approval: 'read',
 		parameters: z.object({
 			artifacts: z.array(contextArtifactSchema).optional(),
 			query: z.string().optional(),
 			useRegex: z.boolean().optional(),
 			caseSensitive: z.boolean().optional(),
+			mode: z.enum(['count', 'ids', 'snippets', 'bodies']).optional(),
 			maxResults: z.number().optional(),
 			snippetChars: z.number().optional(),
 			includeBodies: z.boolean().optional(),

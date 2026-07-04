@@ -70,6 +70,10 @@ export function roadmapBlockersPath(cwd: string, roadmapId: string): string {
 	return path.join(roadmapDir(cwd, roadmapId), 'blockers.yml')
 }
 
+export function roadmapScoutFindingsPath(cwd: string, roadmapId: string): string {
+	return path.join(roadmapDir(cwd, roadmapId), 'scout-findings.jsonl')
+}
+
 export function decisionsPath(cwd: string, roadmapId: string): string {
 	return path.join(roadmapDir(cwd, roadmapId), 'decisions.md')
 }

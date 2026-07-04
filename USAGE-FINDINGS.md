@@ -222,21 +222,21 @@ This prevented a bad write, but it happened after the model spent context constr
 
 | Recommendation | Status for this implementation | Batch | Notes |
 | --- | --- | --- | --- |
-| R1 | Deferred | — | Not in reliability-first batch. |
-| R2 | Deferred | — | Not in reliability-first batch. |
-| R3 | Targeted | A — Reliability-first orchestration | Add deterministic next-action guidance to relevant tool successes/errors. |
-| R4 | Targeted | A — Reliability-first orchestration | Fix `/omr:ms-implement` first-step guidance. |
-| R5 | Targeted | A — Reliability-first orchestration | Use next-action hints only; do not auto-advance waves and do not add `omr_advance_wave`. |
-| R6 | Deferred | — | Not in reliability-first batch. |
-| R7 | Deferred | — | Not in reliability-first batch; strict schema work is intentionally deferred. |
-| R8 | Deferred | — | Not in reliability-first batch. |
-| R9 | Deferred | — | Not in reliability-first batch. |
-| R10 | Deferred | — | Not in reliability-first batch. |
-| R11 | Deferred | — | Not in reliability-first batch. |
-| R12 | Targeted | A — Reliability-first orchestration | Tighten job-wait guidance in implementation and planning prompts. |
-| R13 | Deferred | — | Not in reliability-first batch. |
-| R14 | Deferred | — | Not in reliability-first batch. |
-| R15 | Deferred | — | Not in reliability-first batch. |
+| R1 | Targeted | B — Remaining usage recommendations | Default `omr_transition` to compact receipts with full state available by explicit `returnScope: "state"`. |
+| R2 | Targeted | B — Remaining usage recommendations | Add narrow `omr_read_state` scopes, including checker package scopes. |
+| R3 | Completed | A — Reliability-first orchestration | Already implemented in Batch A; keep existing next-action hints. |
+| R4 | Completed | A — Reliability-first orchestration | Already implemented in Batch A; keep `/omr:ms-implement` first-step guidance. |
+| R5 | Completed | A — Reliability-first orchestration | Already implemented in Batch A; keep explicit wave advancement hints and no auto-advance. |
+| R6 | Targeted | B — Remaining usage recommendations | Add closeout preparation with ordinal item IDs and ID-based closeout recording. |
+| R7 | Targeted | B — Remaining usage recommendations | Replace broad transition input with strict operation-specific schema/type. |
+| R8 | Targeted | B — Remaining usage recommendations | Add plan-derived manifests to worker/reviewer packages and prompts. |
+| R9 | Targeted | B — Remaining usage recommendations | Add plan-derived verification hints; do not probe the environment. |
+| R10 | Targeted | B — Remaining usage recommendations | Add context search result modes and prompt rules for staged search. |
+| R11 | Targeted | B — Remaining usage recommendations | Use new checker package state scopes instead of full roadmap/plan reads. |
+| R12 | Completed | A — Reliability-first orchestration | Already implemented in Batch A; keep one-blocking-wait guidance. |
+| R13 | Targeted | B — Remaining usage recommendations | Broaden `omr_style_guide` guidance before throwaway code or edits. |
+| R14 | Targeted | B — Remaining usage recommendations | Add prompt guidance for search tool use and structured PASS/FAIL verification output. |
+| R15 | Targeted | B — Remaining usage recommendations | Add roadmap-scoped persisted scout findings and reuse prompts. |
 
 ### R1. Return compact mutation receipts from `omr_transition`
 

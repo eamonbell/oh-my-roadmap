@@ -3,7 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { decisionsPath } from "@oh-my-roadmap/core/paths";
-import { initRoadmap } from "@oh-my-roadmap/core/store/index";
+import { initRoadmap, transition } from "@oh-my-roadmap/core/store/index";
+import { approvedMilestone, createTempRoadmapCwd, removeTempRoadmapCwd } from "../state/helpers";
 import { registeredTool, registerTools, toolContext } from "./helpers";
 
 describe("roadmap context tools", () => {
@@ -164,6 +165,108 @@ describe("roadmap context tools", () => {
         total: 1,
         returned: 1,
       });
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("narrow read-state scopes return only their own payloads", async () => {
+    const readStateTool = registeredTool(registerTools(), "omr_read_state");
+    const cwd = await createTempRoadmapCwd();
+    try {
+      await approvedMilestone(cwd);
+      await transition(cwd, { operation: "start_implementation" });
+
+      const read = async (scope: string): Promise<Record<string, unknown>> => {
+        const result = await readStateTool?.execute(
+          "state",
+          { scope },
+          new AbortController().signal,
+          undefined,
+          toolContext(cwd),
+        );
+        return result?.details as Record<string, unknown>;
+      };
+
+      const phase = await read("phase");
+      expect(phase.roadmap).toMatchObject({ roadmap_id: "complex-refactor", phase: "implementing" });
+      expect(JSON.stringify(phase)).not.toContain('"discovery"');
+      expect(JSON.stringify(phase)).not.toContain('"milestones"');
+
+      const progress = await read("progress");
+      expect(progress).toHaveProperty("progress");
+      expect(progress).toHaveProperty("task_counts");
+      expect(progress).toHaveProperty("wave_counts");
+      expect(JSON.stringify(progress)).not.toContain("implementation_notes");
+
+      const gates = await read("quality_gates");
+      expect(gates).toHaveProperty("roadmap_milestone_check");
+      expect(gates).toHaveProperty("wave_flow_check");
+
+      const outlines = await read("milestone_outlines");
+      const outlineMilestones = outlines.milestones as Array<Record<string, unknown>>;
+      expect(outlineMilestones[0]).toHaveProperty("scope_items");
+      expect(JSON.stringify(outlines)).not.toContain("implementation_notes");
+
+      const closeout = await read("closeout_requirements");
+      const acceptance = closeout.acceptance as Array<{ id: string; item: string }>;
+      const verification = closeout.verification as Array<{ id: string; item: string }>;
+      expect(acceptance[0]).toMatchObject({ id: "acceptance:1", item: "State validates" });
+      expect(verification[0]).toMatchObject({ id: "verification:1", item: "bun test" });
+
+      const roadmapPkg = await read("roadmap_checker_package");
+      const roadmapPkgRoadmap = roadmapPkg.roadmap as Record<string, unknown>;
+      expect(roadmapPkgRoadmap).toHaveProperty("roadmap_milestone_check_status");
+      expect(roadmapPkgRoadmap).not.toHaveProperty("discovery");
+      expect(roadmapPkgRoadmap).not.toHaveProperty("success_criteria");
+      expect(roadmapPkgRoadmap).not.toHaveProperty("open_questions");
+      const pkgMilestones = roadmapPkg.milestones as Array<Record<string, unknown>>;
+      expect(pkgMilestones[0]).toHaveProperty("goal");
+      expect(pkgMilestones[0]).toHaveProperty("scope");
+
+      const wavePkg = await read("wave_flow_checker_package");
+      const wavePlan = wavePkg.plan as Record<string, unknown>;
+      expect(wavePlan).toHaveProperty("acceptance_criteria");
+      expect(wavePlan).toHaveProperty("verification_commands");
+      const wavePkgTasks = wavePkg.tasks as Array<Record<string, unknown>>;
+      expect(wavePkgTasks[0]).toHaveProperty("done_criteria");
+      expect(JSON.stringify(wavePkg)).not.toContain("implementation_notes");
+      expect(JSON.stringify(wavePkg)).not.toContain("user_interview");
+    } finally {
+      await removeTempRoadmapCwd(cwd);
+    }
+  });
+
+  test("search modes control result density: count, ids, and bodies", async () => {
+    const searchTool = registeredTool(registerTools(), "omr_search_context");
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-search-modes-"));
+    try {
+      await initRoadmap(cwd, { roadmapId: "search-modes", title: "Search Modes" });
+      await fs.writeFile(
+        decisionsPath(cwd, "search-modes"),
+        "# Decision Register\n\n## Staged search\n\nPrefer count and ids before snippets and full bodies.\n",
+        "utf8",
+      );
+
+      const search = (params: Record<string, unknown>) =>
+        searchTool?.execute("search", params, new AbortController().signal, undefined, toolContext(cwd));
+
+      const count = await search({ artifacts: ["decisions"], mode: "count" });
+      expect(count?.details).toMatchObject({ total: 1, returned: 0 });
+      expect((count?.details as { results: unknown[] }).results).toEqual([]);
+
+      const ids = await search({ artifacts: ["decisions"], mode: "ids" });
+      expect(ids?.details).toMatchObject({ total: 1, returned: 1 });
+      const idResults = (ids?.details as { results: Array<Record<string, unknown>> }).results;
+      expect(idResults[0]?.id).toBe("decisions:1");
+      expect(idResults[0]?.snippet).toBe("");
+      expect(idResults[0]).not.toHaveProperty("body");
+      expect(JSON.stringify(ids?.details)).not.toContain('"body"');
+
+      const bodies = await search({ artifacts: ["decisions"], mode: "bodies", maxBodyChars: 8 });
+      const bodyResults = (bodies?.details as { results: Array<Record<string, unknown>> }).results;
+      expect((bodyResults[0]?.body as string).length).toBeLessThanOrEqual(8);
+      expect(bodyResults[0]?.bodyTruncated).toBe(true);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }

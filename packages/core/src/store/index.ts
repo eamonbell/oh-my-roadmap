@@ -4,8 +4,21 @@ export type {
 	CreateChangeRequestInput, CreateMilestonePlanInput, DeferBlockerInput, InitRoadmapInput, ListBlockersInput,
 	ListBlockersResult, ListQualityGatesInput,
 	ListQualityGatesResult, OpenBlockerInput, RepairRoadmapInput,
-	RepairRoadmapResult, ResolveBlockerInput, TransitionInput, UpdateImplementationProgressInput, UpdateRoadmapInput, WaveFlowCheckInput
+	RepairRoadmapResult, ResolveBlockerInput, TransitionInput, TransitionReceipt, TransitionResult, TransitionReturnScope, UpdateImplementationProgressInput, UpdateRoadmapInput, WaveFlowCheckInput
 } from './contract'
+export {
+	closeoutItemId,
+	closeoutRequirements,
+	normalizeCloseoutEvidenceInput
+} from '../closeout'
+export type {
+	CloseoutEvidenceInput,
+	CloseoutItemKind,
+	CloseoutRequirement,
+	EvidenceResultInput
+} from '../closeout'
+export {listScoutFindings, recordScoutFinding} from './scout-findings'
+export type {ListScoutFindingsInput, ListScoutFindingsResult, RecordScoutFindingInput} from './scout-findings'
 export {renderRoadmapMarkdown, roadmapContentHash} from './format'
 export {
 	clearActivePauseMarkers, clearAdhocActive, clearAdhocPauseMarkers,
@@ -16,7 +29,7 @@ export {
 	writeChangeRequestRuntime, writeMilestonePlan, writeMilestoneRuntime, writeRoadmapBlockers,
 	writeRoadmapState
 } from './persistence'
-export {createChangeRequest, createMilestonePlan, transition} from './plans'
+export {createChangeRequest, createMilestonePlan, transition, transitionWithReceipt} from './plans'
 export {adhocTransition, createAdhocPlan, updateAdhocPlan} from './adhoc'
 export type {AdhocTransitionInput, AdhocTransitionOperation, CreateAdhocPlanInput} from './adhoc'
 export {listQualityGates} from './quality-gates'
