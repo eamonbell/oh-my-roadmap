@@ -4,14 +4,18 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import type { LoadedState } from "@oh-my-roadmap/core/types";
 import {
   adhocStopEventFromPlan,
   buildMoshiSessionUpdate,
+  computeFlowProgress,
   mapRoadmapToolResult,
   type MoshiContextLike,
+  moshiTraceEnabled,
   notifyMoshiForRoadmapToolResult,
   resetTerminalContextCache,
   sendMoshiFrame,
+  traceMoshi,
 } from "../packages/extension/src/extension/moshi-notifications";
 
 // Terminal-context env vars that resolveTerminalContext() reads. Cleared before
@@ -492,6 +496,28 @@ describe("notifyMoshiForRoadmapToolResult", () => {
     expect(server.received.length).toBe(0);
   });
 
+  test("writes a decision trace end-to-end when moshi.trace is enabled", async () => {
+    server = await startServer(dir);
+    process.env.MOSHI_SOCKET_PATH = server.socketPath;
+    await writeConfig("agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  enabled: true\n  trace: true\n");
+
+    await notifyMoshiForRoadmapToolResult(ctxFor(), "omr_prepare_wave_dispatch", {}, {
+      details: { wave_id: "w1", assignments: [], active_runs: [] },
+    });
+
+    const records = (await fs.readFile(path.join(cwd, ".omr", "logs", "moshi.ndjson"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const events = records.map((r) => r.event);
+    // Full path: mapped (notify) → sending → sent (deliver).
+    expect(events).toContain("mapped");
+    expect(events).toContain("sending");
+    expect(events).toContain("sent");
+    expect(records.find((r) => r.event === "mapped").eventName).toBe("omr.wave.dispatch_prepared");
+    expect(server.received.length).toBe(1);
+  });
+
   test("does not connect when moshi config is absent", async () => {
     server = await startServer(dir);
     process.env.MOSHI_SOCKET_PATH = server.socketPath;
@@ -521,5 +547,108 @@ describe("notifyMoshiForRoadmapToolResult", () => {
 
     await dispatch("w2"); // different message → delivered
     expect(server.received.length).toBe(2);
+  });
+});
+
+// Minimal LoadedState fabrication — only the fields computeFlowProgress reads.
+function state(partial: Record<string, unknown>): LoadedState {
+  return partial as unknown as LoadedState;
+}
+
+describe("computeFlowProgress", () => {
+  test("roadmap planning positions from phase/finalized/checker", () => {
+    const at = (roadmap: Record<string, unknown>) =>
+      computeFlowProgress(state({ roadmap }))?.text;
+    expect(at({ phase: "discovery", roadmap_finalized: false })).toBe("planning 1/6");
+    expect(at({ phase: "roadmap_draft", roadmap_finalized: true, roadmap_milestone_check: { status: "pending" } })).toBe("planning 4/6");
+    expect(at({ phase: "roadmap_draft", roadmap_finalized: true, roadmap_milestone_check: { status: "passed" } })).toBe("planning 5/6");
+    expect(at({ phase: "roadmap_approved", roadmap_finalized: true })).toBe("planning 6/6");
+    // Approved roadmap, milestone planning opened but no plan recorded yet.
+    expect(computeFlowProgress(state({ roadmap: { phase: "milestone_planning" } }))?.text).toBe("planning 1/6");
+  });
+
+  test("milestone implementation percentage over start + tasks + reviews + closeout", () => {
+    // 2 tasks (1 done) + 1 wave (0 complete) → total 5, completed 1(start)+1 = 2 → 40%.
+    const progress = computeFlowProgress(
+      state({
+        roadmap: { phase: "implementing" },
+        milestone: {
+          status: "implementing",
+          tasks: [{ status: "done" }, { status: "started" }],
+          waves: [{ status: "running" }],
+          wave_flow_check: { status: "passed" },
+        },
+      }),
+    );
+    expect(progress?.phase).toBe("implementing");
+    expect(progress?.text).toBe("implementing 40%");
+  });
+
+  test("milestone reviewing counts toward closeout phase; complete is 100%", () => {
+    const reviewing = computeFlowProgress(
+      state({
+        roadmap: { phase: "reviewing" },
+        milestone: { status: "reviewing", tasks: [{ status: "done" }], waves: [{ status: "complete" }], wave_flow_check: { status: "passed" } },
+      }),
+    );
+    // total = 1 task + 1 wave + 2 = 4; completed = start + 1 task + 1 wave = 3 → 75% (closeout unit not yet earned).
+    expect(reviewing?.phase).toBe("closeout");
+    expect(reviewing?.text).toBe("closeout 75%");
+
+    const complete = computeFlowProgress(state({ roadmap: { phase: "complete" }, milestone: { status: "complete", tasks: [], waves: [] } }));
+    expect(complete?.text).toBe("complete");
+  });
+
+  test("ad-hoc flow: planning from 4/6, implementation %, complete", () => {
+    expect(computeFlowProgress(state({ adhoc: { status: "adhoc_draft", wave_flow_check: { status: "pending" }, tasks: [], waves: [] } }))?.text).toBe("planning 4/6");
+    expect(computeFlowProgress(state({ adhoc: { status: "adhoc_draft", wave_flow_check: { status: "passed" }, tasks: [], waves: [] } }))?.text).toBe("planning 5/6");
+    expect(computeFlowProgress(state({ adhoc: { status: "adhoc_approved", wave_flow_check: { status: "passed" }, tasks: [], waves: [] } }))?.text).toBe("planning 6/6");
+    const impl = computeFlowProgress(state({ adhoc: { status: "implementing", tasks: [{ status: "done" }, { status: "assigned" }], waves: [{ status: "running" }], wave_flow_check: { status: "passed" } } }));
+    expect(impl?.text).toBe("implementing 40%");
+    expect(computeFlowProgress(state({ adhoc: { status: "complete", tasks: [], waves: [] } }))?.text).toBe("complete");
+  });
+
+  test("returns undefined when no OMR flow is active", () => {
+    expect(computeFlowProgress(state({}))).toBeUndefined();
+  });
+});
+
+describe("moshi trace log", () => {
+  let dir = "";
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "moshi-trace-"));
+  });
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  test("moshiTraceEnabled reads config.trace and OMR_MOSHI_TRACE", () => {
+    expect(moshiTraceEnabled({ enabled: true })).toBe(false);
+    expect(moshiTraceEnabled({ enabled: true, trace: true })).toBe(true);
+    const prior = process.env.OMR_MOSHI_TRACE;
+    try {
+      process.env.OMR_MOSHI_TRACE = "1";
+      expect(moshiTraceEnabled({ enabled: false })).toBe(true);
+    } finally {
+      if (prior === undefined) delete process.env.OMR_MOSHI_TRACE;
+      else process.env.OMR_MOSHI_TRACE = prior;
+    }
+  });
+
+  test("appends one NDJSON record when enabled, writes nothing when disabled", async () => {
+    const logPath = path.join(dir, ".omr", "logs", "moshi.ndjson");
+
+    await traceMoshi(dir, false, { phase: "notify", event: "mapped" });
+    expect(await fs.exists(logPath)).toBe(false);
+
+    await traceMoshi(dir, true, { phase: "notify", event: "mapped", eventName: "omr.worker.yielded" });
+    await traceMoshi(dir, true, { phase: "deliver", event: "sent", eventName: "omr.worker.yielded" });
+    const lines = (await fs.readFile(logPath, "utf8")).trim().split("\n");
+    expect(lines.length).toBe(2);
+    const first = JSON.parse(lines[0]!);
+    expect(first.phase).toBe("notify");
+    expect(first.event).toBe("mapped");
+    expect(first.eventName).toBe("omr.worker.yielded");
+    expect(typeof first.at).toBe("string");
   });
 });

@@ -48,6 +48,9 @@ export interface StyleGuide {
 export interface MoshiConfig {
 	enabled?: boolean;
 	socket_path?: string;
+	// When true, append a per-project trace of Moshi notification decisions to
+	// .omr/logs/moshi.ndjson (also enabled by the OMR_MOSHI_TRACE env var). For debugging.
+	trace?: boolean;
 }
 
 export interface RoadmapProjectConfig {
@@ -200,14 +203,18 @@ function parseStyle(value: unknown): Record<string, StyleGuide> | undefined {
 function parseMoshi(value: unknown): MoshiConfig | undefined {
 	if (value === undefined) return undefined
 	const moshi = requirePlainObject(value, 'moshi')
-	rejectUnknownKeys(moshi, ['enabled', 'socket_path'], 'moshi')
+	rejectUnknownKeys(moshi, ['enabled', 'socket_path', 'trace'], 'moshi')
 
-	// Only store `enabled`/`socket_path` when explicitly provided so shallow merge
-	// preserves per-field intent. A missing `enabled` reads as disabled downstream.
+	// Only store fields when explicitly provided so shallow merge preserves per-field
+	// intent. A missing `enabled`/`trace` reads as disabled downstream.
 	const result: MoshiConfig = {}
 	if (moshi.enabled !== undefined) {
 		if (typeof moshi.enabled !== 'boolean') throw new Error('moshi.enabled must be a boolean')
 		result.enabled = moshi.enabled
+	}
+	if (moshi.trace !== undefined) {
+		if (typeof moshi.trace !== 'boolean') throw new Error('moshi.trace must be a boolean')
+		result.trace = moshi.trace
 	}
 	if (moshi.socket_path !== undefined) {
 		if (typeof moshi.socket_path !== 'string' || moshi.socket_path.trim() === '') {

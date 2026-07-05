@@ -170,9 +170,15 @@ The integration talks to Moshi's documented local-socket `session.update` protoc
 - **Milestone plan + implement** — plan created/revised → wave-flow gate → approved → implementing → per-wave dispatch/worker/review → reviewing → closeout → milestone complete.
 - **Ad-hoc plan + implement** — created → gate → approved → implementing → (shared wave detail) → reviewing → closeout → complete/cancelled.
 
+See [docs/moshi-live-activity.md](docs/moshi-live-activity.md) for the full flow diagrams.
+
+**Progress in the title.** The row title carries live progress so you can follow the flow: `planning N/6` through the six planning stages (start, explore, interview, plan, checker, approval — the counter advances at the plan/checker/approval checkpoints), then `implementing NN%` where the percentage covers `start + every worker task + every wave review + closeout`.
+
 **Quiet vs. push.** Routine progress (starts, phase moves, dispatch) updates the row quietly. Only **needs-input** (asks, blockers, failed gates, bypass requests) and **completions** (milestone/ad-hoc complete, wave review passed) are high-priority pushes to your device.
 
 **Terminal binding & context gauge.** Frames carry tmux/herdr/zellij correlation fields (resolved once, best-effort) so the activity attaches to the right pane, plus a `contextRemaining` gauge — matching Moshi's own client.
+
+**Debugging.** Set `moshi.trace: true` (or `OMR_MOSHI_TRACE=1`) to append a per-project decision trace to `.omr/logs/moshi.ndjson` — one JSON record per line for each considered/mapped/suppressed/sending/sent/failed step. Off by default; hand that file over when a notification misbehaves.
 
 Prerequisites:
 

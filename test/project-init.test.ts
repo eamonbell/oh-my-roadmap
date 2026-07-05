@@ -401,6 +401,7 @@ describe("project init scaffold", () => {
         "moshi:",
         "  enabled: true",
         "  socket_path: /tmp/moshi.sock",
+        "  trace: true",
         "",
       ].join("\n"),
     );
@@ -408,7 +409,7 @@ describe("project init scaffold", () => {
     await initProject(cwd);
 
     const config = parseYaml<Record<string, any>>(await readFile(".omr/config.yml"));
-    expect(config.moshi).toEqual({ enabled: true, socket_path: "/tmp/moshi.sock" });
+    expect(config.moshi).toEqual({ enabled: true, socket_path: "/tmp/moshi.sock", trace: true });
   });
 
   test("rejects invalid moshi values", async () => {
@@ -427,6 +428,11 @@ describe("project init scaffold", () => {
         name: "empty socket_path",
         text: 'agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  socket_path: ""\n',
         message: "moshi.socket_path must be a non-empty string",
+      },
+      {
+        name: "non-boolean trace",
+        text: "agents:\n  worker: {}\n  reviewer: {}\nmoshi:\n  trace: nope\n",
+        message: "moshi.trace must be a boolean",
       },
       {
         name: "unknown moshi key",

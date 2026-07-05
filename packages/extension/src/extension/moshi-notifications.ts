@@ -1,11 +1,14 @@
 import {spawnSync} from 'node:child_process'
+import * as fsp from 'node:fs/promises'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type {AgentEndEvent, ExtensionAPI, ExtensionContext, ToolExecutionStartEvent} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {loadMoshiConfig, type MoshiConfig} from '@oh-my-roadmap/core/project-init'
+import {moshiLogDir, moshiLogPath} from '@oh-my-roadmap/core/paths'
 import {nextActionPlan} from '@oh-my-roadmap/core/report/index'
 import {loadAdhocActive, loadAdhocPlan, loadState} from '@oh-my-roadmap/core/store/index'
+import type {LoadedState, MilestonePlan, RoadmapState, TaskPlan, WavePlan} from '@oh-my-roadmap/core/types'
 
 // Opt-in Moshi notifications. This module speaks Moshi's documented local-socket
 // `session.update` protocol (newline-delimited JSON over a Unix socket, one logical
@@ -402,17 +405,160 @@ function shouldSuppress(key: string): boolean {
 	return false
 }
 
-async function deliver(ctx: MoshiContextLike, config: MoshiConfig, event: MoshiNotificationEvent, logger?: MoshiLogger): Promise<void> {
+// ---------------------------------------------------------------------------
+// Flow progress (state-derived) — the live activity's progress tracker
+// ---------------------------------------------------------------------------
+
+// The live activity follows a flow's progress. Planning shows a stage position over
+// the canonical 6 stages (start, explore, interview, plan, checker, approval);
+// implementation shows a completion percentage over start + worker tasks + wave
+// reviews + closeout. Both are derived from plan state so they self-correct (e.g. the
+// checker fail→revise loop) rather than tracking incremental counters.
+export interface FlowProgress {
+	flow: 'roadmap' | 'milestone' | 'change' | 'adhoc';
+	phase: 'planning' | 'implementing' | 'closeout' | 'complete';
+	text: string;
+}
+
+function planningText(position: number): string {
+	return `planning ${position}/6`
+}
+
+// Planning stage position: only the hard checkpoints move it (plan=4, checker=5,
+// approval=6); pre-plan work sits at 1. `explore`/`interview` are counted in the
+// denominator but never surfaced individually.
+function gatePosition(gateStatus: string | undefined, approved: boolean): number {
+	if (approved) return 6
+	return gateStatus === 'passed' ? 5 : 4
+}
+
+function clampPercent(value: number): number {
+	if (!Number.isFinite(value)) return 0
+	return Math.max(0, Math.min(100, value))
+}
+
+function implementationPercent(tasks: TaskPlan[], waves: WavePlan[], closedOut: boolean): number {
+	const total = tasks.length + waves.length + 2 // + start + closeout
+	const tasksDone = tasks.filter((task) => task.status === 'done').length
+	const wavesComplete = waves.filter((wave) => wave.status === 'complete').length
+	const completed = 1 /* started */ + tasksDone + wavesComplete + (closedOut ? 1 : 0)
+	return clampPercent(Math.round((completed / total) * 100))
+}
+
+function implementationProgress(flow: FlowProgress['flow'], phase: string, tasks: TaskPlan[], waves: WavePlan[], closedOut: boolean): FlowProgress {
+	const isCloseout = phase === 'reviewing' || phase === 'closeout'
+	const percent = implementationPercent(tasks, waves, closedOut)
+	const label = isCloseout ? 'closeout' : 'implementing'
+	return {flow, phase: isCloseout ? 'closeout' : 'implementing', text: `${label} ${percent}%`}
+}
+
+function roadmapPlanningPosition(roadmap: RoadmapState): number {
+	if (roadmap.phase === 'roadmap_approved') return 6
+	if (roadmap.roadmap_finalized) return roadmap.roadmap_milestone_check?.status === 'passed' ? 5 : 4
+	return 1
+}
+
+function milestoneFlowProgress(roadmap: RoadmapState, milestone: MilestonePlan, closeout: LoadedState['closeout']): FlowProgress {
+	switch (roadmap.phase) {
+		case 'milestone_planning':
+			return {flow: 'milestone', phase: 'planning', text: planningText(gatePosition(milestone.wave_flow_check?.status, false))}
+		case 'milestone_approved':
+			return {flow: 'milestone', phase: 'planning', text: planningText(6)}
+		case 'complete':
+			return {flow: 'milestone', phase: 'complete', text: 'complete'}
+		default: {
+			const closedOut = closeout?.status === 'closed'
+			return implementationProgress('milestone', roadmap.phase, milestone.tasks, milestone.waves, closedOut)
+		}
+	}
+}
+
+// Resolve the current flow's progress from loaded plan state, or undefined when no OMR
+// flow is active (leaves the notification title undecorated).
+export function computeFlowProgress(state: LoadedState): FlowProgress | undefined {
+	if (state.adhoc) {
+		const plan = state.adhoc
+		if (plan.status === 'adhoc_draft') return {flow: 'adhoc', phase: 'planning', text: planningText(gatePosition(plan.wave_flow_check?.status, false))}
+		if (plan.status === 'adhoc_approved') return {flow: 'adhoc', phase: 'planning', text: planningText(6)}
+		if (plan.status === 'complete') return {flow: 'adhoc', phase: 'complete', text: 'complete'}
+		return implementationProgress('adhoc', plan.status, plan.tasks, plan.waves, plan.closeout?.status === 'closed')
+	}
+
+	if (state.changeRequest) {
+		const cr = state.changeRequest
+		if (cr.status === 'draft') return {flow: 'change', phase: 'planning', text: planningText(gatePosition(cr.wave_flow_check?.status, false))}
+		if (cr.status === 'approved') return {flow: 'change', phase: 'planning', text: planningText(6)}
+		if (cr.status === 'closed') return {flow: 'change', phase: 'complete', text: 'complete'}
+		return implementationProgress('change', cr.status, cr.tasks, cr.waves, cr.closeout?.status === 'closed')
+	}
+
+	if (state.milestone && state.roadmap) return milestoneFlowProgress(state.roadmap, state.milestone, state.closeout)
+
+	if (state.roadmap) {
+		// Approved roadmap, milestone planning opened but no plan recorded yet.
+		if (state.roadmap.phase === 'milestone_planning') return {flow: 'milestone', phase: 'planning', text: planningText(1)}
+		return {flow: 'roadmap', phase: 'planning', text: planningText(roadmapPlanningPosition(state.roadmap))}
+	}
+
+	return undefined
+}
+
+// Append the flow's progress to the notification title (best-effort). Returns the
+// resolved progress so the tracer can record it.
+async function decorateWithProgress(cwd: string, event: MoshiNotificationEvent): Promise<FlowProgress | undefined> {
+	try {
+		const progress = computeFlowProgress(await loadState(cwd))
+		if (progress) event.title = `${event.title} · ${progress.text}`
+		return progress
+	} catch {
+		return undefined
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Trace logging (opt-in, per-project .omr/logs/moshi.ndjson)
+// ---------------------------------------------------------------------------
+
+export function moshiTraceEnabled(config: MoshiConfig): boolean {
+	return config.trace === true || Boolean(process.env.OMR_MOSHI_TRACE?.trim())
+}
+
+// Append one NDJSON trace record. Best-effort: never throws, never delays a send.
+export async function traceMoshi(cwd: string, enabled: boolean, record: Record<string, unknown>): Promise<void> {
+	if (!enabled) return
+	try {
+		await fsp.mkdir(moshiLogDir(cwd), {recursive: true})
+		await fsp.appendFile(moshiLogPath(cwd), `${JSON.stringify({at: new Date().toISOString(), ...record})}\n`, 'utf8')
+	} catch {
+		// tracing must never disrupt notifications
+	}
+}
+
+async function deliver(ctx: MoshiContextLike, config: MoshiConfig, event: MoshiNotificationEvent, logger?: MoshiLogger, trace = false): Promise<void> {
 	if (config.enabled !== true) return
+	const progress = await decorateWithProgress(ctx.cwd, event)
 	const frame = buildMoshiSessionUpdate(ctx, event)
 	const key = [frame.sessionId, frame.eventName, frame.title, frame.message].join(' ')
-	if (shouldSuppress(key)) return
+	if (shouldSuppress(key)) {
+		await traceMoshi(ctx.cwd, trace, {phase: 'deliver', event: 'suppressed', eventName: event.eventName, sessionId: frame.sessionId})
+		return
+	}
 	const socketPath = resolveMoshiSocketPath(config)
-	if (!socketPath) return
+	if (!socketPath) {
+		await traceMoshi(ctx.cwd, trace, {phase: 'deliver', event: 'no_socket', eventName: event.eventName})
+		return
+	}
+	await traceMoshi(ctx.cwd, trace, {
+		phase: 'deliver', event: 'sending', eventName: event.eventName, category: event.category,
+		sessionId: frame.sessionId, socketPath, progressText: progress?.text,
+	})
+	const startedAt = Date.now()
 	try {
 		await sendMoshiFrame(socketPath, frame, SEND_TIMEOUT_MS)
+		await traceMoshi(ctx.cwd, trace, {phase: 'deliver', event: 'sent', eventName: event.eventName, durationMs: Date.now() - startedAt})
 	} catch (error) {
 		logger?.debug?.(`moshi notification failed: ${String(error)}`)
+		await traceMoshi(ctx.cwd, trace, {phase: 'deliver', event: 'failed', eventName: event.eventName, durationMs: Date.now() - startedAt, error: String(error)})
 	}
 }
 
@@ -863,8 +1009,13 @@ export async function notifyMoshiForRoadmapToolResult(
 		const event = mapRoadmapToolResult(toolName, params, result)
 		if (!event) return
 		const config = await loadMoshiConfig(ctx.cwd)
-		if (config.enabled !== true) return
-		await deliver(ctx, config, event, logger)
+		const trace = moshiTraceEnabled(config)
+		await traceMoshi(ctx.cwd, trace, {phase: 'notify', event: 'mapped', toolName, eventName: event.eventName, category: event.category})
+		if (config.enabled !== true) {
+			await traceMoshi(ctx.cwd, trace, {phase: 'notify', event: 'disabled', toolName, eventName: event.eventName})
+			return
+		}
+		await deliver(ctx, config, event, logger, trace)
 	} catch {
 		// Notification must never affect the tool result.
 	}
@@ -890,8 +1041,13 @@ function firstQuestionText(args: unknown): string | undefined {
 async function notifyAsk(api: ExtensionAPI, ctx: ExtensionContext, event: ToolExecutionStartEvent): Promise<void> {
 	try {
 		const config = await loadMoshiConfig(ctx.cwd)
+		const trace = moshiTraceEnabled(config)
 		if (config.enabled !== true) return
-		if (!(await activeOmrContext(ctx.cwd))) return
+		if (!(await activeOmrContext(ctx.cwd))) {
+			await traceMoshi(ctx.cwd, trace, {phase: 'ask', event: 'skipped_no_context'})
+			return
+		}
+		await traceMoshi(ctx.cwd, trace, {phase: 'ask', event: 'emitted'})
 		await deliver(
 			ctx,
 			config,
@@ -904,6 +1060,7 @@ async function notifyAsk(api: ExtensionAPI, ctx: ExtensionContext, event: ToolEx
 				toolName: 'ask',
 			},
 			api.logger,
+			trace,
 		)
 	} catch {
 		// notify-only; ignore failures
@@ -986,12 +1143,17 @@ async function adhocStopEvent(cwd: string): Promise<MoshiNotificationEvent | und
 async function notifyAgentStop(api: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	try {
 		const config = await loadMoshiConfig(ctx.cwd)
+		const trace = moshiTraceEnabled(config)
 		if (config.enabled !== true) return
 		const kind = await activeOmrContext(ctx.cwd)
-		if (!kind) return
+		if (!kind) {
+			await traceMoshi(ctx.cwd, trace, {phase: 'agent_stop', event: 'skipped_no_context'})
+			return
+		}
 		const event = kind === 'adhoc' ? await adhocStopEvent(ctx.cwd) : await roadmapStopEvent(ctx.cwd)
 		if (!event) return
-		await deliver(ctx, config, event, api.logger)
+		await traceMoshi(ctx.cwd, trace, {phase: 'agent_stop', event: 'emitted', eventName: event.eventName, category: event.category})
+		await deliver(ctx, config, event, api.logger, trace)
 	} catch {
 		// notify-only; ignore failures
 	}

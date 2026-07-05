@@ -9,6 +9,16 @@ export function storeLockPath(cwd: string): string {
 	return path.join(roadmapsDir(cwd), 'store.lock')
 }
 
+// Opt-in Moshi notification trace log. One NDJSON record per line under .omr/logs/,
+// written only when `moshi.trace` (or OMR_MOSHI_TRACE) is enabled.
+export function moshiLogDir(cwd: string): string {
+	return path.join(roadmapsDir(cwd), 'logs')
+}
+
+export function moshiLogPath(cwd: string): string {
+	return path.join(moshiLogDir(cwd), 'moshi.ndjson')
+}
+
 export function activePointerPath(cwd: string): string {
 	return path.join(roadmapsDir(cwd), 'active.yml')
 }
