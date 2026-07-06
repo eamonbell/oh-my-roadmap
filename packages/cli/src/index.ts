@@ -12,6 +12,7 @@ import {
 	type ProjectInitResult,
 	resolveScopeAndProfile,
 	ROLE_NAMES,
+	setAgentTemplateSourceProvider,
 	THINKING_LEVELS,
 } from '@oh-my-roadmap/core'
 import {EXTENSION_PACKAGE, installExtension, resolvePluginRoot} from '@oh-my-roadmap/core/cli/install'
@@ -27,6 +28,26 @@ import {
 	updateCli,
 	updateExtension,
 } from '@oh-my-roadmap/core/cli/update'
+
+import workerLight from '@oh-my-roadmap/core/agent-templates/worker-light/AGENT.md' with {type: 'text'}
+import worker from '@oh-my-roadmap/core/agent-templates/worker/AGENT.md' with {type: 'text'}
+import workerHeavy from '@oh-my-roadmap/core/agent-templates/worker-heavy/AGENT.md' with {type: 'text'}
+import reviewer from '@oh-my-roadmap/core/agent-templates/reviewer/AGENT.md' with {type: 'text'}
+import waveFlowChecker from '@oh-my-roadmap/core/agent-templates/wave-flow-checker/AGENT.md' with {type: 'text'}
+import roadmapMilestoneChecker from '@oh-my-roadmap/core/agent-templates/roadmap-milestone-checker/AGENT.md' with {type: 'text'}
+import styleScout from '@oh-my-roadmap/core/agent-templates/style-scout/AGENT.md' with {type: 'text'}
+
+const EMBEDDED_TEMPLATES: Record<AgentRole, string> = {
+	'worker-light': workerLight,
+	'worker': worker,
+	'worker-heavy': workerHeavy,
+	'reviewer': reviewer,
+	'wave-flow-checker': waveFlowChecker,
+	'roadmap-milestone-checker': roadmapMilestoneChecker,
+	'style-scout': styleScout,
+}
+
+setAgentTemplateSourceProvider((name) => EMBEDDED_TEMPLATES[name])
 
 const require = createRequire(import.meta.url)
 const {version: VERSION} = require('../package.json') as { version: string }
@@ -225,43 +246,43 @@ async function maybeNoticeUpdate(): Promise<void> {
 function buildProgram(cwd: string): Command {
 	const program = new Command()
 	program
-		.name('omr')
-		.description('oh-my-roadmap project scaffolding: config + agent generation, extension install/update')
-		.version(VERSION, '-v, --version', 'Print the version')
-		.showHelpAfterError()
+	.name('omr')
+	.description('oh-my-roadmap project scaffolding: config + agent generation, extension install/update')
+	.version(VERSION, '-v, --version', 'Print the version')
+	.showHelpAfterError()
 
 	program
-		.command('init')
-		.description('Prompt for models + reasoning and scaffold config + agents')
-		.option('--global', 'user-level config + agents under ~/.omp')
-		.option('--project', 'config at .omr/config.yml, agents at .omp/agents (default)')
-		.option('--profile <name>', 'target a specific OMP profile (implies --global)')
-		.action((flags: ScopeFlags) => runInit(cwd, flags))
+	.command('init')
+	.description('Prompt for models + reasoning and scaffold config + agents')
+	.option('--global', 'user-level config + agents under ~/.omp')
+	.option('--project', 'config at .omr/config.yml, agents at .omp/agents (default)')
+	.option('--profile <name>', 'target a specific OMP profile (implies --global)')
+	.action((flags: ScopeFlags) => runInit(cwd, flags))
 
 	program
-		.command('apply')
-		.description('Regenerate agent definitions from an existing config')
-		.option('--global', 'regenerate the global (~/.omp) agents')
-		.option('--project', 'regenerate the project (.omp/agents) agents (default)')
-		.option('--profile <name>', 'target a specific OMP profile (implies --global)')
-		.action((flags: ScopeFlags) => runApply(cwd, flags))
+	.command('apply')
+	.description('Regenerate agent definitions from an existing config')
+	.option('--global', 'regenerate the global (~/.omp) agents')
+	.option('--project', 'regenerate the project (.omp/agents) agents (default)')
+	.option('--profile <name>', 'target a specific OMP profile (implies --global)')
+	.action((flags: ScopeFlags) => runApply(cwd, flags))
 
 	program
-		.command('install')
-		.description('Install the oh-my-roadmap extension into OMP\'s plugin root')
-		.option('--global', 'install into the user-level plugin root')
-		.option('--project', 'install into the project plugin root (default)')
-		.option('--profile <name>', 'install into a specific OMP profile (implies --global)')
-		.action((flags: ScopeFlags) => runInstall(cwd, flags))
+	.command('install')
+	.description('Install the oh-my-roadmap extension into OMP\'s plugin root')
+	.option('--global', 'install into the user-level plugin root')
+	.option('--project', 'install into the project plugin root (default)')
+	.option('--profile <name>', 'install into a specific OMP profile (implies --global)')
+	.action((flags: ScopeFlags) => runInstall(cwd, flags))
 
 	program
-		.command('update')
-		.description('Check npm for a newer CLI + extension and update (extension defaults to --global)')
-		.option('--check', 'only report available updates')
-		.option('--global', 'update the extension in the user-level plugin root (default)')
-		.option('--project', 'update the extension in the project plugin root')
-		.option('--profile <name>', 'update the extension in a specific OMP profile')
-		.action((flags: ScopeFlags & { check?: boolean }) => runUpdate(cwd, flags))
+	.command('update')
+	.description('Check npm for a newer CLI + extension and update (extension defaults to --global)')
+	.option('--check', 'only report available updates')
+	.option('--global', 'update the extension in the user-level plugin root (default)')
+	.option('--project', 'update the extension in the project plugin root')
+	.option('--profile <name>', 'update the extension in a specific OMP profile')
+	.action((flags: ScopeFlags & { check?: boolean }) => runUpdate(cwd, flags))
 
 	return program
 }
