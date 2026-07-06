@@ -19,6 +19,7 @@ export {
 	setProjectStyle,
 	homeConfigDir,
 	loadTransportResumeAttempts,
+	setAgentTemplateSourceProvider,
 	DEFAULT_TRANSPORT_RESUME_ATTEMPTS,
 	ROLE_NAMES,
 	THINKING_LEVELS,
