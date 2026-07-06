@@ -1,9 +1,12 @@
 #!/usr/bin/env bun
 import {execFileSync} from 'node:child_process'
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
-import {tmpdir} from 'node:os'
-import {dirname, join} from 'node:path'
+import {readFileSync} from 'node:fs'
+import {join} from 'node:path'
 
+// Publish order: core first (extension/cli depend on it). All packages ship at the same
+// version — set it with `bun run release <version>` before deploying. `bun publish`
+// substitutes the internal `workspace:*` deps with that concrete version at pack time
+// (which `npm publish` cannot), and reads auth from the NPM_CONFIG_TOKEN env var.
 const PACKAGE_DIRS = ['packages/core', 'packages/extension', 'packages/cli'] as const
 
 const args = process.argv.slice(2)
@@ -22,12 +25,9 @@ interface PackageManifest {
 	version: string
 }
 
-function run(command: string, args: string[], env: NodeJS.ProcessEnv = process.env): void {
-	process.stdout.write(`$ ${[command, ...args].join(' ')}\n`)
-	execFileSync(command, args, {
-		stdio: 'inherit',
-		env,
-	})
+function run(command: string, commandArgs: string[], env: NodeJS.ProcessEnv = process.env): void {
+	process.stdout.write(`$ ${[command, ...commandArgs].join(' ')}\n`)
+	execFileSync(command, commandArgs, {stdio: 'inherit', env})
 }
 
 function readPackageManifest(packageDir: string): PackageManifest {
@@ -38,65 +38,42 @@ function readPackageManifest(packageDir: string): PackageManifest {
 	return {name: manifest.name, version: manifest.version}
 }
 
-function isPublished(manifest: PackageManifest, env: NodeJS.ProcessEnv): boolean {
+// A public package version already on the registry — `npm view` needs no auth.
+function isPublished(manifest: PackageManifest): boolean {
 	try {
-		execFileSync('npm', ['view', `${manifest.name}@${manifest.version}`, 'version'], {
-			stdio: 'ignore',
-			env,
-		})
+		execFileSync('npm', ['view', `${manifest.name}@${manifest.version}`, 'version'], {stdio: 'ignore'})
 		return true
 	} catch {
 		return false
 	}
 }
 
-function createNpmUserConfig(): string | undefined {
+function resolveToken(): string | undefined {
 	const token = (process.env.NPM_TOKEN ?? process.env.NODE_AUTH_TOKEN)?.trim()
-	if (token === undefined || token === '') {
-		if (dryRun) {
-			return undefined
-		}
-		process.stderr.write('NPM_TOKEN or NODE_AUTH_TOKEN must be set for npm publish.\n')
-		process.exit(1)
-	}
-
-	const dir = mkdtempSync(join(tmpdir(), 'oh-my-roadmap-npm-'))
-	const userConfig = join(dir, '.npmrc')
-	writeFileSync(
-		userConfig,
-		`registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${token}\n`,
-		{mode: 0o600},
-	)
-	return userConfig
+	if (token !== undefined && token !== '') return token
+	if (dryRun) return undefined
+	process.stderr.write('NPM_TOKEN or NODE_AUTH_TOKEN must be set for publish.\n')
+	process.exit(1)
 }
 
-let userConfig: string | undefined
-try {
-	userConfig = createNpmUserConfig()
-	const env = userConfig === undefined ? process.env : {...process.env, NPM_CONFIG_USERCONFIG: userConfig}
+const token = resolveToken()
+// bun reads registry auth from NPM_CONFIG_TOKEN (workspace-root scope). No secret is
+// written to disk. Runs from the repo root; `--cwd` selects the package to publish.
+const env: NodeJS.ProcessEnv = token === undefined ? process.env : {...process.env, NPM_CONFIG_TOKEN: token}
 
-	run('bun', ['run', 'verify'], env)
-	run('bun', ['run', 'build'], env)
+run('bun', ['run', 'verify'], env)
+run('bun', ['run', 'build'], env)
 
-	if (!dryRun) {
-		run('npm', ['whoami'], env)
+for (const packageDir of PACKAGE_DIRS) {
+	const manifest = readPackageManifest(packageDir)
+	if (isPublished(manifest)) {
+		process.stdout.write(`${manifest.name}@${manifest.version} already exists; skipping.\n`)
+		continue
 	}
-
-	for (const packageDir of PACKAGE_DIRS) {
-		const manifest = readPackageManifest(packageDir)
-		if (isPublished(manifest, env)) {
-			process.stdout.write(`${manifest.name}@${manifest.version} already exists; skipping.\n`)
-			continue
-		}
-
-		const publishArgs = ['publish', `./${packageDir}`, '--access', 'public']
-		if (dryRun) {
-			publishArgs.push('--dry-run')
-		}
-		run('npm', publishArgs, env)
+	if (dryRun) {
+		// Tokenless validation of the tarball (files filter + `workspace:*` substitution).
+		run('bun', ['pm', 'pack', '--dry-run', '--cwd', packageDir], env)
+		continue
 	}
-} finally {
-	if (userConfig !== undefined) {
-		rmSync(dirname(userConfig), {recursive: true, force: true})
-	}
+	run('bun', ['publish', '--cwd', packageDir, '--access', 'public'], env)
 }

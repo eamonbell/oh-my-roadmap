@@ -1,12 +1,6 @@
+import {readFileSync} from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import reviewerTemplate from '../agent-templates/reviewer/AGENT.md' with {type: 'text'}
-import roadmapMilestoneCheckerTemplate from '../agent-templates/roadmap-milestone-checker/AGENT.md' with {type: 'text'}
-import styleScoutTemplate from '../agent-templates/style-scout/AGENT.md' with {type: 'text'}
-import waveFlowCheckerTemplate from '../agent-templates/wave-flow-checker/AGENT.md' with {type: 'text'}
-import workerTemplate from '../agent-templates/worker/AGENT.md' with {type: 'text'}
-import workerHeavyTemplate from '../agent-templates/worker-heavy/AGENT.md' with {type: 'text'}
-import workerLightTemplate from '../agent-templates/worker-light/AGENT.md' with {type: 'text'}
 import {fileExists, readYamlFile, writeText, writeYamlFile} from './files'
 import {parseMarkdownDocument, serializeMarkdownDocument} from './frontmatter'
 import {withStoreWriteLock} from './lock'
@@ -91,17 +85,19 @@ export const AUX_AGENT_NAMES = ['style-scout'] as const
 
 // Sub-agent prompt templates (one per role), bundled as text via import. Not OMP
 // skills — these are the source bodies that generateAgents() renders into OMP agent
-// definitions with config-driven model/reasoning. They travel with the code (inlined
-// by the bundler, resolved as text by the runtime), so nothing is read from disk.
+// definitions with config-driven model/reasoning. They ship in the package's
+// agent-templates/ dir and are read from disk at runtime.
+//
+// We deliberately do NOT `import ... AGENT.md with {type: 'text'}`: OMP's plugin
+// extension validator walks the module graph by scanning import specifiers and
+// ignores the import attribute, then forces a JS loader on every graphed file by
+// extension — so a text-imported .md gets parsed as JavaScript and install fails.
+// Reading from disk keeps the .md files out of that graph.
 // Genuine OMP skills live in the plugin's own skills/ folder.
-const AGENT_TEMPLATE_SOURCES: Record<AgentRole, string> = {
-	'worker-light': workerLightTemplate,
-	worker: workerTemplate,
-	'worker-heavy': workerHeavyTemplate,
-	reviewer: reviewerTemplate,
-	'wave-flow-checker': waveFlowCheckerTemplate,
-	'roadmap-milestone-checker': roadmapMilestoneCheckerTemplate,
-	'style-scout': styleScoutTemplate,
+const AGENT_TEMPLATES_DIR = path.join(import.meta.dir, '..', 'agent-templates')
+
+function readAgentTemplateSource(name: AgentRole): string {
+	return readFileSync(path.join(AGENT_TEMPLATES_DIR, name, 'AGENT.md'), 'utf8')
 }
 
 function objectKeys(value: object): string[] {
@@ -402,7 +398,7 @@ export async function setProjectStyle(cwd: string, language: string, guide: Styl
 }
 
 function loadAgentTemplate(name: AgentRole): { description: string; body: string } {
-	const doc = parseMarkdownDocument<{ name: string; description: string }>(AGENT_TEMPLATE_SOURCES[name])
+	const doc = parseMarkdownDocument<{ name: string; description: string }>(readAgentTemplateSource(name))
 	if (doc.data.name !== name) {
 		throw new Error(`Expected ${name} agent template, found ${doc.data.name}`)
 	}

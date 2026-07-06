@@ -1,6 +1,6 @@
 {
 	"name":            "oh-my-roadmap",
-	"version":         "1.4.0",
+	"version":         "1.4.1",
 	"devDependencies": {
 		"@types/bun": "^1.3.14",
 		"typescript": "^5.9.3"
@@ -18,6 +18,7 @@
 		"test":           "bun test",
 		"verify":         "bun run check && bun test",
 		"pack:check":     "bun run build && npm pack --dry-run --workspaces",
+		"release":        "bun run scripts/set-version.ts",
 		"deploy":         "bun run scripts/deploy-npm.ts",
 		"deploy:dry-run": "bun run scripts/deploy-npm.ts --dry-run"
 	},
