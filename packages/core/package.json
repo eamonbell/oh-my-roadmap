@@ -1,12 +1,14 @@
 {
 	"name":          "@oh-my-roadmap/core",
-	"version":       "1.4.1",
+	"version":       "1.4.4",
 	"description":   "Shared core for oh-my-roadmap: project config, agent-definition generation, and roadmap state store.",
 	"type":          "module",
 	"license":       "MIT",
 	"exports":       {
-		".":   "./src/index.ts",
-		"./*": "./src/*.ts"
+		".":                    "./src/index.ts",
+		"./package.json":       "./package.json",
+		"./agent-templates/*":  "./agent-templates/*",
+		"./*":                  "./src/*.ts"
 	},
 	"files":         [
 		"src",

@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs'
+import {createRequire} from 'node:module'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import {fileExists, readYamlFile, writeText, writeYamlFile} from './files'
@@ -6,6 +7,8 @@ import {parseMarkdownDocument, serializeMarkdownDocument} from './frontmatter'
 import {withStoreWriteLock} from './lock'
 import {activeProfileFromEnv, ompAgentsDir, ompOmrConfigDir} from './omp-paths'
 import {roadmapsDir} from './paths'
+import {fileURLToPath} from 'node:url'
+import {existsSync as fileExistsSync} from 'node:fs'
 
 const CONFIG_FILE = 'config.yml'
 const OMP_AGENTS_DIR = path.join('.omp', 'agents')
@@ -94,10 +97,33 @@ export const AUX_AGENT_NAMES = ['style-scout'] as const
 // extension — so a text-imported .md gets parsed as JavaScript and install fails.
 // Reading from disk keeps the .md files out of that graph.
 // Genuine OMP skills live in the plugin's own skills/ folder.
-const AGENT_TEMPLATES_DIR = path.join(import.meta.dir, '..', 'agent-templates')
+// const AGENT_TEMPLATES_DIR = path.join(import.meta.dir, '..', 'agent-templates')
+function resolveAgentTemplatesDir(): string {
+	// Prefer resolving relative to this module (works when core runs unbundled).
+	const localDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'agent-templates')
+	if (fileExistsSync(localDir)) return localDir
+
+	// When the CLI bundles core into a single file, import.meta.url points at the
+	// bundle (which has no agent-templates/). Ask module resolution where the core
+	// package actually lives and read the templates it shipped with.
+	const require = createRequire(import.meta.url)
+	const corePkgJson = require.resolve('@oh-my-roadmap/core/package.json')
+	return path.join(path.dirname(corePkgJson), 'agent-templates')
+}
+
+// Allow the CLI (single-file bundle) to supply embedded template sources so it does
+// not have to read agent-templates/ from disk. The extension keeps reading from disk.
+let agentTemplatesDir: string | undefined
+let templateSourceProvider: ((name: AgentRole) => string) | undefined
+
+export function setAgentTemplateSourceProvider(provider: (name: AgentRole) => string): void {
+	templateSourceProvider = provider
+}
 
 function readAgentTemplateSource(name: AgentRole): string {
-	return readFileSync(path.join(AGENT_TEMPLATES_DIR, name, 'AGENT.md'), 'utf8')
+	if (templateSourceProvider) return templateSourceProvider(name)
+	agentTemplatesDir ??= resolveAgentTemplatesDir()
+	return readFileSync(path.join(agentTemplatesDir, name, 'AGENT.md'), 'utf8')
 }
 
 function objectKeys(value: object): string[] {
