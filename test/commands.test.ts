@@ -254,13 +254,13 @@ describe("roadmap commands", () => {
     expect(content).toContain("built-in task/subagent mechanism");
     expect(content).toContain("If workers or reviewers report real blockers");
     expect(content).toContain("Never redispatch a task until the prior worker run is completed");
-    expect(content).toContain("If neither background jobs nor IRC peers list that run");
+    expect(content).toContain("If neither the hub op:jobs snapshot nor the op:list peer roster lists that run");
     expect(content).toContain("do not poll, probe, or wait");
     expect(content).toContain("wait up to 2 minutes");
     expect(content).toContain("ask the user from the orchestrator/main-agent role");
     expect(content).toContain("Do not write or modify code yourself");
     expect(content).toContain("Never perform wave reviews yourself");
-    // IRC-first recovery/rework
+    // Hub-first recovery/rework
     expect(content).toContain("prefer waking the existing worker over spawning a replacement");
     expect(content).toContain("op:list");
     expect(content).toContain("op:send");
@@ -279,9 +279,9 @@ describe("roadmap commands", () => {
     expect(content).toContain("a 2-minute result silence is not death");
     expect(content).toContain("consume that reply as the liveness signal");
     expect(content).toContain("do NOT launch a second blocking op:wait");
-    expect(content).toContain("op:list is the authority for liveness; the job tool is not");
-    expect(content).toContain("run a fresh irc op:list immediately before omr_record_worker_abandoned");
-    expect(content).toContain("stop the peer with TaskStop and confirm it is gone via op:list");
+    expect(content).toContain("op:list is the authority for liveness; the hub op:jobs snapshot is not");
+    expect(content).toContain("run a fresh hub op:list immediately before omr_record_worker_abandoned");
+    expect(content).toContain("stop the peer with hub op:cancel (its job id) and confirm it is gone via op:list");
     expect(content).toContain("do not leave it parked");
     expect(content).toContain("omr_prepare_worker_redispatch");
     expect(content).toContain("replacesAgentId");
@@ -299,10 +299,10 @@ describe("roadmap commands", () => {
     expect(content.indexOf("first call omr_transition with operation start_implementation")).toBeLessThan(
       content.indexOf("omr_prepare_wave_dispatch before dispatching implementation work"),
     );
-    // One blocking job wait, not a short polling loop
-    expect(content).toContain("one blocking job wait");
-    expect(content).toContain("Do not loop short job polls");
-    expect(content).toContain("Use IRC liveness checks only after a timeout");
+    // One blocking hub op:wait, not a short polling loop
+    expect(content).toContain("one blocking hub op:wait");
+    expect(content).toContain("Do not loop short hub op:jobs polls");
+    expect(content).toContain("Use hub op:list liveness checks only after a timeout");
     expectFindingsReportInstruction(content, "omr:ms-implement");
   });
 

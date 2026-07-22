@@ -9,7 +9,7 @@ Run implementation one approved wave at a time on the active branch. Treat the p
 pause/resume.
 
 Prefer waking the existing worker over spawning a replacement. When a worker hits a transient failure or its work needs rework, the original worker
-already holds the transcript, the files it touched, and the design context. Coordinate with the built-in `irc` tool (`op: list/send/wait/inbox`); the
+already holds the transcript, the files it touched, and the design context. Coordinate with the built-in `hub` tool (`op: list/send/wait/inbox`); the
 recovery and rework rules below spell out the peer statuses, receipts, and message wording to use.
 
 Required process:
@@ -27,19 +27,19 @@ Required process:
   wave from notes.
 - Before dispatch, call `omr_prepare_wave_dispatch`.
 - If dispatch preparation returns `active_runs`, do not redispatch those tasks.
-- For each active run, first check the current session's background jobs and IRC peers for the run's `job_id`/`jobId` or `agent_id`/`agentId`.
-- If neither background jobs nor IRC peers list an active run, call `omr_record_worker_abandoned` immediately for that run. Do not poll, probe, or
+- For each active run, first check the current session's hub job snapshot (`op:jobs`) and peer roster (`op:list`) for the run's `job_id`/`jobId` or `agent_id`/`agentId`.
+- If neither the hub `op:jobs` snapshot nor the `op:list` peer roster lists an active run, call `omr_record_worker_abandoned` immediately for that run. Do not poll, probe, or
   wait for runs that do not exist in the current session.
 - Only poll or probe active runs that exist in the current session.
 - Dispatch only returned assignments whose tasks are in the active wave.
-- Dispatch each task as a background job using the exact agent named in the task's `worker` field: `worker-light`, `worker`, or `worker-heavy`.
+- Dispatch each task as a background subagent (the task tool, run in the background) using the exact agent named in the task's `worker` field: `worker-light`, `worker`, or `worker-heavy`.
 - Immediately after each spawn, call `omr_record_worker_dispatch` with the task ID, returned `agentId`, and returned `jobId`.
 - Never redispatch a task until its prior worker run is terminal: `abandoned`, `completed`, `blocked`, `failed`, or `cancelled`.
-- After dispatching all worker or reviewer jobs for the current wave and recording their job ids, if you are blocked waiting for those jobs, issue one
-  blocking `job` wait for the relevant job ids or for all running jobs with a meaningful timeout. Do not loop short job polls; retry only after an
-  interrupt, timeout, or new liveness evidence. Use IRC liveness checks only after a timeout/interruption or when state says a worker should exist but
+- After dispatching all worker or reviewer subagents for the current wave and recording their job ids, if you are blocked waiting for them, issue one
+  blocking hub `op:wait` for the relevant ids (or bare, for all running jobs) with a meaningful timeout. Do not loop short `op:jobs` polls; retry only after an
+  interrupt, timeout, or new liveness evidence. Use hub `op:list` liveness checks only after a timeout/interruption or when state says a worker should exist but
   the job handle is absent.
-- To recover or rework a run, prefer waking the existing worker. Use `irc` `op:list` to get its exact peer id and status (`running`/`idle`/`parked`/
+- To recover or rework a run, prefer waking the existing worker. Use `hub` `op:list` to get its exact peer id and status (`running`/`idle`/`parked`/
   `aborted`), then `op:send` directly to that peer id — never broadcast with `to:"all"` (it skips `parked` peers and can wake unrelated agents). Do
   not resend to a worker that is still `running`.
 - Interpret the delivery receipt: `injected` (running; will see it at the next step boundary — do not resend), `woken` (was idle; a real turn
@@ -49,7 +49,7 @@ Required process:
   old subagent no longer exists), or when delivery returns `failed`. Use `history://<agentId>` to recover a worker's transcript when deciding whether
   a replacement is truly needed.
 - If a current-session worker job reports socket-close or another transient transport failure, call `omr_record_worker_transport_failed`, then run a *
-  *bounded resume loop**: `irc op:list` to find the worker's peer, `op:send` it a narrow resume message ("resume from your existing transcript,
+  *bounded resume loop**: `hub op:list` to find the worker's peer, `op:send` it a narrow resume message ("resume from your existing transcript,
   continue from the last completed step, retry only the interrupted operation, do not redo completed work, report back"), and wait up to 2 minutes for
   a reply. Re-resume the same worker up to the configured resume cap (default 3); `transport_failures` is the counter. Never abandon after a single
   failed resume.
@@ -58,13 +58,13 @@ Required process:
   *result* silence is not death. If `op:send await:true` already returned a reply, consume that reply as the liveness signal — do NOT launch a second
   blocking `op:wait` for a message that will never come. After acking, keep monitoring with longer waits (`op:wait` minutes, or `op:list` activity-age
   checks), never a fixed short abandon window.
-- `op:list` is the authority for liveness; the `job` tool is not. The `job`/`job list` tool can report a crashed-then-resumed run as terminal
+- `op:list` is the authority for liveness; the hub `op:jobs` snapshot is not. The `op:jobs` snapshot can report a crashed-then-resumed run as terminal
   `failed (exit 1)` while `op:list` shows the peer `running`, and can return an empty/non-text placeholder. A job `failed`/`exited` status means the
-  spawned process exited — that is not the same as the task failing when the underlying agent/IRC peer survives and resumed. Treat an empty or
-  non-text job snapshot as no signal (never as death). Decide liveness from `op:list` peer status and activity age only; ignore a stale `job` terminal
-  state after a transport failure, and never abandon on `job` output alone.
-- Only after the configured resume cap (default 3) is hit or the worker is confirmed unreachable: run a fresh `irc op:list` immediately before
-  `omr_record_worker_abandoned` — if the peer is `running`/`idle` with recent activity, do not abandon. Then stop the peer (`TaskStop`) and confirm it
+  spawned process exited — that is not the same as the task failing when the underlying agent/hub peer survives and resumed. Treat an empty or
+  non-text job snapshot as no signal (never as death). Decide liveness from `op:list` peer status and activity age only; ignore a stale `op:jobs` terminal
+  state after a transport failure, and never abandon on `op:jobs` output alone.
+- Only after the configured resume cap (default 3) is hit or the worker is confirmed unreachable: run a fresh `hub op:list` immediately before
+  `omr_record_worker_abandoned` — if the peer is `running`/`idle` with recent activity, do not abandon. Then stop the peer (`hub op:cancel`) and confirm it
   is gone via `op:list` (do not leave it `parked` — parked peers linger for minutes and are auto-revived when messaged), call
   `omr_record_worker_abandoned`, call `omr_prepare_worker_redispatch` (it refuses while a run is still `running`, so a replacement can never collide
   with a live peer), spawn the replacement with the returned prompt (it carries continuation context, the prior worker's `history://<agentId>`
@@ -80,7 +80,7 @@ Required process:
   subagents do not ask the user directly.
 - When worker or reviewer notes are blocked, use `omr_record_wave_result` or `omr_record_wave_review` to update task, wave, progress, worker-run, and
   blocker state before asking or replanning.
-- Collect wave results from state, not from a live IRC reply. A worker persists its structured result to its note before yielding and may already have
+- Collect wave results from state, not from a live hub reply. A worker persists its structured result to its note before yielding and may already have
   terminated when you ask for its report. If the peer is gone, call `omr_record_wave_result` (omit `summary` when you have none) — it sources the
   summary from the worker's resolved note. Do not reconstruct a completion by re-searching context.
 - On the first real blocker, record it, cancel sibling active runs, pause implementation, and report `/omr:blk-list`,

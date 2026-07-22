@@ -13,7 +13,7 @@ import {existsSync as fileExistsSync} from 'node:fs'
 const CONFIG_FILE = 'config.yml'
 const OMP_AGENTS_DIR = path.join('.omp', 'agents')
 export const ROLE_NAMES = ['worker-light', 'worker', 'worker-heavy', 'reviewer', 'wave-flow-checker', 'roadmap-milestone-checker', 'style-scout'] as const
-export const THINKING_LEVELS = ['inherit', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export const THINKING_LEVELS = ['inherit', 'auto', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 const THINKING_LEVELS_SET = new Set<string>(THINKING_LEVELS)
 export const DEFAULT_TRANSPORT_RESUME_ATTEMPTS = 3
 
@@ -22,6 +22,10 @@ export type AgentRole = (typeof ROLE_NAMES)[number];
 export interface AgentConfig {
 	model?: string;
 	thinking?: string;
+	// OMP prewalk hand-off (opt-in, default off): `true` starts the agent on its
+	// resolved model to plan/init todos, then hands off to the default prewalk
+	// target at its first edit/write; a string is a custom target model pattern.
+	prewalk?: boolean | string;
 }
 
 export interface OrchestrationConfig {
@@ -149,7 +153,7 @@ function parseRoleConfig(value: unknown, role: AgentRole): AgentConfig {
 	// A missing role inherits (no model/thinking) — global/project configs may list only a subset.
 	if (value === undefined) return {}
 	const roleConfig = requirePlainObject(value, `agents.${role}`)
-	rejectUnknownKeys(roleConfig, ['model', 'thinking'], `agents.${role}`)
+	rejectUnknownKeys(roleConfig, ['model', 'thinking', 'prewalk'], `agents.${role}`)
 
 	const config: AgentConfig = {}
 	if (roleConfig.model !== undefined) {
@@ -166,6 +170,18 @@ function parseRoleConfig(value: unknown, role: AgentRole): AgentConfig {
 			)
 		}
 		config.thinking = roleConfig.thinking
+	}
+
+	if (roleConfig.prewalk !== undefined) {
+		// `true`/`false` toggle the default prewalk target; a non-empty string is a
+		// custom target model pattern. Reject other shapes so a typo fails loudly.
+		if (typeof roleConfig.prewalk === 'boolean') {
+			config.prewalk = roleConfig.prewalk
+		} else if (typeof roleConfig.prewalk === 'string' && roleConfig.prewalk.trim() !== '') {
+			config.prewalk = roleConfig.prewalk.trim()
+		} else {
+			throw new Error(`agents.${role}.prewalk must be a boolean or a non-empty model-pattern string`)
+		}
 	}
 
 	return config
@@ -441,6 +457,7 @@ function renderAgent(name: string, description: string, body: string, config: Ag
 	}
 	if (config.model) frontmatter.model = config.model
 	if (config.thinking) frontmatter['thinking-level'] = config.thinking
+	if (config.prewalk) frontmatter.prewalk = config.prewalk
 	return serializeMarkdownDocument(frontmatter, body)
 }
 

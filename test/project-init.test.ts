@@ -248,6 +248,38 @@ describe("project init scaffold", () => {
     expect(roadmapChecker.data["thinking-level"]).toBe("medium");
   });
 
+  test("emits auto thinking-level and opt-in prewalk frontmatter", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      [
+        "agents:",
+        "  worker:",
+        "    thinking: auto",         // 17.x auto-classified thinking level
+        "  worker-heavy:",
+        "    prewalk: true",          // default prewalk target
+        "  worker-light:",
+        "    prewalk: pi/fast",       // custom prewalk target pattern
+        "",
+      ].join("\n"),
+    );
+
+    await initProject(cwd);
+
+    const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
+    expect(worker.data["thinking-level"]).toBe("auto");
+    expect(worker.data.prewalk).toBeUndefined();
+
+    const workerHeavy = parseMarkdownDocument(await readFile(".omp/agents/worker-heavy.md"));
+    expect(workerHeavy.data.prewalk).toBe(true);
+
+    const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
+    expect(workerLight.data.prewalk).toBe("pi/fast");
+
+    // A role that opts into neither keeps prewalk out of its frontmatter.
+    const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
+    expect(reviewer.data.prewalk).toBeUndefined();
+  });
+
   test("ignores legacy .roadmap config", async () => {
     await writeFile(
       ".roadmap/config.yml",
@@ -282,8 +314,13 @@ describe("project init scaffold", () => {
     const invalidConfigs = [
       {
         name: "invalid thinking",
-        text: "agents:\n  worker:\n    thinking: auto\n  reviewer: {}\n",
+        text: "agents:\n  worker:\n    thinking: ultra\n  reviewer: {}\n",
         message: "agents.worker.thinking",
+      },
+      {
+        name: "invalid prewalk",
+        text: "agents:\n  worker:\n    prewalk: 3\n  reviewer: {}\n",
+        message: "agents.worker.prewalk",
       },
       {
         name: "non-string model",
