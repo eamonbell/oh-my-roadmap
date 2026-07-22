@@ -130,7 +130,7 @@ The command creates the config when it is missing and always refreshes the gener
 .omp/agents/roadmap-milestone-checker.md
 ```
 
-The `.omr/config.yml` file configures the model and thinking level used when OMP dispatches the generated worker, reviewer, wave-flow-checker, and roadmap-milestone-checker agents:
+The `.omr/config.yml` file configures the model, thinking level, and optional prewalk hand-off used when OMP dispatches the generated worker, reviewer, wave-flow-checker, and roadmap-milestone-checker agents:
 
 ```yaml
 agents:
@@ -143,6 +143,7 @@ agents:
   worker-heavy:
     model: "provider/heavy-model-or-role"
     thinking: "high"
+    prewalk: true                     # optional: plan on the resolved model, then hand off at first edit
   reviewer:
     model: "provider/model-or-role"
     thinking: "high"
@@ -154,7 +155,7 @@ agents:
     thinking: "medium"
 ```
 
-Both `model` and `thinking` are optional. Supported thinking values are `inherit`, `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Re-running `omr init` preserves existing role settings, adds any missing supported roles to `.omr/config.yml`, and overwrites generated `.omp/agents/*.md` files from the extension templates.
+`model`, `thinking`, and `prewalk` are all optional. Supported thinking values are `inherit`, `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` (`auto` lets OMP classify per turn). `prewalk` (default off) opts a role into OMP's prewalk hand-off — `true` starts the agent on its resolved model to plan and begins implementing, then hands off to the default prewalk target at its first edit/write; a string sets a custom target model pattern. Re-running `omr init` preserves existing role settings, adds any missing supported roles to `.omr/config.yml`, and overwrites generated `.omp/agents/*.md` files from the extension templates.
 
 `omr init` does not create or modify active roadmap workflow state.
 

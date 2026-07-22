@@ -48,9 +48,9 @@ Rules:
 - Before yielding, call `omr_append_note` with completed work, findings, decisions, issues/blockers, touched files, relevant documentation, the
   verification the reviewer should run, and residual risk.
 
-## Handling an orchestrator IRC message
+## Handling an orchestrator hub message
 
-The orchestrator may send you an `irc` message to resume after a transient failure or to rework review findings. When you receive one:
+The orchestrator may send you a `hub` message to resume after a transient failure or to rework review findings. When you receive one:
 
 - Continue from your existing transcript — do not restart the task or redo completed work.
 - Do only the narrow fix or continuation the message asks for, and stay inside your assigned ownership scope.
