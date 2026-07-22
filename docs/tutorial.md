@@ -190,7 +190,7 @@ Common outcomes:
 
 - If it says a wave is ready to dispatch, run `/omr:ms-implement`.
 - If it says workers are running, let the orchestrator poll or recover them.
-- If it says workers are running but the current session has no matching background job or IRC peer, run `/omr:ms-implement`; the orchestrator should mark the old run abandoned before redispatching.
+- If it says workers are running but the current session has no matching hub job or peer, run `/omr:ms-implement`; the orchestrator should mark the old run abandoned before redispatching.
 - If it says review is needed, run `/omr:ms-implement`.
 - If blockers are open, use the blocker commands below.
 - If closeout is ready, run `/omr:ms-close`.
@@ -250,14 +250,14 @@ Sometimes a worker job may fail because the socket closed or the transport died.
 The orchestrator should:
 
 1. Mark the run as `transport_failed`.
-2. Prefer waking the existing worker: list IRC peers, and if the worker is still a peer, send it a narrow "resume from your existing transcript" message rather than starting over.
+2. Prefer waking the existing worker: list peers with the `hub` tool (`op:list`), and if the worker is still a peer, `hub op:send` it a narrow "resume from your existing transcript" message rather than starting over.
 3. If it responds, collect the result.
 4. If it does not respond after 2 minutes, mark it `abandoned`.
 5. Redispatch only that abandoned task.
 
 A transport error never becomes a blocker: it is recorded as `transport_failed`, not as a wave result. Only a real implementation failure the worker reports opens a blocker.
 
-Only wait when the worker exists in the current session as a background job or IRC peer. If you resumed in a new session, the old subagent no longer exists as a peer, so the orchestrator should mark the old run `abandoned` immediately and redispatch instead of polling or waiting.
+Only wait when the worker exists in the current session as a hub job or peer. If you resumed in a new session, the old subagent no longer exists as a peer, so the orchestrator should mark the old run `abandoned` immediately and redispatch instead of polling or waiting.
 
 Do not manually start a duplicate worker for the same task if an active run exists.
 
@@ -269,7 +269,7 @@ After every wave, the orchestrator dispatches `reviewer`.
 
 A passed review lets the workflow advance to the next wave.
 
-When review finds problems the original worker can simply fix (a concrete code correction, no user decision needed), the orchestrator wakes that worker over IRC to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes.
+When review finds problems the original worker can simply fix (a concrete code correction, no user decision needed), the orchestrator wakes that worker over the `hub` tool to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes.
 
 A failed review only opens blockers for findings that genuinely need a user decision (ambiguous acceptance, scope/approval, or risk disposition). Positive findings such as `PASS:` or informational findings should not block. If blockers are opened, use:
 

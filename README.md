@@ -23,6 +23,9 @@ This repo publishes two user-facing packages to npm, plus `oh-my-roadmap-core` a
 - **`@oh-my-roadmap/cli`** — a standalone CLI to scaffold project config and (re)generate agent definitions.
 - **`oh-my-roadmap`** — the OMP extension (slash commands + tools). npm package names cannot be a bare scope such as `@oh-my-roadmap`.
 
+> **Requires OMP 17.0.0 or newer.** The extension's `omr_*` tools ride OMP's `xd://` discoverable-tool transport, and worker coordination uses the
+> unified `hub` tool — both introduced in OMP 17.0.0.
+
 ```sh
 # CLI
 npm install -g @oh-my-roadmap/cli
