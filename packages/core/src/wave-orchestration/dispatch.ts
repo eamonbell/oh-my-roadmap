@@ -38,7 +38,7 @@ CONTINUATION CONTEXT:
 - You are replacing a prior worker (${continuation.priorAgentId}) that hit ${continuation.transportFailures} transport failure(s)${continuation.lastError ? ` (last error: ${continuation.lastError})` : ''} and could not recover in place.
 - Read history://${continuation.priorAgentId} FIRST. If the prior attempt had already started editing, its edits are on the active branch (workers run on the active branch with no worktree); if it had not started editing, that transcript is your read/exploration head-start so you need not re-discover the codebase from scratch.
 - Do not assume disk edits exist. Inspect the current file state (git status/diff, read your owned files) before editing; do not redo completed work; continue from the last incomplete step.
-- The prior owner ${continuation.priorAgentId} may still be live. Before editing any owned file, confirm via irc op:list / op:send that the prior peer is stopped — do not rely on roadmap state saying "abandoned" (state can report abandoned while the peer is demonstrably still editing).`
+- The prior owner ${continuation.priorAgentId} may still be live. Before editing any owned file, confirm via hub op:list / op:send that the prior peer is stopped — do not rely on roadmap state saying "abandoned" (state can report abandoned while the peer is demonstrably still editing).`
 }
 
 function reservedSiblingScope(ctx: ActivePlanContext, task: TaskPlan): string[] {
@@ -260,7 +260,7 @@ export async function prepareWaveDispatch(
 				assignments: [],
 				active_runs: activeRuns,
 				instructions:
-					'Do not redispatch tasks with active worker runs. First check the current session\'s background jobs and IRC peers for each run\'s job_id or agent_id. If neither background jobs nor IRC peers list the run, record it abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session. If an existing current-session run has a transport failure, record transport_failed, then prefer waking the existing worker: irc op:list to find its peer, op:send it a narrow "resume from your existing transcript" message (never broadcast to:"all"), and wait up to 2 minutes for recovery. Re-resume the same worker up to the configured resume cap before abandoning; an ack is a liveness signal, not grounds to abandon, and op:list peer status (not the job tool) is the liveness authority. Do not record a transport failure as a wave result; that opens a blocker. Only after the cap is hit or a fresh op:list confirms the peer is gone, stop the peer and record abandoned, then use omr_prepare_worker_redispatch before redispatching only that task.',
+					'Do not redispatch tasks with active worker runs. First check the current session\'s hub job snapshot (hub op:jobs) and peer roster (hub op:list) for each run\'s job_id or agent_id. If neither the hub op:jobs snapshot nor the op:list peer roster lists the run, record it abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session. If an existing current-session run has a transport failure, record transport_failed, then prefer waking the existing worker: hub op:list to find its peer, hub op:send to it a narrow "resume from your existing transcript" message (never broadcast to:"all"), and wait up to 2 minutes for recovery. Re-resume the same worker up to the configured resume cap before abandoning; an ack is a liveness signal, not grounds to abandon, and hub op:list peer status (not the op:jobs snapshot) is the liveness authority. Do not record a transport failure as a wave result; that opens a blocker. Only after the cap is hit or a fresh op:list confirms the peer is gone, stop the peer (hub op:cancel its job) and record abandoned, then use omr_prepare_worker_redispatch before redispatching only that task.',
 			}
 		}
 
@@ -279,7 +279,7 @@ export async function prepareWaveDispatch(
 			assignments: incompleteTasks.map((task) => assignment(ctx, task)),
 			active_runs: [],
 			instructions:
-				'Dispatch each assignment as a background job using the assignment\'s exact worker and prompt. Immediately call omr_record_worker_dispatch with the returned agentId and jobId before polling workers.',
+				'Dispatch each assignment as a background subagent (the task tool, run in the background) using the assignment\'s exact worker and prompt. Immediately call omr_record_worker_dispatch with the returned agentId and jobId before polling workers via the hub tool (op:jobs / op:wait).',
 		}
 	})
 }
@@ -360,7 +360,7 @@ export async function prepareWorkerRedispatch(
 				...(prior.last_error ? {last_error: prior.last_error} : {}),
 			},
 			instructions:
-				`Spawn the replacement as a background job using the assignment's exact worker and prompt (the prompt carries CONTINUATION CONTEXT, the prior worker's history://${prior.agent_id} transcript pointer, and a live-peer coordination warning). Only spawn after the prior peer is stopped and confirmed gone via irc op:list. Then call omr_record_worker_dispatch with the new agentId and jobId and replacesAgentId set to ${prior.agent_id}.`,
+				`Spawn the replacement as a background subagent (the task tool, run in the background) using the assignment's exact worker and prompt (the prompt carries CONTINUATION CONTEXT, the prior worker's history://${prior.agent_id} transcript pointer, and a live-peer coordination warning). Only spawn after the prior peer is stopped and confirmed gone via hub op:list (hub op:cancel its job if still live). Then call omr_record_worker_dispatch with the new agentId and jobId and replacesAgentId set to ${prior.agent_id}.`,
 		}
 	})
 }

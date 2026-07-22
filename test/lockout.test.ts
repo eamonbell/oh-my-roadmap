@@ -60,6 +60,65 @@ describe("lockout gate", () => {
   });
 });
 
+describe("xd:// device dispatch decoding", () => {
+  test("decodes an omr tool dispatched as a write to its xd:// device", async () => {
+    await setProjectDisabled(cwd, true);
+    // `write xd://omr_transition` with JSON args in `content` (17.0.0 xd:// transport).
+    const dispatched = await shouldBlockToolCall(
+      cwd,
+      "write",
+      { path: "xd://omr_transition", content: JSON.stringify({ operation: "record_discovery" }) },
+      home,
+    );
+    expect(dispatched.block).toBe(true);
+    expect(dispatched.reason).toContain("paused");
+  });
+
+  test("fails open to the device name when the args payload is malformed", async () => {
+    await setProjectDisabled(cwd, true);
+    const dispatched = await shouldBlockToolCall(
+      cwd,
+      "write",
+      { path: "xd://omr_read_state", content: "{not valid json" },
+      home,
+    );
+    expect(dispatched.block).toBe(true);
+  });
+
+  test("a non-omr xd:// device write is not treated as an omr call or a file write", async () => {
+    await setProjectDisabled(cwd, false);
+    // xd://propose is a staged-action device (replaces the removed `resolve` tool),
+    // not a working-tree write, so it must miss both gates even on a fresh cwd.
+    const propose = await shouldBlockToolCall(
+      cwd,
+      "write",
+      { path: "xd://propose", content: "my-plan" },
+      home,
+    );
+    expect(propose.block).toBe(false);
+  });
+
+  test("blocks an omr agent spawned via the batch task form when disabled", async () => {
+    await setProjectDisabled(cwd, true);
+    const batch = await shouldBlockToolCall(
+      cwd,
+      "task",
+      { context: "wave 1", tasks: [{ agent: "reviewer", task: "review wave" }] },
+      home,
+    );
+    expect(batch.block).toBe(true);
+
+    // A batch with only non-omr agents stays allowed even while paused.
+    const otherBatch = await shouldBlockToolCall(
+      cwd,
+      "task",
+      { context: "x", tasks: [{ agent: "scout", task: "explore" }] },
+      home,
+    );
+    expect(otherBatch.block).toBe(false);
+  });
+});
+
 describe("active pause markers", () => {
   async function seedActive(): Promise<void> {
     await writeActive(cwd, { roadmap_id: "r1", updated_at: "2026-01-01T00:00:00.000Z" });

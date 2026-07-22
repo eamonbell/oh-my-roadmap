@@ -1,3 +1,7 @@
+> **Note (omp 17.0.0+):** the standalone `irc`, `job`, and `launch` tools were merged into a single `hub` tool. The peer-messaging ops shown below
+> (`list`/`send`/`wait`/`inbox`) are unchanged — invoke them through `hub` (e.g. `hub` with `{"op":"list"}`). The underlying message bus is still
+> called IRC internally (incoming messages arrive as `irc:incoming`), so that terminology persists at the bus level.
+
 ## Shared orchestration pattern
 
 1. **Find the existing worker.**
@@ -160,7 +164,7 @@ You stopped after <exact failure>. Resume from your existing transcript and cont
 Start over and redo the task.
 ```
 
-That throws away the reason to use IRC: the worker already has state.
+That throws away the reason to use hub messaging: the worker already has state.
 
 ---
 
@@ -170,7 +174,7 @@ That throws away the reason to use IRC: the worker already has state.
 
 Route review feedback back to the same worker that produced the work, because it has the implementation context.
 
-This is exactly where `irc` is better than spawning another subagent. The worker already knows:
+This is exactly where `hub` messaging is better than spawning another subagent. The worker already knows:
 
 - files touched,
 - design decisions,
@@ -364,11 +368,11 @@ Interpretation: the subagent was idle and is now running a real turn.
 
 ```text
 For transient failure or review rework:
-1. irc list.
-2. If original worker is listed as running/idle/parked, direct irc send with continuation/rework instructions.
+1. hub list.
+2. If original worker is listed as running/idle/parked, direct hub send with continuation/rework instructions.
 3. If delivery receipt is injected/woken/revived, do not spawn replacement.
 4. Await only if blocked; otherwise continue coordinating and later wait/inbox.
 5. Spawn replacement only if original worker is aborted, non-revivable, or direct delivery fails.
 ```
 
-That matches OMP’s lifecycle model: subagents are kept around specifically so orchestration can continue through `irc` instead of throwing away state.
+That matches OMP’s lifecycle model: subagents are kept around specifically so orchestration can continue through `hub` instead of throwing away state.

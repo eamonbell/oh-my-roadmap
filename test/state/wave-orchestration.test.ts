@@ -196,7 +196,7 @@ describe("roadmap wave orchestration state", () => {
       { task_id: "t01-state", agent_id: "agent-store", job_id: "job-store", status: "running" },
     ]);
     expect(redispatch.instructions).toContain("Do not redispatch");
-    expect(redispatch.instructions).toContain("First check the current session's background jobs and IRC peers");
+    expect(redispatch.instructions).toContain("First check the current session's hub job snapshot (hub op:jobs) and peer roster");
     expect(redispatch.instructions).toContain("record it abandoned immediately");
     expect(redispatch.instructions).toContain("do not poll, probe, or wait");
     expect(redispatch.instructions).toContain("prefer waking the existing worker");
@@ -824,7 +824,7 @@ describe("roadmap wave orchestration state", () => {
 describe("part 7 operational gaps", () => {
   // 7a — durable result handoff: a completed worker may have already terminated when the
   // orchestrator asks for its report. record_wave_result must source the summary from the
-  // worker's resolved note in state rather than requiring a live IRC reply.
+  // worker's resolved note in state rather than requiring a live hub reply.
   test("record_wave_result sources its summary from the resolved worker note when no summary is supplied", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });

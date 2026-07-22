@@ -12,7 +12,7 @@ function activeIncompleteTaskIds(tasks: TaskPlan[]): string[] {
 }
 
 // Durable result handoff: when the orchestrator cannot get a summary from the worker's
-// live IRC reply (a completed worker may have already terminated — "Unknown or terminated
+// live hub reply (a completed worker may have already terminated — "Unknown or terminated
 // agent"), source the summary from the worker's own persisted note in state instead of
 // forcing the orchestrator to reconstruct it. Returns the most recent worker note body
 // for the task, if any.

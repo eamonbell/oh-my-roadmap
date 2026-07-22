@@ -56,8 +56,8 @@ Required process:
 - Initialize implementation progress to the first wave with step `not_started`, empty active tasks, and a current timestamp.
 - Create or update the draft plan with `omr_transition` or `omr_create_change_request`.
 - Dispatch `wave-flow-checker` to review the draft waves before asking for approval.
-- After dispatching `wave-flow-checker` and recording its job id, wait once with a meaningful blocking `job` wait for the checker result; do not loop
-  short polls. Use IRC only when a live checker peer already has context, or after a timeout/interruption.
+- After dispatching `wave-flow-checker` and recording its job id, wait once with a meaningful blocking hub `op:wait` for the checker result; do not loop
+  short polls. Use hub messaging only when a live checker peer already has context, or after a timeout/interruption.
 - Record the checker result with `omr_transition` operation `record_wave_flow_check`.
 - If the checker fails, revise the draft plan with `update_milestone_plan` or `update_change_request_plan`, rerun `wave-flow-checker`, and record the
   new result.
