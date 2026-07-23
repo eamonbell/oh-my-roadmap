@@ -2,6 +2,24 @@ import type { ContextEntryResult } from '../context-types'
 import type { NextActionHint } from '../report/index'
 import type { ImplementationProgressStep, ImplementationWorkerName, RelevantCodeReference, ReviewerRun, ReviewFinding, ReworkQueueItem, RoadmapBlocker, ScoutFinding, SharedInterfaceContract, TaskPlan, VerificationBaseline, WavePlan, WorkerRun, } from '../types'
 
+export interface WaveChangeFile {
+	path: string;
+	old_path?: string;
+	status: 'added' | 'modified' | 'deleted' | 'renamed' | 'type_changed';
+	additions?: number;
+	deletions?: number;
+	patch?: string;
+}
+
+export interface WaveChangePackage {
+	available: boolean;
+	start_head?: string;
+	files: WaveChangeFile[];
+	additions: number;
+	deletions: number;
+	warnings: string[];
+}
+
 export interface WaveOrchestrationTargetInput {
 	roadmapId?: string;
 	milestoneId?: string;
@@ -88,6 +106,7 @@ export interface PrepareWaveDispatchResult {
 	active_runs: WorkerRun[];
 	instructions: string;
 	next_actions?: NextActionHint[];
+	wave_git?: { available: boolean; checkpoints_enabled: boolean; warnings: string[] };
 }
 
 export interface RecordWorkerDispatchInput extends WaveOrchestrationTargetInput {
@@ -210,6 +229,7 @@ export interface PrepareWaveReviewResult {
 	verification_baseline?: VerificationBaseline;
 	rework_queue?: ReworkQueueItem[];
 	worker_command_receipts?: { task_id: string; agent_id?: string; commands: string[] }[];
+	wave_changes?: WaveChangePackage;
 }
 
 export interface RecordWaveReviewInput extends WaveOrchestrationTargetInput {
@@ -225,4 +245,5 @@ export interface RecordWaveReviewResult {
 	progress_step: ImplementationProgressStep;
 	blockers: RoadmapBlocker[];
 	next_actions?: NextActionHint[];
+	checkpoint?: { status: 'created' | 'no_changes' | 'skipped'; commit?: string; warnings: string[] };
 }

@@ -635,6 +635,8 @@ itself is the use case the feature was requested for.
 | R21 | Plan evidence + conventions in dispatch/review packages — ✅ Implemented (Wave 3) | High | Low-Med | dispatch.ts, review.ts, task context |
 | R8     | Phase-aware, never-stale next_action (init/discovery gap; post-deferral wave unblock) — ✅ Implemented (Wave 2)                                   | Med-High | Medium     | report/next-action.ts, omr_init, defer/resolve receipts                |
 | R23 | Persistent per-repo primer artifact — ✅ Implemented (Wave 3) | Med-High | Medium | repo-primer.ts, state/dispatch/review packages |
+| R24 | Wave diff package for reviewers — ✅ Implemented (Wave 4) | Medium | Low-Med | wave-orchestration/git.ts, dispatch.ts, review.ts |
+| F1 | Git wave checkpoints — **opt-in via config** — ✅ Implemented (Wave 4) | Medium | Med-High | project-init.ts, wave-orchestration/git.ts, review.ts |
 | R6     | Auto-advance wave (or receipt payload) after passed review — ✅ Implemented (Wave 1)                                                              | Medium   | Low        | wave-orchestration/review.ts                                           |
 | R7     | prepare_worker_redispatch accepts abandoned runs (or skill/error text fixed); history:// scoping note — ✅ Implemented (Wave 1)                   | Medium   | Low        | dispatch.ts, implementation-orchestrator SKILL.md                      |
 | R9     | plan-validation self-overlap false positive — ✅ Implemented (Wave 1)                                                                             | Medium   | Low        | plan-validation.ts:86-96                                               |
@@ -761,7 +763,7 @@ findings. This is the structural fix for the class of waste R10 patches (every s
 re-derived `test/` vs `packages/core/test/`, the bun runner, and tsconfig quirks — at least
 8 times across the roadmap).
 
-#### R24. Wave diff package for reviewers
+#### R24. Wave diff package for reviewers ✅ Implemented (Wave 4)
 
 **Impact: Medium · Complexity: Low-Medium (with F1) · Confidence: High**
 
@@ -775,7 +777,7 @@ re-reviews can be scoped to "files changed since the flagged findings."
 All four below were selected by the maintainer in the follow-up interview, with the noted
 constraints.
 
-#### F1. Git wave checkpoints — **opt-in via config** (maintainer requirement)
+#### F1. Git wave checkpoints — **opt-in via config** (maintainer requirement) ✅ Implemented (Wave 4)
 
 `orchestration.git_checkpoints: true` in `.omr/config.yml` (default off). After each passed
 wave review, commit the wave's changes with a structured message (roadmap/milestone/wave/task

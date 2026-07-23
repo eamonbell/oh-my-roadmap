@@ -174,6 +174,28 @@ agents:
 
 `omr init` does not create or modify active roadmap workflow state.
 
+## Git Checkpoints
+
+When implementation waves pass review, `oh-my-roadmap` can optionally commit that wave's changes as a checkpoint on your current branch. This feature is **off by default** and must be enabled per project.
+
+Enable it in your project's `.omr/config.yml`:
+
+```yaml
+orchestration:
+  git_checkpoints: true
+```
+
+**How it works:**
+
+- After a wave's review passes, OMR commits the wave's owned files and modules to the active branch (no separate per-milestone branches).
+- The commit is an ordinary `git commit` that honors your repository's hooks and signing configuration.
+- The commit message follows the pattern `omr(<wave-id>): <wave goal>` with standard trailers.
+- If the directory is not a git repository, git is missing, or HEAD is detached, the checkpoint is skipped with a warning and the wave completes normally — it never blocks progress.
+- If an owned path had uncommitted changes *before* the wave started, those changes are included in the checkpoint; the receipt warns that pre-existing changes were included.
+- If a run is retried after a checkpoint was already created, no duplicate commit is made.
+
+**Reviewer diffs:** Whenever the working directory is a git repository, the wave review package includes a list of changed files and per-file diffs — so reviewers no longer need to reconstruct changes by hand. This works regardless of whether checkpoints are enabled; it is always on in a git repository.
+
 ## Moshi notifications
 
 oh-my-roadmap can drive a **live activity** in a local [Moshi](https://github.com/rjyo/homebrew-moshi) daemon so you can watch each workflow progress from Moshi's inbox. It is opt-in and off by default: with no `moshi` config present, the extension has zero notification behavior.

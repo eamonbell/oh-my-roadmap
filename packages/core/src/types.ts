@@ -358,9 +358,30 @@ export interface TaskRuntime {
 	status: TaskPlan['status'];
 }
 
+export interface WaveGitStart {
+	start_head: string | null;   // HEAD sha at fresh dispatch; null = unborn repo
+	predirty: string[];          // owned paths already dirty at dispatch (collision-warning source)
+	captured_at: string;
+}
+
+export interface WaveCheckpoint {
+	status: 'created' | 'no_changes' | 'skipped';
+	commit?: string;
+	paths?: string[];
+	reason?: string;             // when skipped, e.g. 'git unavailable' | 'detached HEAD'
+	warnings: string[];
+	at: string;
+}
+
+export interface WaveGitState {
+	start?: WaveGitStart;
+	checkpoint?: WaveCheckpoint;
+}
+
 export interface WaveRuntime {
 	id: string;
 	status: WavePlan['status'];
+	git?: WaveGitState;
 }
 
 export interface PlanRuntime {

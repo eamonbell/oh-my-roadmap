@@ -15,6 +15,7 @@ import type {
 	TaskPlan,
 	WaveFlowCheck,
 	WaveFlowCheckStatus,
+	WaveGitState,
 	WavePlan,
 	WorkerRun
 } from '../types'
@@ -324,15 +325,20 @@ export function normalizePlanRuntime(value: unknown, plan: MilestonePlan | Chang
 	const rawWaves = Array.isArray(raw.waves) ? raw.waves : []
 	const taskStatuses = new Map(rawTasks.map((task) => [task.id, task.status]))
 	const waveStatuses = new Map(rawWaves.map((wave) => [wave.id, wave.status]))
+	const waveGit = new Map(rawWaves.map((wave) => [wave.id, wave.git]))
 	return {
 		tasks: plan.tasks.map((task) => ({
 			id: task.id,
 			status: taskStatuses.get(task.id) ?? task.status,
 		})),
-		waves: plan.waves.map((wave) => ({
-			id: wave.id,
-			status: waveStatuses.get(wave.id) ?? wave.status,
-		})),
+		waves: plan.waves.map((wave) => {
+			const git = waveGit.get(wave.id)
+			return {
+				id: wave.id,
+				status: waveStatuses.get(wave.id) ?? wave.status,
+				...(git !== undefined ? { git } : {}),
+			}
+		}),
 		progress: normalizeProgress(raw.progress, plan.waves),
 		wave_flow_check: normalizeWaveFlowCheck(raw.wave_flow_check),
 	}
@@ -341,7 +347,10 @@ export function normalizePlanRuntime(value: unknown, plan: MilestonePlan | Chang
 export function runtimeFromPlan(plan: MilestonePlan | ChangeRequest | AdhocPlan): PlanRuntime {
 	return {
 		tasks: plan.tasks.map((task) => ({ id: task.id, status: task.status })),
-		waves: plan.waves.map((wave) => ({ id: wave.id, status: wave.status })),
+		waves: plan.waves.map((wave) => {
+			const git = (wave as WavePlan & { git?: WaveGitState }).git
+			return { id: wave.id, status: wave.status, ...(git !== undefined ? { git } : {}) }
+		}),
 		progress: plan.progress,
 		wave_flow_check: plan.wave_flow_check,
 	}
@@ -350,16 +359,21 @@ export function runtimeFromPlan(plan: MilestonePlan | ChangeRequest | AdhocPlan)
 export function applyRuntime<T extends MilestonePlan | ChangeRequest | AdhocPlan>(plan: T, runtime: PlanRuntime): T {
 	const taskStatuses = new Map(runtime.tasks.map((task) => [task.id, task.status]))
 	const waveStatuses = new Map(runtime.waves.map((wave) => [wave.id, wave.status]))
+	const waveGit = new Map(runtime.waves.map((wave) => [wave.id, wave.git]))
 	return {
 		...plan,
 		tasks: plan.tasks.map((task) => ({
 			...task,
 			status: taskStatuses.get(task.id) ?? task.status,
 		})),
-		waves: plan.waves.map((wave) => ({
-			...wave,
-			status: waveStatuses.get(wave.id) ?? wave.status,
-		})),
+		waves: plan.waves.map((wave) => {
+			const git = waveGit.get(wave.id)
+			return {
+				...wave,
+				status: waveStatuses.get(wave.id) ?? wave.status,
+				...(git !== undefined ? { git } : {}),
+			}
+		}),
 		progress: runtime.progress,
 		wave_flow_check: runtime.wave_flow_check,
 	}
@@ -370,7 +384,10 @@ export function planDefinitionData(plan: MilestonePlan | ChangeRequest | AdhocPl
 	return {
 		...definition,
 		tasks: tasks.map(({ status, ...task }) => task),
-		waves: waves.map(({ status, ...wave }) => wave),
+		waves: waves.map((wave) => {
+			const { status, git, ...rest } = wave as WavePlan & { git?: WaveGitState }
+			return rest
+		}),
 	}
 }
 

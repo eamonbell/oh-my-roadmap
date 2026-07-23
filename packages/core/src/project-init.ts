@@ -30,6 +30,7 @@ export interface AgentConfig {
 
 export interface OrchestrationConfig {
 	transport_resume_attempts: number;
+	git_checkpoints: boolean;
 }
 
 // Per-language code-style guidance produced by `omr:learn-style` (or authored by
@@ -205,20 +206,32 @@ function parseRoleConfig(value: unknown, role: AgentRole): AgentConfig {
 }
 
 function defaultOrchestrationConfig(): OrchestrationConfig {
-	return { transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS }
+	return { transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS, git_checkpoints: false }
 }
 
 function parseOrchestrationConfig(value: unknown): OrchestrationConfig {
 	if (value === undefined) return defaultOrchestrationConfig()
 	const orchestration = requirePlainObject(value, 'orchestration')
-	rejectUnknownKeys(orchestration, ['transport_resume_attempts'], 'orchestration')
-	if (orchestration.transport_resume_attempts === undefined) return defaultOrchestrationConfig()
+	rejectUnknownKeys(orchestration, ['transport_resume_attempts', 'git_checkpoints'], 'orchestration')
 
-	const attempts = orchestration.transport_resume_attempts
-	if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1) {
-		throw new Error('orchestration.transport_resume_attempts must be a positive integer')
+	let transport_resume_attempts = DEFAULT_TRANSPORT_RESUME_ATTEMPTS
+	if (orchestration.transport_resume_attempts !== undefined) {
+		const attempts = orchestration.transport_resume_attempts
+		if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1) {
+			throw new Error('orchestration.transport_resume_attempts must be a positive integer')
+		}
+		transport_resume_attempts = attempts
 	}
-	return { transport_resume_attempts: attempts }
+
+	let git_checkpoints = false
+	if (orchestration.git_checkpoints !== undefined) {
+		if (typeof orchestration.git_checkpoints !== 'boolean') {
+			throw new Error('orchestration.git_checkpoints must be a boolean')
+		}
+		git_checkpoints = orchestration.git_checkpoints
+	}
+
+	return { transport_resume_attempts, git_checkpoints }
 }
 
 function parseDisabled(value: unknown): boolean | undefined {
@@ -343,6 +356,15 @@ export async function loadTransportResumeAttempts(cwd: string): Promise<number> 
 		return (await loadConfig(cwd)).orchestration.transport_resume_attempts
 	} catch {
 		return DEFAULT_TRANSPORT_RESUME_ATTEMPTS
+	}
+}
+
+export async function loadProjectGitCheckpoints(cwd: string): Promise<boolean> {
+	try {
+		if (!(await fileExists(configPath(cwd)))) return false
+		return (await loadConfig(cwd)).orchestration.git_checkpoints
+	} catch {
+		return false
 	}
 }
 
