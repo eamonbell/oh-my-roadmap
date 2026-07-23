@@ -5,7 +5,7 @@ import type { ContextEntryResult } from '../context-types'
 import { listBlockers, nowIso, openBlocker, transition, } from '../store/index'
 import type { NextActionHint } from '../report/index'
 import type { ImplementationProgressStep, ReworkQueueItem, RoadmapBlocker, WaveCheckpoint, WavePlan } from '../types'
-import { loadProjectGitCheckpoints } from '../project-init'
+import { DEFAULT_MAX_REVIEW_CYCLES, loadMergedConfig, loadProjectGitCheckpoints } from '../project-init'
 import { activePlanContext, type ActivePlanContext, assertImplementationReady, writePlanRuntime, } from './context'
 import {
 	manifestPromptSection,
@@ -363,6 +363,48 @@ function reviewBlockingFindings(input: RecordWaveReviewInput): string[] {
 	})
 }
 
+// The blocking findings carried by THIS review, in order. Structured findings contribute their
+// worker-fixable and needs-user texts; the legacy string path reuses reviewBlockingFindings.
+function currentBlockingFindings(input: RecordWaveReviewInput): string[] {
+	const structured = input.structured_findings
+	if (structured !== undefined && structured.length > 0) {
+		return structured
+			.filter((finding) => finding.severity === 'blocking_worker_fixable' || finding.severity === 'blocking_needs_user')
+			.map((finding) => finding.text)
+	}
+	return reviewBlockingFindings(input)
+}
+
+// R20 accumulated findings history for a capped wave: every prior worker-fixable finding still
+// tracked in the rework queue for this wave, plus every prior needs-user finding recorded as a
+// `Wave <id> review failed` blocker, plus the current review's blocking findings — normalized and
+// de-duplicated while preserving first-seen order. This is what the needs-user cap blocker carries
+// so the user sees the whole loop's history rather than only the final round.
+function accumulatedFindingsHistory(
+	ctx: ActivePlanContext,
+	existingBlockers: RoadmapBlocker[],
+	failedTitle: string,
+	currentFindings: string[],
+): string[] {
+	const seen = new Set<string>()
+	const history: string[] = []
+	const push = (text: string): void => {
+		const normalized = normalizeReviewText(text)
+		if (normalized && !seen.has(normalized)) {
+			seen.add(normalized)
+			history.push(normalized)
+		}
+	}
+	for (const item of ctx.plan.progress.rework_queue ?? []) {
+		if (item.wave_id === ctx.activeWave.id) push(item.finding_text)
+	}
+	for (const blocker of existingBlockers) {
+		if (normalizeReviewText(blocker.title) === normalizeReviewText(failedTitle)) push(blocker.description)
+	}
+	for (const finding of currentFindings) push(finding)
+	return history
+}
+
 function sameReviewBlocker(blocker: RoadmapBlocker, ctx: ActivePlanContext, title: string, description: string): boolean {
 	return (
 		blocker.roadmap_id === ctx.roadmapId &&
@@ -596,10 +638,53 @@ export async function recordWaveReview(
 		const structured = input.structured_findings
 		const useStructured = structured !== undefined && structured.length > 0
 
+		// R20 core-enforced fix->re-review loop cap. Count how many review cycles this wave has
+		// already run from the per-wave reviewer_runs history — one reviewer dispatch is recorded
+		// per cycle by recordReviewerDispatch (see the reviewer rework rule) — flooring at 1 so the
+		// in-flight failed review always counts. When the count reaches max_review_cycles we stop
+		// routing findings back into rework and instead auto-mint a single needs-user blocker
+		// carrying the accumulated findings history, so an unbounded fix->re-review loop can never
+		// spin forever without a user decision. Below the cap, routing is unchanged.
+		const maxReviewCycles = (await loadMergedConfig(cwd)).orchestration.max_review_cycles ?? DEFAULT_MAX_REVIEW_CYCLES
+		const reviewCycles = Math.max(
+			ctx.plan.progress.reviewer_runs.filter((run) => run.wave_id === ctx.activeWave.id).length,
+			1,
+		)
+		const capReached = reviewCycles >= maxReviewCycles
+
 		const blockers: RoadmapBlocker[] = []
 		const reworkItems: ReworkQueueItem[] = []
+		let cappedNeedsUser = false
 
-		if (useStructured) {
+		if (capReached) {
+			// Cap hit: refuse further rework. Mint (or reuse) one canonical needs-user blocker via the
+			// same R1 openBlocker/sameReviewBlocker machinery the blocking_needs_user path uses, whose
+			// description carries the whole loop's findings history. Attributed to 'orchestrator' — this
+			// is a core-enforced halt, not the reviewer's own classification, and never falsely 'user'.
+			cappedNeedsUser = true
+			const history = accumulatedFindingsHistory(ctx, existingBlockers.blockers, title, currentBlockingFindings(input))
+			const description = [
+				`Wave ${ctx.activeWave.id} reached the configured review-cycle cap of ${maxReviewCycles} failed review(s) without a clean pass.`,
+				'Automated fix and re-review is halted; this needs a user decision on how to proceed.',
+				`Accumulated review findings across all ${reviewCycles} cycle(s):`,
+				...(history.length > 0 ? history.map((finding) => `- ${finding}`) : ['- (no specific findings were recorded)']),
+			].join('\n')
+			const existing = existingBlockers.blockers.find((blocker) => sameReviewBlocker(blocker, ctx, title, description))
+			if (existing) {
+				blockers.push(existing)
+			} else {
+				blockers.push(await openBlocker(cwd, {
+					roadmapId: ctx.roadmapId,
+					milestoneId: ctx.milestoneId,
+					...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
+					waveId: ctx.activeWave.id,
+					severity: 'blocking',
+					title,
+					description,
+					createdBy: 'orchestrator',
+				}))
+			}
+		} else if (useStructured) {
 			for (const finding of structured) {
 				if (finding.severity === 'blocking_needs_user') {
 					const description = normalizeReviewText(finding.text)
@@ -686,11 +771,25 @@ export async function recordWaveReview(
 			})
 		}
 
+		// When the review-cycle cap forced a needs-user blocker, surface the halt in next_actions so
+		// the orchestrator routes the accumulated findings to the user instead of looping again.
+		const nextActions: NextActionHint[] | undefined = cappedNeedsUser
+			? [{
+				label: 'Resolve the review-cycle-cap blocker',
+				tool: {
+					name: 'omr_list_blockers',
+					input: { status: 'open', waveId: ctx.activeWave.id },
+				},
+				why: `Wave ${ctx.activeWave.id} reached the review-cycle cap of ${maxReviewCycles}; automated rework is halted and the accumulated findings need a user decision.`,
+			}]
+			: undefined
+
 		return {
 			wave_id: ctx.activeWave.id,
 			wave_status: 'blocked',
 			progress_step: 'resolving_blockers',
 			blockers,
+			...(nextActions ? { next_actions: nextActions } : {}),
 		}
 	})
 }

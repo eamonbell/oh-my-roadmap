@@ -292,6 +292,8 @@ ${manifestSection}
 
 ${seededContextSection}
 
+Before your first edit, call omr_task_briefing ONCE with your owned files and dependencies (see Ownership below) instead of many exploratory reads — it returns file sizes, head excerpts, and a one-hop import graph in a single call.
+
 ${preflightSection}
 
 You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. ${ownedTestsPermitted ? 'You MAY run your task\'s own verification_commands against your OWNED files (see the verification preflight above); do NOT run the full test suite, a whole-project build, or touch unowned files.' : 'Do NOT run builds, compilers, or tests — the wave reviewer owns build and test execution and runs it once the whole wave is complete.'} Run LSP diagnostics on every file you touch before yielding. In your final worker note, include the exact commands you ran (if any), exit codes, and a brief result summary so the reviewer can verify your receipts. Append a concise worker note with files changed, verification performed, and any remaining risks. Then call omr_record_wave_result for this task with status completed or blocked.`

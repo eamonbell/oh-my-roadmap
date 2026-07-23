@@ -58,7 +58,21 @@ export function registerTransitionTools(ctx: ToolRegistrationContext): void {
 	register({
 		name: 'omr_transition',
 		label: 'Transition Roadmap',
-		description: 'Apply a legal roadmap, milestone, bypass, or change-request state transition. Returns a compact receipt by default; pass returnScope: "state" for the full loaded state.',
+		description: 'Apply a legal roadmap, milestone, bypass, or change-request state transition. Returns a compact receipt by default; pass returnScope: "state" for the full loaded state. '
+			+ 'Canonical invocation: write xd://omr_transition {"operation":"record_discovery","discovery":{"recorded":true}} — emit exactly one JSON args object with only the fields listed for that operation; no markdown fences, comments, or trailing text. '
+			+ 'Phase preconditions (the roadmap/milestone must already be in the listed phase or the operation throws): '
+			+ 'record_discovery requires phase discovery or roadmap_draft. '
+			+ 'approve_roadmap requires phase roadmap_draft (and recorded discovery, resolved open questions). '
+			+ 'record_roadmap_milestone_check requires phase roadmap_draft (and a finalized roadmap). '
+			+ 'reopen_roadmap requires phase roadmap_approved (and no active milestone or change request). '
+			+ 'start_milestone_planning requires phase roadmap_approved or complete. '
+			+ 'create_milestone_plan, approve_milestone, and update_milestone_plan require phase milestone_planning. '
+			+ 'start_implementation requires phase milestone_approved for a milestone; for a change request it instead requires phase reviewing, closeout, or complete plus an approved change request. '
+			+ 'start_reviewing requires phase implementing. '
+			+ 'start_closeout requires phase reviewing (call start_reviewing first if not). '
+			+ 'complete_milestone requires phase closeout (enter via start_closeout, then close evidence with record_closeout). '
+			+ 'record_closeout requires phase closeout when closing a milestone (no roadmap-phase requirement when closing an active change request, but an active milestone must exist). '
+			+ 'request_bypass, clear_bypass, approve_change, update_change_request_plan, close_change, update_task_status, update_wave_status, update_implementation_progress, and record_wave_flow_check have no roadmap-phase requirement, but each needs an active milestone or change request in the matching status (e.g. record_wave_flow_check needs a draft change request or a milestone still in milestone_planning).',
 		approval: 'write',
 		parameters: z.object({
 			operation: z.enum([

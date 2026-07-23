@@ -17,7 +17,8 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 	register({
 		name: 'omr_init',
 		label: 'Init Roadmap',
-		description: 'Create .omr state and set a single active roadmap.',
+		description: 'Create .omr state and set a single active roadmap. '
+			+ 'Canonical invocation: write xd://omr_init {"roadmapId":"my-roadmap","title":"My Roadmap"} — emit exactly one JSON args object; no markdown fences, comments, or trailing text.',
 		approval: 'write',
 		parameters: z.object({
 			roadmapId: z.string(),
@@ -46,7 +47,8 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 	register({
 		name: 'omr_update_roadmap',
 		label: 'Update Roadmap',
-		description: 'Finalize the structured roadmap outline and generate roadmap.md before roadmap approval.',
+		description: 'Finalize the structured roadmap outline and generate roadmap.md before roadmap approval. Requires phase discovery or roadmap_draft. '
+			+ 'Canonical invocation: write xd://omr_update_roadmap {"goal":"...","successCriteria":["..."],"constraints":["..."],"nonGoals":["..."],"context":["..."],"evidence":["..."],"risks":["..."],"milestones":[{"milestoneId":"m1","title":"..."}]} — emit exactly one JSON args object; no markdown fences, comments, or trailing text.',
 		approval: 'write',
 		parameters: z.object({
 			goal: z.string(),

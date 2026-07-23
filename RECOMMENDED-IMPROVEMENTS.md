@@ -558,7 +558,7 @@ prompt effort hint scaled to task size (Anthropic publishes explicit effort-scal
 subagents — [multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)).
 **Signal:** same-file re-read count per worker drops; per-worker cost variance narrows.
 
-#### R17. Harden the xd:// transport for weaker models
+#### R17. Harden the xd:// transport for weaker models ✅ Implemented (Wave 5 — parts b+c; (a) transport repair-pass deferred upstream to @oh-my-pi/pi-coding-agent)
 
 **Impact: Low-Medium · Complexity: Medium · Confidence: Medium**
 
@@ -592,7 +592,7 @@ both `prompts.ts` and `SKILL.md` — factor to one source); and prefer structure
 over prose wherever a rule keeps getting violated by *some* model tier (the run shows agents
 obey receipts near-perfectly across models, prose unevenly).
 
-#### R19. Per-role model guidance in config docs (+ escalation hook)
+#### R19. Per-role model guidance in config docs (+ escalation hook) ✅ Implemented (Wave 5)
 
 **Impact: Low-Medium · Complexity: Low · Confidence: Medium**
 
@@ -607,7 +607,7 @@ tiering in the config docs/template (checkers and reviewers ≥ worker tier; sty
 cheapest), and consider a future **escalate-on-failure** option — after N failed review cycles
 on a task, redispatch the rework one worker tier up (pairs naturally with the R20 loop cap).
 
-#### R20. Cap the fix→re-review loop; dogfood the new budget feature
+#### R20. Cap the fix→re-review loop; dogfood the new budget feature ✅ Implemented (Wave 5)
 
 **Impact: Low-Medium · Complexity: Low-Medium · Confidence: Medium**
 
@@ -646,9 +646,10 @@ itself is the use case the feature was requested for.
 | R16    | Worker context-hygiene rules (batch reads, trust receipts) — ✅ Implemented (Wave 3)                                                              | Medium   | Low        | worker templates                                                       |
 | R18    | Cross-model prompt robustness (single-source invariants w/ rationale + procedure) — ✅ Implemented (Wave 1)                                       | Medium   | Medium     | prompts.ts, skills                                                     |
 | R13-15 | Receipt/copy batch: append_note enum, planner gate text, uniform rich receipts — ✅ Implemented (Wave 1)                                          | Low-Med  | Low        | tool registrations, gate.ts messages                                   |
-| R17    | xd:// JSON tolerance + invocation examples + phase preconditions in docs                                                                         | Low-Med  | Medium     | tool registration / OMP transport                                      |
-| R19    | Per-role model tier guidance (+ future escalate-on-failure)                                                                                      | Low-Med  | Low        | docs, config template                                                  |
-| R20    | Rework-loop iteration cap + dogfood budgets on OMR's own runs                                                                                    | Low-Med  | Low-Med    | implementation skill, docs                                             |
+| R17    | xd:// JSON tolerance + invocation examples + phase preconditions in docs — ✅ Implemented (Wave 5)                                                                         | Low-Med  | Medium     | tool registration / OMP transport                                      |
+| R19    | Per-role model tier guidance (+ future escalate-on-failure) — ✅ Implemented (Wave 5)                                                                                      | Low-Med  | Low        | docs, config template                                                  |
+| R20    | Rework-loop iteration cap + dogfood budgets on OMR's own runs — ✅ Implemented (Wave 5)                                                                                    | Low-Med  | Low-Med    | implementation skill, docs                                             |
+| R22    | omr_task_briefing one-call context pack — ✅ Implemented (Wave 5)                                                                                 | Med-High | Medium     | new tool: task-briefing.ts, context-tools.ts, dispatch.ts              |
 
 **Suggested sequencing:** R5 + R9 + R10 + R6 + R7 + R13–R15 are a quick-wins wave (all prompt/
 copy/small-core, independently shippable). R2's prompt half and R3 are the highest
@@ -739,7 +740,7 @@ each name in `shared_interfaces`, the actual signature/type as of dispatch time.
 for the reviewer package. **Signal:** tool calls before first edit drop sharply (baseline:
 ~60 for the worst observed worker); per-worker `omr_style_guide` calls go to 0.
 
-#### R22. `omr_task_briefing` — one-call context pack
+#### R22. `omr_task_briefing` — one-call context pack ✅ Implemented (Wave 5)
 
 **Impact: Medium-High · Complexity: Medium · Confidence: Medium-High**
 

@@ -192,6 +192,7 @@ Follow the oh-my-roadmap workflow strictly:
 - ${SCOUT_RECORDING_RULE}
 ${REPO_PRIMER_USE_RULE}
 - Use omr_transition, omr_amend, omr_append_note, or omr_create_change_request for state changes.
+- omr_* write tools ride the xd:// transport: emit exactly one JSON args object per call (e.g. write xd://omr_transition {"operation":"record_discovery","discovery":{"recorded":true}}) — no markdown code fences, comments, or trailing prose around the JSON.
 - Record discovery with omr_transition operation record_discovery before roadmap approval.
 - For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, worker assignment, a required \`relevant_existing_code\` array of exact \`{ path, line?, symbol?, note }\` pointers, and a required \`shared_interface_contracts\` array of exact \`{ name, signature, source_path, line?, planned, planned_by_task_id? }\` contracts. For every \`planned: true\` contract, provide \`planned_by_task_id\` naming an owning producer task in a strictly earlier wave.
 - For milestone and change planning, assign each task to exactly one of worker-light, worker, or worker-heavy based on risk and blast radius.
