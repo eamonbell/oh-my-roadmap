@@ -2,6 +2,7 @@ import type {ExtensionAPI, ToolDefinition} from '@oh-my-pi/pi-coding-agent/exten
 import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
 import {notifyMoshiForRoadmapToolResult} from '../extension/moshi-notifications'
 import {registerAdhocTools} from './register/adhoc-tools'
+import {registerBaselineTools} from './register/baseline-tools'
 import {registerBlockerTools} from './register/blocker-tools'
 import {registerContextTools} from './register/context-tools'
 import {registerFindingsReportTool} from './register/findings-report-tool'
@@ -41,6 +42,7 @@ export function registerRoadmapTools(api: ExtensionAPI): void {
 	registerTransitionTools(ctx)
 	registerBlockerTools(ctx)
 	registerWaveTools(ctx)
+	registerBaselineTools(ctx)
 	registerReportTools(ctx)
 	registerFindingsReportTool(ctx)
 	registerGraphTools(ctx)

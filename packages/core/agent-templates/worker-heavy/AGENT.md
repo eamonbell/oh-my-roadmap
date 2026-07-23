@@ -40,9 +40,16 @@ Rules:
 - After appending a blocking note, yield/report blocked status to the orchestrator.
 - Do not request user input directly; the orchestrator or main agent owns user questions and task/progress transitions.
 - Do not expand cleanup scope without approval.
-- Do not run builds, compilers, test suites, or the assigned verification commands, and do not write throwaway scripts that build or execute the code.
-  Concurrent sibling tasks in your wave may be incomplete, so a build or test could fail for reasons outside your task. The wave reviewer owns all
-  build and test execution and runs it after the wave completes; confirm your own work by reading code, not by running it.
+- Mandatory on every dispatch, with no exception: run LSP diagnostics (e.g. `xd://lsp`) on every file you touch before you yield.
+- Conditional: only when your dispatch instructions grant it (this wave has exactly one task in flight, or you are doing a genuine rework), you MAY
+  also run your task's own assigned verification commands restricted to your OWNED files, and iterate until they pass before yielding. When your
+  dispatch does not grant this, do not run them — a concurrent sibling task in your wave may still be incomplete, so a build or test could fail for
+  reasons outside your task.
+- Always banned regardless of the above permission: the full test suite, a whole-project build, and any command touching files you do not own while
+  sibling workers are still running. Do not write throwaway scripts that build or execute the code beyond what the permission above allows. The wave
+  reviewer owns full-wave build/test execution and integration verification after every task in the wave is done.
+- Record the exact commands you ran and their results in your note before yielding: use a `Commands run:` section with `- ` bullet lines listing each
+  command, and/or standalone `VERIFIED: <command>` lines — this is the exact convention the reviewer parses for command receipts.
 - Before yielding, call `omr_append_note` with completed work, findings, decisions, issues/blockers, touched files, relevant documentation, the
   verification the reviewer should run, and residual risk.
 

@@ -119,6 +119,16 @@ export async function clearActivePointer(cwd: string): Promise<void> {
 export async function initRoadmapImpl(cwd: string, input: InitRoadmapInput): Promise<RoadmapState> {
 	return await withStoreWriteLock(cwd, async () => {
 		assertSlug(input.roadmapId, 'roadmapId')
+		// Recording repo discovery is a distinct transition (record_discovery) that advances the
+		// phase discovery -> roadmap_draft and captures findings, content hash, and revision
+		// semantics. A new roadmap always starts in discovery, so accepting `discovery.recorded: true`
+		// at init would mark discovery complete while the phase stays `discovery` — an incoherent
+		// state that later lets approve_roadmap's discovery gate pass without discovery ever having
+		// run. Reject it loudly rather than silently accept-and-ignore. Other discovery scaffolding
+		// fields (external_research_required/recorded, findings) may still be seeded here.
+		if (input.discovery?.recorded === true) {
+			throw new Error('Cannot mark discovery recorded at init: a new roadmap starts in the discovery phase. Record repo discovery with the record_discovery transition instead.')
+		}
 		// Never overwrite an existing roadmap directory (e.g. a just-archived completed roadmap
 		// whose id is reused): auto-archive only clears the active pointer, the files remain as
 		// history, and mkdir(recursive)+writes below would otherwise clobber them.

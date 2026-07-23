@@ -560,6 +560,8 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						worker_runs: existingProgress?.worker_runs ?? [],
 						reviewer_runs: existingProgress?.reviewer_runs ?? [],
 						...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
+						...(existingProgress?.rework_queue ? {rework_queue: existingProgress.rework_queue} : {}),
+						...(existingProgress?.verification_baseline ? {verification_baseline: existingProgress.verification_baseline} : {}),
 						updated_at: nowIso(),
 					} satisfies ImplementationProgress
 					if (loaded.changeRequest) {
@@ -668,6 +670,8 @@ async function applyAdhocStatusTransition(cwd: string, input: TransitionInput, a
 				worker_runs: adhoc.progress.worker_runs,
 				reviewer_runs: adhoc.progress.reviewer_runs,
 				...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
+				...(adhoc.progress.rework_queue ? {rework_queue: adhoc.progress.rework_queue} : {}),
+				...(adhoc.progress.verification_baseline ? {verification_baseline: adhoc.progress.verification_baseline} : {}),
 				updated_at: nowIso(),
 			} satisfies ImplementationProgress
 			await writeAdhocRuntime(cwd, {...adhoc, progress})

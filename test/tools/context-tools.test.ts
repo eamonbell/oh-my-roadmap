@@ -106,10 +106,13 @@ describe("roadmap context tools", () => {
         undefined,
         toolContext(cwd),
       );
+      // A freshly initialized roadmap is in the discovery phase, whose only legal forward step is
+      // record_discovery; next_action steers there rather than to premature approval-readiness
+      // validation (which would recommend finalization before discovery is recorded).
       expect(nextAction?.details).toMatchObject({
-        action: "Resolve validation errors: Roadmap must be finalized with omr_update_roadmap before approval",
+        action: "Record repo discovery with omr_transition record_discovery.",
         plan: {
-          label: "Resolve validation errors",
+          label: "Record repo discovery",
           status: "needs_input",
           safe_to_apply: false,
         },

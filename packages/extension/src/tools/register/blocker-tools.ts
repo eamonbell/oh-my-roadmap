@@ -78,7 +78,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const blocker = await resolveBlocker(ctx.cwd, params as ResolveBlockerInput)
-			return receiptResult(ctx.cwd, `Resolved blocker ${blocker.id}.`, blocker)
+			return receiptResult(ctx.cwd, `Resolved blocker ${blocker.id}. If this cleared the wave's last blocking finding, set the wave status with omr_transition update_wave_status or prepare re-review with omr_prepare_wave_review.`, blocker)
 		},
 	} as ToolDefinition)
 
@@ -95,7 +95,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const blocker = await deferBlocker(ctx.cwd, params as DeferBlockerInput)
-			return receiptResult(ctx.cwd, `Deferred blocker ${blocker.id}.`, blocker)
+			return receiptResult(ctx.cwd, `Deferred blocker ${blocker.id}. If this cleared the wave's last blocking finding, set the wave status with omr_transition update_wave_status or prepare re-review with omr_prepare_wave_review.`, blocker)
 		},
 	} as ToolDefinition)
 

@@ -236,26 +236,34 @@ function hasCanonicalBlockerForNote(
 // blocker (which created a chicken-and-egg edit-gate deadlock). A blocker is "under active
 // rework" when its task OR its wave has such a run: review-rework blockers are wave-scoped
 // (no task_id), so wave scope must count too.
-interface ReworkScope {
+export interface ReworkScope {
 	taskIds: Set<string>;
 	waveIds: Set<string>;
+	// Ids of the blockers/findings a rework worker was explicitly dispatched against
+	// (WorkerRun.rework_of). A rework worker sent to fix blocker X must be authorized to
+	// edit even when scope-matching (task/wave) is imperfect — a blocker can never block
+	// its own fix.
+	blockerIds: Set<string>;
 }
 
-const EMPTY_REWORK_SCOPE: ReworkScope = {taskIds: new Set(), waveIds: new Set()}
+const EMPTY_REWORK_SCOPE: ReworkScope = {taskIds: new Set(), waveIds: new Set(), blockerIds: new Set()}
 
-function reworkScopeFromState(state: LoadedState): ReworkScope {
+export function reworkScopeFromState(state: LoadedState): ReworkScope {
 	const runs = [
 		...(state.milestone?.progress.worker_runs ?? []),
 		...(state.changeRequest?.progress.worker_runs ?? []),
 	]
 	const taskIds = new Set<string>()
 	const waveIds = new Set<string>()
+	const blockerIds = new Set<string>()
 	for (const run of runs) {
 		if (run.status !== 'running' && run.status !== 'transport_failed') continue
 		taskIds.add(run.task_id)
 		if (run.wave_id) waveIds.add(run.wave_id)
+		// A run dispatched to fix a specific blocker/finding authorizes that exact blocker id.
+		if (run.rework_of) blockerIds.add(run.rework_of)
 	}
-	return {taskIds, waveIds}
+	return {taskIds, waveIds, blockerIds}
 }
 
 function isUnderActiveRework(
@@ -269,13 +277,18 @@ function isUnderActiveRework(
 	return Boolean((taskId && scope.taskIds.has(taskId)) || (!taskId && waveId && scope.waveIds.has(waveId)))
 }
 
-function openCanonicalBlockingIssues(
+export function openCanonicalBlockingIssues(
 	blockers: RoadmapBlocker[],
 	reworkScope: ReworkScope = EMPTY_REWORK_SCOPE,
 ): ValidationIssue[] {
 	return blockers
 	.filter((blocker) => blocker.severity === 'blocking' && blocker.status === 'open')
-	.filter((blocker) => !isUnderActiveRework(reworkScope, blocker.task_id, blocker.wave_id))
+	// Exempt a blocker when its task/wave is under active rework, OR when a rework worker was
+	// explicitly dispatched against this exact blocker id (rework_of): a blocker can never
+	// block its own fix, even if task/wave scope-matching is imperfect.
+	.filter((blocker) =>
+		!isUnderActiveRework(reworkScope, blocker.task_id, blocker.wave_id) &&
+		!reworkScope.blockerIds.has(blocker.id))
 	.map((blocker) =>
 		issue(
 			'blockers.blocking.open',
@@ -437,7 +450,7 @@ export async function validateImplementationGate(cwd: string): Promise<Validatio
 		let baseErrors = result.errors
 		const reworkScope = reworkScopeFromState(state)
 		if (
-			(reworkScope.taskIds.size > 0 || reworkScope.waveIds.size > 0) &&
+			(reworkScope.taskIds.size > 0 || reworkScope.waveIds.size > 0 || reworkScope.blockerIds.size > 0) &&
 			result.errors.some((error) => error.code === 'blockers.blocking.open' || error.code === 'notes.blocking.open')
 		) {
 			const canonicalBlockers = await loadRoadmapBlockers(cwd, state.roadmap.roadmap_id)

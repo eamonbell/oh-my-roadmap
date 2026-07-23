@@ -1,3 +1,5 @@
+export type {RecordVerificationBaselineInput} from './baseline'
+export {recordVerificationBaseline} from './baseline'
 export type {
 	PrepareWaveDispatchResult,
 	PrepareWaveReviewResult,

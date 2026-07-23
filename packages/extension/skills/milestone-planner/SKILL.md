@@ -38,7 +38,9 @@ Required process:
   notes.
 - Identify drift from the roadmap and require an approved roadmap amendment when drift is material.
 - Resolve all material open questions before approval.
-- Define exact verification commands and acceptance criteria.
+- Define exact verification commands and acceptance criteria. Frame per-wave acceptance as no regressions versus the verification baseline captured at
+  implementation start (no new failures, no lost passes), not as an absolute "existing tests remain green" bar — a fresh full-suite-green run is a
+  closeout concern, not a per-wave one.
 - Convert the user's test coverage decisions into task-level verification commands and done criteria, making clear which tests are new, which are
   existing, and which task owns each test obligation.
 - Define concrete executable tasks before dependency analysis or wave creation.

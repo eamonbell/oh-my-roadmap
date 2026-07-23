@@ -1,6 +1,6 @@
 import type {ContextEntryResult} from '../context-types'
 import type {NextActionHint} from '../report/index'
-import type {ImplementationProgressStep, ImplementationWorkerName, ReviewerRun, RoadmapBlocker, TaskPlan, WavePlan, WorkerRun,} from '../types'
+import type {ImplementationProgressStep, ImplementationWorkerName, ReviewerRun, ReviewFinding, ReworkQueueItem, RoadmapBlocker, TaskPlan, VerificationBaseline, WavePlan, WorkerRun,} from '../types'
 
 export interface WaveOrchestrationTargetInput {
 	roadmapId?: string;
@@ -148,12 +148,16 @@ export interface PrepareWaveReviewResult {
 		shared_interfaces: string[];
 	}>;
 	worker_notes: ContextEntryResult[];
+	verification_baseline?: VerificationBaseline;
+	rework_queue?: ReworkQueueItem[];
+	worker_command_receipts?: {task_id: string; agent_id?: string; commands: string[]}[];
 }
 
 export interface RecordWaveReviewInput extends WaveOrchestrationTargetInput {
 	status: 'passed' | 'failed';
 	summary: string;
 	findings?: string[];
+	structured_findings?: ReviewFinding[];
 }
 
 export interface RecordWaveReviewResult {

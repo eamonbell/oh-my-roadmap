@@ -185,6 +185,8 @@ This is exactly where `hub` messaging is better than spawning another subagent. 
 
 A new agent would need to rediscover all of that.
 
+Reviewers file worker-fixable findings like this as a `blocking_worker_fixable` structured finding, which lands in the wave's `rework_queue` (not a canonical blocker) — this flow is exactly how that queue item gets resolved. When dispatching the rework, record it with `omr_record_worker_dispatch`'s `reworkOf` set to the rework-queue item's id; that marks the run as a rework, which is also what authorizes the worker to run its own owned-file verification commands (see the worker self-verification rules) and exempts the corresponding blocker from the write gate.
+
 ## Orchestrator flow
 
 ### 1. Preserve the review findings

@@ -1,9 +1,11 @@
+import {randomUUID} from 'node:crypto'
 import {withDiagnosticTiming} from '../diagnostics'
 import {searchContext} from '../context'
-import {listBlockers, openBlocker, transition,} from '../store/index'
+import type {ContextEntryResult} from '../context-types'
+import {listBlockers, nowIso, openBlocker, transition,} from '../store/index'
 import type {NextActionHint} from '../report/index'
-import type {ImplementationProgressStep, RoadmapBlocker, WavePlan} from '../types'
-import {activePlanContext, type ActivePlanContext, assertImplementationReady,} from './context'
+import type {ImplementationProgressStep, ReworkQueueItem, RoadmapBlocker, WavePlan} from '../types'
+import {activePlanContext, type ActivePlanContext, assertImplementationReady, writePlanRuntime,} from './context'
 import {
 	manifestPromptSection,
 	setProgress,
@@ -88,7 +90,7 @@ ${manifestSection}
 
 ${preflightSection}
 
-You own running the wave's build, tests, and verification commands. Workers do not run builds or tests — a concurrent sibling task may have been incomplete when a worker finished — so this review is the first point where the whole wave is built and verified together. Run the verification commands above, and treat a genuine build or test failure as a BLOCKING (worker-fixable) finding that names the failing command and cause; note any command you could not run.
+Workers self-verify before yielding: they always run LSP diagnostics on every file they touch, and — when their dispatch grants it (a single-worker wave, or a genuine rework) — also run their task's own verification commands against their OWNED files, recording exact command receipts (a "Commands run:" section and/or "VERIFIED:" lines) in their worker note. Verify those receipts rather than re-discovering or re-running everything from scratch; the review package carries worker_command_receipts (best-effort parses of what each worker reported running) as your starting point. Then, once for the whole wave, run the plan's milestone-level verification commands above yourself to confirm the assembled wave holds together — a concurrent sibling task may have been incomplete when any single worker finished, so this integration pass is still the first point where the whole wave is verified together. Judge results RELATIVE TO the verification_baseline in the review package (captured at implementation start): the bar is no NEW failures and no lost passes versus that baseline, not an absolute full-suite-green bar; pre-existing baseline failures are informational. Treat a genuine NEW failure (a regression vs the baseline) as a BLOCKING (worker-fixable) finding that names the failing command and cause; note any command you could not run.
 
 Before creating throwaway verification code or code-level repros, call omr_style_guide with the relevant task owned files from the manifest above or the files you are inspecting, and follow any recorded hard/style guidance where practical. If no relevant file path is known, skip the call and do not invent language-specific rules.
 
@@ -153,6 +155,19 @@ export async function prepareWaveReview(
 			maxResults: 80,
 		})
 
+		// Verification baseline (if captured at implementation start) rides along so the reviewer
+		// can diff current verification results against it. Read from the active plan's progress —
+		// which is milestone, change-request, or ad-hoc scoped via ctx.plan.
+		const verificationBaseline = ctx.plan.progress.verification_baseline
+		// Pending rework items for THIS wave: worker-fixable findings from an earlier review round
+		// that a reviewer should confirm are resolved (rather than re-report).
+		const pendingRework = (ctx.plan.progress.rework_queue ?? []).filter(
+			(item) => item.wave_id === ctx.activeWave.id && item.status === 'pending',
+		)
+		// Best-effort receipts of the commands each worker reports having run, parsed from the
+		// worker notes already fetched above (see parseWorkerCommandReceipts for the convention).
+		const commandReceipts = parseWorkerCommandReceipts(workerNotes.results)
+
 		return {
 			roadmap_id: ctx.roadmapId,
 			milestone_id: ctx.milestoneId,
@@ -174,12 +189,85 @@ export async function prepareWaveReview(
 				shared_interfaces: task.shared_interfaces,
 			})),
 			worker_notes: workerNotes.results,
+			...(verificationBaseline ? {verification_baseline: verificationBaseline} : {}),
+			...(pendingRework.length > 0 ? {rework_queue: pendingRework} : {}),
+			...(commandReceipts.length > 0 ? {worker_command_receipts: commandReceipts} : {}),
 		}
 	})
 }
 
 function normalizeReviewText(value: string): string {
 	return value.trim().replace(/\s+/g, ' ')
+}
+
+// No rework-id helper exists in the store, so mirror roadmapBlockerId()'s `<prefix>_<uuid>` style.
+function reworkQueueId(): string {
+	return `rework_${randomUUID()}`
+}
+
+// Worker-fixable rework items require a task_id. Prefer the finding's own task_id; when absent,
+// fall back to the wave's single active task, or (when the wave has several tasks) record the item
+// as wave-scoped by stamping the wave id so the item still tracks to a concrete owner.
+function reworkFallbackTaskId(ctx: ActivePlanContext): string {
+	if (ctx.activeTasks.length === 1) return ctx.activeTasks[0]!.id
+	return ctx.activeWave.id
+}
+
+// Worker command-receipt convention (documented, best-effort, defensive):
+// Within a worker note body, commands the worker reports having run are listed either as
+//   Commands run: <cmd>            (inline, single command after the colon), or
+//   Commands run:                  (header line) followed by bullet lines `- <cmd>` / `* <cmd>`
+//     - <cmd>
+//     - <cmd>
+// and/or as standalone `VERIFIED: <cmd>` lines anywhere in the body. A note with no such marker is
+// omitted entirely. The Commands-run bullet block ends at the first non-bullet line.
+function extractWorkerCommands(body: string): string[] {
+	const commands: string[] = []
+	let inCommandsBlock = false
+	for (const raw of body.split(/\r?\n/)) {
+		const line = raw.trim()
+		const verified = /^VERIFIED:\s*(.+)$/i.exec(line)
+		if (verified) {
+			inCommandsBlock = false
+			const cmd = verified[1]!.trim()
+			if (cmd) commands.push(cmd)
+			continue
+		}
+		const header = /^Commands run:\s*(.*)$/i.exec(line)
+		if (header) {
+			inCommandsBlock = true
+			const inline = header[1]!.trim()
+			if (inline) commands.push(inline)
+			continue
+		}
+		if (inCommandsBlock) {
+			const bullet = /^[-*]\s+(.+)$/.exec(line)
+			if (bullet) {
+				const cmd = bullet[1]!.trim()
+				if (cmd) commands.push(cmd)
+				continue
+			}
+			// Any non-bullet line (including a blank line) ends the Commands-run block.
+			inCommandsBlock = false
+		}
+	}
+	return commands
+}
+
+function parseWorkerCommandReceipts(
+	notes: ContextEntryResult[],
+): {task_id: string; agent_id?: string; commands: string[]}[] {
+	const receipts: {task_id: string; agent_id?: string; commands: string[]}[] = []
+	for (const note of notes) {
+		const body = typeof note.body === 'string' ? note.body : ''
+		if (!body) continue
+		const commands = extractWorkerCommands(body)
+		if (commands.length === 0) continue
+		const taskId = typeof note.metadata.task_id === 'string' ? note.metadata.task_id : ''
+		const agentId = typeof note.metadata.worker_id === 'string' ? note.metadata.worker_id : undefined
+		receipts.push({task_id: taskId, ...(agentId ? {agent_id: agentId} : {}), commands})
+	}
+	return receipts
 }
 
 function reviewBlockingFindings(input: RecordWaveReviewInput): string[] {
@@ -336,37 +424,112 @@ export async function recordWaveReview(
 			}
 		}
 
-		const blockers: RoadmapBlocker[] = []
 		const existingBlockers = await listBlockers(cwd, {
 			roadmapId: ctx.roadmapId,
 			milestoneId: ctx.milestoneId,
 			...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
 			waveId: ctx.activeWave.id,
 		})
-		for (const finding of reviewBlockingFindings(input)) {
-			const title = `Wave ${ctx.activeWave.id} review failed`
-			const existing = existingBlockers.blockers.find((blocker) => sameReviewBlocker(blocker, ctx, title, finding))
-			if (existing) {
-				blockers.push(existing)
-				continue
+		const title = `Wave ${ctx.activeWave.id} review failed`
+
+		// Structured findings (R1 severity routing): route each finding by severity.
+		//   pass / advisory           -> dropped (no blocker, no rework)
+		//   blocking_needs_user       -> canonical blocking blocker (deduped like the string path)
+		//   blocking_worker_fixable   -> rework-queue item (NOT a blocker), dispatchable back to a worker
+		// When absent, the legacy string-based reviewBlockingFindings behavior is preserved verbatim.
+		const structured = input.structured_findings
+		const useStructured = structured !== undefined && structured.length > 0
+
+		const blockers: RoadmapBlocker[] = []
+		const reworkItems: ReworkQueueItem[] = []
+
+		if (useStructured) {
+			for (const finding of structured) {
+				if (finding.severity === 'blocking_needs_user') {
+					const description = normalizeReviewText(finding.text)
+					if (!description) continue
+					const existing = existingBlockers.blockers.find((blocker) => sameReviewBlocker(blocker, ctx, title, description))
+					if (existing) {
+						blockers.push(existing)
+						continue
+					}
+					blockers.push(await openBlocker(cwd, {
+						roadmapId: ctx.roadmapId,
+						milestoneId: ctx.milestoneId,
+						...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+						waveId: ctx.activeWave.id,
+						...(finding.task_id ? {taskId: finding.task_id} : {}),
+						severity: 'blocking',
+						title,
+						description,
+						createdBy: 'reviewer',
+					}))
+					continue
+				}
+				if (finding.severity === 'blocking_worker_fixable') {
+					reworkItems.push({
+						id: reworkQueueId(),
+						task_id: finding.task_id ?? reworkFallbackTaskId(ctx),
+						wave_id: ctx.activeWave.id,
+						finding_text: finding.text,
+						source_finding_severity: finding.severity,
+						status: 'pending',
+						created_at: nowIso(),
+						created_by: 'reviewer',
+					})
+				}
+				// pass / advisory: intentionally dropped.
 			}
-			blockers.push(await openBlocker(cwd, {
-				roadmapId: ctx.roadmapId,
-				milestoneId: ctx.milestoneId,
-				...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
-				waveId: ctx.activeWave.id,
-				severity: 'blocking',
-				title,
-				description: finding,
-				createdBy: 'reviewer',
-			}))
+		} else {
+			for (const finding of reviewBlockingFindings(input)) {
+				const existing = existingBlockers.blockers.find((blocker) => sameReviewBlocker(blocker, ctx, title, finding))
+				if (existing) {
+					blockers.push(existing)
+					continue
+				}
+				blockers.push(await openBlocker(cwd, {
+					roadmapId: ctx.roadmapId,
+					milestoneId: ctx.milestoneId,
+					...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+					waveId: ctx.activeWave.id,
+					severity: 'blocking',
+					title,
+					description: finding,
+					createdBy: 'reviewer',
+				}))
+			}
 		}
+
+		// A failed review never advances the wave: even a failure whose structured findings are all
+		// pass/advisory (nothing actionable) leaves the wave blocked with a clear reason rather than
+		// silently passing. This mirrors the needs-user / rework case, which also blocks.
 		await transition(cwd, {
 			operation: 'update_wave_status',
 			waveId: ctx.activeWave.id,
 			waveStatus: 'blocked',
 		})
 		await setProgress(cwd, ctx, 'resolving_blockers', [], input.summary)
+
+		// Persist rework items durably. setProgress routes through update_implementation_progress,
+		// which reconstructs progress and does not carry rework_queue, so append the items with a
+		// direct runtime write (mirroring recordVerificationBaseline). Carry any pre-existing queue
+		// forward from the pre-transition snapshot, and preserve a captured verification_baseline
+		// that the progress-update write would otherwise drop.
+		if (reworkItems.length > 0) {
+			const reloaded = await activePlanContext(cwd, input)
+			const existingQueue = ctx.plan.progress.rework_queue ?? []
+			const carriedBaseline = ctx.plan.progress.verification_baseline
+			await writePlanRuntime(cwd, {
+				...reloaded.plan,
+				progress: {
+					...reloaded.plan.progress,
+					...(carriedBaseline ? {verification_baseline: carriedBaseline} : {}),
+					rework_queue: [...existingQueue, ...reworkItems],
+					updated_at: nowIso(),
+				},
+			})
+		}
+
 		return {
 			wave_id: ctx.activeWave.id,
 			wave_status: 'blocked',

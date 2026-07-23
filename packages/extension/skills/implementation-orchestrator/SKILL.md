@@ -25,6 +25,9 @@ Required process:
 - Do not use worktrees or isolated workspaces.
 - Resume from `progress.active_wave_id`, `progress.step`, `progress.active_task_ids`, and `progress.blocked_reason`; do not infer a different current
   wave from notes.
+- At implementation start, before the first dispatch, run the plan's verification commands once and record the results with
+  `omr_record_verification_baseline` (pre-existing failing tests/counts included). This baseline is what reviewers judge later wave results against —
+  "no NEW failures, no lost passes" — rather than an absolute full-suite-green bar, which is a closeout concern.
 - Before dispatch, call `omr_prepare_wave_dispatch`.
 - If dispatch preparation returns `active_runs`, do not redispatch those tasks.
 - For each active run, first check the current session's hub job snapshot (`op:jobs`) and peer roster (`op:list`) for the run's `job_id`/`jobId` or `agent_id`/`agentId`.
@@ -66,12 +69,17 @@ Required process:
 - On the first real blocker, record it, cancel sibling active runs, pause implementation, and report `/omr:blk-list`,
   `/omr:blk-resolve <id> <resolution>` or `/omr:blk-defer <id> <reason>`, then `/omr:rm-resume`.
 - After the user resolves a blocker, redispatch the task or record material replanning with `omr_amend`.
+- `omr_resolve_blocker` accepts a `deferred` blocker directly (`deferred` -> `resolved`), not only an `open` one — once a deferred finding is actually
+  fixed, resolve it straight away without first reopening it.
+- A worker-fixable review finding becomes a rework-queue item (`rework_queue`), never a canonical blocker; only a `blocking_needs_user` finding opens
+  one. Work the rework queue by waking (or spawning) the worker for that item's task, as described in the wave-review rework pattern below.
 - Before wave review, confirm each active task has a worker note whose `workerId` matches that task's `worker` value.
 **Wave review and rework (wake the prior reviewer; spawn fresh only on a new session or expanded scope):**
 
 - When all active-wave workers are completed, call `omr_prepare_wave_review` and dispatch the returned reviewer package with the built-in task/subagent mechanism. Immediately after spawning the reviewer, call `omr_record_reviewer_dispatch` with its agentId and jobId so a failed review can wake that same reviewer instead of respawning one.
 - When the reviewer returns findings, classify each blocking finding before recording the review: worker-fixable (a concrete code correction that needs no user decision) versus needs-user-decision (ambiguous acceptance, scope or approval, or risk disposition).
 - For worker-fixable findings do not open a blocker: `op:list` and, if the original worker is still a peer, `op:send` it (`replyTo` the finding) narrow rework instructions naming the exact file/symbol/test, what must change, what must not change, and the verification to run; wait for its rework note. If `op:list` does not list the original worker (new session or aborted), spawn a fresh worker for that task seeded with the findings and the task's persisted worker notes (and `history://<agentId>` when reachable).
+- When dispatching that rework worker, whether waking the original peer or spawning a fresh one, call `omr_record_worker_dispatch` with `reworkOf` set to the rework-queue item's id so the resulting run is recorded as a rework dispatch — this makes the redispatch auditable and authorizes owned-file self-verification and the write-gate exemption for that finding.
 - Re-review by waking the prior reviewer, mirroring the worker rework rule. A failed `omr_prepare_wave_review` returns `re_review: true` with `prior_reviewer_agent_id` and `prior_findings`; `op:list` and, if that prior reviewer is still a peer (parked peers revive automatically when messaged), `op:send` it the re-review request referencing its `prior_findings` so it re-checks only the flagged fixes without re-reading the whole wave, then record that re-dispatch with `omr_record_reviewer_dispatch`. Spawn a FRESH reviewer only when `prior_reviewer_agent_id` is not listed (new session or aborted) or the rework materially expanded scope beyond the flagged findings, where fresh eyes are warranted. Repeat until the wave is clean.
 - A rework worker dispatched to fix an open blocker is authorized to edit the files that blocker covers without first resolving it; the write-gate already permits edits for a task with an active worker run. Do NOT call `omr_resolve_blocker` merely to open the write-gate — resolve a blocker only when its rework is genuinely done.
 - Call `omr_record_wave_review` with `passed` only when the wave is clean, and with `failed` only for findings that genuinely need a user decision.

@@ -1,7 +1,7 @@
 import { withDiagnosticTiming } from '../diagnostics'
 import { evaluateBudgetEnforcement, formatBudgetWarning } from '../enforcement'
 import { loadRoadmapBlockers, loadState } from '../store/index'
-import type { ImplementationProgress, LoadedState, WavePlan } from '../types'
+import type { ImplementationProgress, LoadedState, RoadmapBlocker, WavePlan } from '../types'
 import { validateRoadmapState } from '../validation'
 import { blockerLabels, hasPlannableMilestone, plan, scopeFromState, transitionTool } from './shared'
 import type { NextActionPlan } from './types'
@@ -91,6 +91,22 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 			scope: scopeFromState(state),
 		})
 	}
+	// In the discovery phase the only legal forward step is record_discovery. Recording repo
+	// discovery precedes finalization, so the approval-readiness checks below (roadmap-milestone
+	// check, finalization, validation) are premature here — and the roadmap-milestone check in
+	// particular is illegal in discovery (record_roadmap_milestone_check requires roadmap_draft).
+	// Short-circuit before roadmapCheckNextAction / validation so next_action can never recommend
+	// an action that is illegal in the current phase (R1 surfacing gap).
+	if (state.roadmap.phase === 'discovery') {
+		return plan({
+			id: `roadmap:${state.roadmap.roadmap_id}:record-discovery`,
+			label: 'Record repo discovery',
+			description: 'Record repo discovery with omr_transition record_discovery.',
+			status: 'needs_input',
+			missing_inputs: ['repo discovery findings'],
+			scope: scopeFromState(state),
+		})
+	}
 	const roadmapCheckAction = roadmapCheckNextAction(state)
 	if (roadmapCheckAction) return roadmapCheckAction
 	if (state.changeRequest?.status === 'draft') {
@@ -135,7 +151,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 					tool: transitionTool({ operation: 'start_implementation' }),
 				})
 			case 'implementing':
-				return progressNextActionPlan(state, state.changeRequest.progress, state.changeRequest.waves)
+				return progressNextActionPlan(state, state.changeRequest.progress, state.changeRequest.waves, blockers)
 			case 'reviewing':
 				return plan({
 					id: `change:${state.changeRequest.change_request_id}:review`,
@@ -156,15 +172,8 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 	}
 
 	switch (state.roadmap.phase) {
-		case 'discovery':
-			return plan({
-				id: `roadmap:${state.roadmap.roadmap_id}:record-discovery`,
-				label: 'Record repo discovery',
-				description: 'Record repo discovery with omr_transition record_discovery.',
-				status: 'needs_input',
-				missing_inputs: ['repo discovery findings'],
-				scope: scopeFromState(state),
-			})
+		// Note: the `discovery` phase is handled by an early return above (record_discovery
+		// precedes the approval-readiness checks), so it never reaches this switch.
 		case 'roadmap_draft':
 			return plan({
 				id: `roadmap:${state.roadmap.roadmap_id}:approve`,
@@ -203,7 +212,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 				tool: transitionTool({ operation: 'start_implementation' }),
 			})
 		case 'implementing':
-			if (state.milestone) return progressNextActionPlan(state, state.milestone.progress, state.milestone.waves)
+			if (state.milestone) return progressNextActionPlan(state, state.milestone.progress, state.milestone.waves, blockers)
 			return plan({
 				id: `roadmap:${state.roadmap.roadmap_id}:implement`,
 				label: 'Execute current wave',
@@ -280,7 +289,7 @@ export async function nextAction(cwd: string): Promise<string> {
 	}, async () => (await nextActionPlan(cwd)).description)
 }
 
-function progressNextActionPlan(state: LoadedState, progress: ImplementationProgress, waves: WavePlan[]): NextActionPlan {
+export function progressNextActionPlan(state: LoadedState, progress: ImplementationProgress, waves: WavePlan[], blockers: RoadmapBlocker[] = []): NextActionPlan {
 	const wave = progress.active_wave_id ? ` ${progress.active_wave_id}` : ''
 	const baseScope = scopeFromState(state)
 	const activeWaveIndex = progress.active_wave_id
@@ -319,15 +328,66 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				status: 'agent_required',
 				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
-		case 'resolving_blockers':
+		case 'resolving_blockers': {
+			// Recompute against LIVE state rather than the static blocked_reason. resolveBlocker /
+			// deferBlocker never touch progress.step, so once a wave's blockers are all disposed
+			// this step lingers; a fixed "Resolve blocker: <blocked_reason>" hint goes stale and
+			// leaves the agent with nothing to resolve and no path forward. Drive the hint from the
+			// pending rework queue and the currently-open blockers instead.
+			const waveScope = { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) }
+			const pendingRework = (progress.rework_queue ?? []).filter((item) => item.status === 'pending')
+			if (pendingRework.length > 0) {
+				const first = pendingRework[0]!
+				const more = pendingRework.length > 1 ? ` (${pendingRework.length} pending rework items)` : ''
+				return plan({
+					id: `progress:${first.wave_id}:rework:${first.id}`,
+					label: `Rework wave ${first.wave_id}`,
+					description: `Wake the worker for task ${first.task_id} to fix: ${first.finding_text}${more}, then re-review the wave via omr_prepare_wave_review.`,
+					status: 'agent_required',
+					scope: { ...baseScope, wave_id: first.wave_id },
+				})
+			}
+			// Any open blocking-severity blocker across the roadmap is already handled by the early
+			// return in nextActionPlanImpl, so the open blockers reachable here are wave-scoped
+			// non-blocking ones that still need explicit disposition.
+			const openScopedBlockers = blockers.filter((blocker) =>
+				blocker.status === 'open' &&
+				(progress.active_wave_id ? blocker.wave_id === progress.active_wave_id : true) &&
+				(baseScope.milestone_id ? !blocker.milestone_id || blocker.milestone_id === baseScope.milestone_id : true) &&
+				(baseScope.change_request_id ? !blocker.change_request_id || blocker.change_request_id === baseScope.change_request_id : true),
+			)
+			if (openScopedBlockers.length > 0) {
+				return plan({
+					id: `progress:${progress.active_wave_id ?? 'none'}:resolve-blockers`,
+					label: 'Resolve wave blockers',
+					description: `Resolve or defer open blockers for wave${wave}: ${blockerLabels(openScopedBlockers).join(', ')}.`,
+					status: 'blocked',
+					blockers: blockerLabels(openScopedBlockers),
+					scope: waveScope,
+				})
+			}
+			// Nothing pending, nothing open — every blocker for this wave is resolved or deferred.
+			// Recommend the concrete unblock instead of a stale "blocked" hint.
+			const blockedWave = activeWaveIndex >= 0 ? waves[activeWaveIndex] : undefined
+			if (blockedWave && blockedWave.status === 'blocked') {
+				return plan({
+					id: `progress:${blockedWave.id}:unblock-wave`,
+					label: 'Unblock wave',
+					description: `All blockers for wave ${blockedWave.id} are resolved or deferred. Move the wave out of "blocked" with omr_transition update_wave_status, then prepare re-review with omr_prepare_wave_review.`,
+					status: 'ready',
+					safe_to_apply: true,
+					scope: waveScope,
+					tool: transitionTool({ operation: 'update_wave_status', waveId: blockedWave.id, waveStatus: 'reviewing' }),
+				})
+			}
 			return plan({
-				id: `progress:${progress.active_wave_id ?? 'none'}:resolve-blockers`,
-				label: 'Resolve progress blocker',
-				description: `Resolve blocker: ${progress.blocked_reason ?? 'not recorded'}.`,
-				status: 'blocked',
-				blockers: [progress.blocked_reason ?? 'not recorded'],
-				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
+				id: `progress:${progress.active_wave_id ?? 'none'}:resume-after-blockers`,
+				label: 'Resume wave after blockers',
+				description: `All blockers for wave${wave} are resolved or deferred. Prepare wave re-review with omr_prepare_wave_review, or advance progress once the wave is complete.`,
+				status: 'agent_required',
+				scope: waveScope,
 			})
+		}
 		case 'ready_for_next_wave': {
 			const activeWave = activeWaveIndex >= 0 ? waves[activeWaveIndex] : undefined
 			if (activeWave && activeWave.status !== 'complete') {
