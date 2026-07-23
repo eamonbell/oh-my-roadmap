@@ -1,8 +1,10 @@
-import {type AgentToolResult} from '@oh-my-pi/pi-coding-agent'
-import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {type Component, Text} from '@oh-my-pi/pi-tui'
-import type {ToolRegistrationContext} from './shared'
-import {clearFindingsReportTile, createReportTile, FINDINGS_REPORT_WIDGET_KEY} from '../../findings.ts'
+import { type AgentToolResult } from '@oh-my-pi/pi-coding-agent'
+import type { ExtensionContext, ToolDefinition } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import { type Component, Text } from '@oh-my-pi/pi-tui'
+import { formatBudgetSummaryMarkdown, loadBudgetSummary } from '@oh-my-roadmap/core/budget-report'
+import type { BudgetSummary } from '@oh-my-roadmap/core/budget-report'
+import type { ToolRegistrationContext } from './shared'
+import { clearFindingsReportTile, createReportTile, FINDINGS_REPORT_WIDGET_KEY } from '../../findings.ts'
 
 type SubmitFindingsReportParams = {
 	title: string
@@ -12,6 +14,12 @@ type SubmitFindingsReportParams = {
 type SubmitFindingsReportResult = {
 	success: boolean
 	error?: string
+}
+
+export function appendBudgetSummaryMarkdown(markdown: string, summary: BudgetSummary): string {
+	const budgetMarkdown = formatBudgetSummaryMarkdown(summary)
+	if (!budgetMarkdown) return markdown
+	return markdown ? `${markdown}\n\n${budgetMarkdown}` : budgetMarkdown
 }
 
 function resultText(result: SubmitFindingsReportResult): string {
@@ -27,7 +35,7 @@ function isSubmitFindingsReportResult(value: unknown): value is SubmitFindingsRe
 }
 
 export function registerFindingsReportTool(ctx: ToolRegistrationContext): void {
-	const {z, register} = ctx
+	const { z, register } = ctx
 
 	register({
 		name: 'omr_submit_findings_report',
@@ -51,27 +59,29 @@ export function registerFindingsReportTool(ctx: ToolRegistrationContext): void {
 			try {
 				if (!ctx.hasUI) {
 					return {
-						content: [{type: 'text', text: 'Findings report tile not rendered: UI unavailable.'}],
-						details: {success: false, error: 'UI unavailable'},
+						content: [{ type: 'text', text: 'Findings report tile not rendered: UI unavailable.' }],
+						details: { success: false, error: 'UI unavailable' },
 					}
 				}
 
+				const markdown = appendBudgetSummaryMarkdown(input.markdown, await loadBudgetSummary(ctx.cwd))
+
 				ctx.ui.setWidget(
 					FINDINGS_REPORT_WIDGET_KEY,
-					(_tui, theme) => createReportTile(input.title, input.markdown, theme),
-					{placement: 'aboveEditor'},
+					(_tui, theme) => createReportTile(input.title, markdown, theme),
+					{ placement: 'aboveEditor' },
 				)
 
 				return {
-					content: [{type: 'text', text: 'Findings report tile rendered.'}],
-					details: {success: true},
+					content: [{ type: 'text', text: 'Findings report tile rendered.' }],
+					details: { success: true },
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
 
 				return {
-					content: [{type: 'text', text: `Findings report tile failed: ${message}`}],
-					details: {success: false, error: message},
+					content: [{ type: 'text', text: `Findings report tile failed: ${message}` }],
+					details: { success: false, error: message },
 				}
 			}
 		},

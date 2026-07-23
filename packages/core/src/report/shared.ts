@@ -1,7 +1,7 @@
-import type {TransitionInput} from '../store/index'
-import type {ImplementationProgress, LoadedState, RoadmapBlocker, RoadmapState, TaskPlan, ValidationResult, WavePlan,} from '../types'
-import type {RoadmapUsageSummary, UsageScopeSummary, UsageTotals} from '../usage'
-import type {NextActionHint, NextActionPlan, NextActionScope} from './types'
+import type { TransitionInput } from '../store/index'
+import type { ImplementationProgress, LoadedState, RoadmapBlocker, RoadmapState, TaskPlan, ValidationResult, WavePlan, } from '../types'
+import type { RoadmapUsageSummary, UsageScopeSummary, UsageTotals } from '../usage'
+import type { NextActionHint, NextActionPlan, NextActionScope } from './types'
 
 export function formatValidationIssues(result: ValidationResult): string[] {
 	return [
@@ -15,8 +15,8 @@ export function progressLines(label: string, progress: ImplementationProgress, w
 		? waves.find((wave) => wave.id === progress.active_wave_id)
 		: undefined
 	const activeTasks = progress.active_task_ids
-	.map((taskId) => tasks.find((task) => task.id === taskId)?.title ?? taskId)
-	.join(', ')
+		.map((taskId) => tasks.find((task) => task.id === taskId)?.title ?? taskId)
+		.join(', ')
 
 	return [
 		`${label} active wave: ${progress.active_wave_id ?? 'none'}${activeWave ? ` (${activeWave.status})` : ''}`,
@@ -49,16 +49,21 @@ export function formatUsage(usage: UsageTotals): string {
 
 export function topAgents(scope: UsageScopeSummary): string {
 	const agents = Object.entries(scope.by_agent)
-	.sort(([, left], [, right]) =>
-		right.estimated_usd - left.estimated_usd ||
-		totalTokens(right) - totalTokens(left),
-	)
-	.slice(0, 3)
-	.map(([agent, usage]) => `${agent}: ${formatUsage(usage)}`)
+		.sort(([, left], [, right]) =>
+			right.estimated_usd - left.estimated_usd ||
+			totalTokens(right) - totalTokens(left),
+		)
+		.slice(0, 3)
+		.map(([agent, usage]) => `${agent}: ${formatUsage(usage)}`)
 	return agents.length > 0 ? agents.join(' | ') : 'none'
 }
 
-export function usageLines(stateUsage: RoadmapUsageSummary | undefined, milestoneId?: string, changeRequestId?: string): string[] {
+export function usageLines(
+	stateUsage: RoadmapUsageSummary | undefined,
+	milestoneId?: string,
+	changeRequestId?: string,
+	budgetLines: readonly string[] = [],
+): string[] {
 	if (!stateUsage) return []
 	const lines = [
 		`Usage roadmap: ${formatUsage(stateUsage.total)}`,
@@ -85,7 +90,7 @@ export function usageLines(stateUsage: RoadmapUsageSummary | undefined, mileston
 			if (change) lines.push(`Usage change top agents: ${topAgents(change)}`)
 		}
 	}
-	return lines
+	return [...lines, ...budgetLines]
 }
 
 export function hasPlannableMilestone(state: LoadedState): boolean {
@@ -104,9 +109,9 @@ export function roadmapMilestoneCheckLabel(roadmap: RoadmapState): string {
 
 export function scopeFromState(state: LoadedState): NextActionScope {
 	return {
-		...(state.roadmap ? {roadmap_id: state.roadmap.roadmap_id} : {}),
-		...(state.active?.milestone_id ? {milestone_id: state.active.milestone_id} : {}),
-		...(state.active?.change_request_id ? {change_request_id: state.active.change_request_id} : {}),
+		...(state.roadmap ? { roadmap_id: state.roadmap.roadmap_id } : {}),
+		...(state.active?.milestone_id ? { milestone_id: state.active.milestone_id } : {}),
+		...(state.active?.change_request_id ? { change_request_id: state.active.change_request_id } : {}),
 	}
 }
 
@@ -124,12 +129,12 @@ export function plan(input: Omit<NextActionPlan, 'safe_to_apply' | 'blockers' | 
 }
 
 export function transitionTool(input: TransitionInput): NonNullable<NextActionPlan['tool']> {
-	return {name: 'omr_transition', input: input as unknown as Record<string, unknown>}
+	return { name: 'omr_transition', input: input as unknown as Record<string, unknown> }
 }
 
 export function nextActionHint(plan: NextActionPlan, why: string): NextActionHint[] {
 	if (!plan.tool) return []
-	return [{label: plan.label, tool: plan.tool, why}]
+	return [{ label: plan.label, tool: plan.tool, why }]
 }
 
 export function blockerLabels(blockers: RoadmapBlocker[]): string[] {

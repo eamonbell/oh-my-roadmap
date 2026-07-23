@@ -1,9 +1,10 @@
-import {withDiagnosticTiming} from '../diagnostics'
-import {loadRoadmapBlockers, loadState} from '../store/index'
-import type {ImplementationProgress, LoadedState, WavePlan} from '../types'
-import {validateRoadmapState} from '../validation'
-import {blockerLabels, hasPlannableMilestone, plan, scopeFromState, transitionTool} from './shared'
-import type {NextActionPlan} from './types'
+import { withDiagnosticTiming } from '../diagnostics'
+import { evaluateBudgetEnforcement, formatBudgetWarning } from '../enforcement'
+import { loadRoadmapBlockers, loadState } from '../store/index'
+import type { ImplementationProgress, LoadedState, WavePlan } from '../types'
+import { validateRoadmapState } from '../validation'
+import { blockerLabels, hasPlannableMilestone, plan, scopeFromState, transitionTool } from './shared'
+import type { NextActionPlan } from './types'
 
 function roadmapCheckNextAction(state: LoadedState): NextActionPlan | undefined {
 	if (!state.roadmap) return undefined
@@ -131,7 +132,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 					status: 'ready',
 					safe_to_apply: true,
 					scope: scopeFromState(state),
-					tool: transitionTool({operation: 'start_implementation'}),
+					tool: transitionTool({ operation: 'start_implementation' }),
 				})
 			case 'implementing':
 				return progressNextActionPlan(state, state.changeRequest.progress, state.changeRequest.waves)
@@ -181,7 +182,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 				status: 'ready',
 				safe_to_apply: true,
 				scope: scopeFromState(state),
-				tool: transitionTool({operation: 'start_milestone_planning'}),
+				tool: transitionTool({ operation: 'start_milestone_planning' }),
 			})
 		case 'milestone_planning':
 			return plan({
@@ -199,7 +200,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 				status: 'ready',
 				safe_to_apply: true,
 				scope: scopeFromState(state),
-				tool: transitionTool({operation: 'start_implementation'}),
+				tool: transitionTool({ operation: 'start_implementation' }),
 			})
 		case 'implementing':
 			if (state.milestone) return progressNextActionPlan(state, state.milestone.progress, state.milestone.waves)
@@ -220,7 +221,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 				status: 'ready',
 				safe_to_apply: true,
 				scope: scopeFromState(state),
-				tool: transitionTool({operation: 'start_closeout'}),
+				tool: transitionTool({ operation: 'start_closeout' }),
 			})
 		case 'closeout': {
 			const closeoutStatus = state.closeout?.status
@@ -232,7 +233,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 					status: 'ready',
 					safe_to_apply: true,
 					scope: scopeFromState(state),
-					tool: transitionTool({operation: 'complete_milestone'}),
+					tool: transitionTool({ operation: 'complete_milestone' }),
 				})
 			}
 			const description = closeoutStatus === 'recorded'
@@ -256,7 +257,7 @@ async function nextActionPlanImpl(cwd: string): Promise<NextActionPlan> {
 					status: 'ready',
 					safe_to_apply: true,
 					scope: scopeFromState(state),
-					tool: transitionTool({operation: 'start_milestone_planning'}),
+					tool: transitionTool({ operation: 'start_milestone_planning' }),
 				})
 			}
 			return plan({
@@ -292,7 +293,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				label: 'Dispatch wave',
 				description: `Dispatch wave${wave} and update progress to dispatching.`,
 				status: 'agent_required',
-				scope: {...baseScope, ...(progress.active_wave_id ? {wave_id: progress.active_wave_id} : {})},
+				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
 		case 'dispatching':
 			return plan({
@@ -300,7 +301,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				label: 'Start assigned tasks',
 				description: `Start assigned tasks for wave${wave} and update progress to workers_running.`,
 				status: 'agent_required',
-				scope: {...baseScope, ...(progress.active_wave_id ? {wave_id: progress.active_wave_id} : {})},
+				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
 		case 'workers_running':
 			return plan({
@@ -308,7 +309,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				label: 'Collect worker notes',
 				description: 'Collect worker notes for active tasks, then update progress to wave_review.',
 				status: 'agent_required',
-				scope: {...baseScope, ...(progress.active_wave_id ? {wave_id: progress.active_wave_id} : {})},
+				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
 		case 'wave_review':
 			return plan({
@@ -316,7 +317,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				label: 'Run wave review',
 				description: `Run review for wave${wave}; resolve blockers or mark the wave complete.`,
 				status: 'agent_required',
-				scope: {...baseScope, ...(progress.active_wave_id ? {wave_id: progress.active_wave_id} : {})},
+				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
 		case 'resolving_blockers':
 			return plan({
@@ -325,7 +326,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				description: `Resolve blocker: ${progress.blocked_reason ?? 'not recorded'}.`,
 				status: 'blocked',
 				blockers: [progress.blocked_reason ?? 'not recorded'],
-				scope: {...baseScope, ...(progress.active_wave_id ? {wave_id: progress.active_wave_id} : {})},
+				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
 		case 'ready_for_next_wave': {
 			const activeWave = activeWaveIndex >= 0 ? waves[activeWaveIndex] : undefined
@@ -335,7 +336,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 					label: 'Complete active wave',
 					description: 'Advance progress to the next wave, or mark closeout_ready if no waves remain.',
 					status: 'agent_required',
-					scope: {...baseScope, wave_id: activeWave.id},
+					scope: { ...baseScope, wave_id: activeWave.id },
 				})
 			}
 			const previousWavesComplete = activeWaveIndex >= 0 &&
@@ -350,10 +351,10 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 					description: 'Advance progress to the next wave, or mark closeout_ready if no waves remain.',
 					status: 'ready',
 					safe_to_apply: true,
-					scope: {...baseScope, wave_id: nextWave.id},
+					scope: { ...baseScope, wave_id: nextWave.id },
 					tool: transitionTool({
 						operation: 'update_implementation_progress',
-						progress: {activeWaveId: nextWave.id, step: 'not_started', activeTaskIds: []},
+						progress: { activeWaveId: nextWave.id, step: 'not_started', activeTaskIds: [] },
 					}),
 				})
 			}
@@ -367,7 +368,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 					scope: baseScope,
 					tool: transitionTool({
 						operation: 'update_implementation_progress',
-						progress: {step: 'closeout_ready', activeTaskIds: []},
+						progress: { step: 'closeout_ready', activeTaskIds: [] },
 					}),
 				})
 			}
@@ -377,7 +378,7 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				description: 'Advance progress to the next wave, or mark closeout_ready if no waves remain.',
 				status: 'needs_input',
 				missing_inputs: ['single next pending wave or all waves complete'],
-				scope: {...baseScope, ...(progress.active_wave_id ? {wave_id: progress.active_wave_id} : {})},
+				scope: { ...baseScope, ...(progress.active_wave_id ? { wave_id: progress.active_wave_id } : {}) },
 			})
 		}
 		case 'closeout_ready':
@@ -397,9 +398,22 @@ function progressNextActionPlan(state: LoadedState, progress: ImplementationProg
 				status: 'ready',
 				safe_to_apply: true,
 				scope: baseScope,
-				tool: transitionTool({operation: 'start_reviewing'}),
+				tool: transitionTool({ operation: 'start_reviewing' }),
 			})
 	}
+}
+
+// Surface a budget warn notice in the next-action description when warnings
+// are present and no higher-priority blocker dominates. A blocked plan (open
+// blockers, resolving_blockers, blocking validation) takes precedence and the
+// warn is suppressed. Additive: description-only — status, tool, and scope are
+// untouched so applyNextAction is unaffected.
+async function withBudgetWarnNotice(cwd: string, base: NextActionPlan): Promise<NextActionPlan> {
+	if (base.status === 'blocked') return base
+	const enforcement = await evaluateBudgetEnforcement(cwd)
+	if (enforcement.warnings.length === 0) return base
+	const notice = enforcement.warnings.map(formatBudgetWarning).join(', ')
+	return { ...base, description: `${base.description} Budget warning: ${notice}.` }
 }
 
 export async function nextActionPlan(cwd: string): Promise<NextActionPlan> {
@@ -408,5 +422,5 @@ export async function nextActionPlan(cwd: string): Promise<NextActionPlan> {
 		operation: 'report.nextActionPlan',
 		cwd,
 		slowMs: 250,
-	}, async () => await nextActionPlanImpl(cwd))
+	}, async () => await withBudgetWarnNotice(cwd, await nextActionPlanImpl(cwd)))
 }

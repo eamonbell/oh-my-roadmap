@@ -99,3 +99,25 @@ Ad-hoc plans are a roadmap-free, lightweight path for changes that benefit from 
 - The write-gate opens only while the ad-hoc plan is approved and in `implementing`/`reviewing`, using the same `DIRECT_FILE_WRITE_TOOLS` gate as roadmaps.
 - Wave orchestration is shared: every wave tool resolves the active plan through `activePlanContext`, which returns the ad-hoc plan (scoped by its id) when no roadmap is active. The same `worker`/`reviewer` agents are dispatched; no new agent roles exist. Status updates route through `transition` to the ad-hoc runtime, and blockers/notes are scoped by the ad-hoc id.
 - `/omr:plan-details` renders the active ad-hoc plan through the same details overlay as `/omr:rm-details`.
+
+## Execution Budgets
+
+Execution budgets are optional, active-scope ceilings for `tokens`, `cost`, and `time`. The roadmap ceiling is stored in `.omr/<roadmap-id>/budget.yml`; the active milestone ceiling is stored in `.omr/<roadmap-id>/milestones/<milestone-id>/budget.yml`. Each file contains ceilings, an append-only override audit trail, and time tracking. A missing file or a file with no ceilings and no overrides has no enforcement or report effect.
+
+Budget mutations resolve the active roadmap or milestone and perform the complete read-modify-write sequence under `.omr/store.lock`; the underlying YAML replacement is atomic. A normal set can create, lower, repeat, or clear a ceiling, but it cannot raise an existing finite ceiling. An audited raise records the prior and new ceiling, actor, reason, and timestamp. A one-shot continue records its actor, reason, timestamp, and later consumption state.
+
+Thresholds are project configuration, not budget ceilings:
+
+```yaml
+budgets:
+  thresholds:
+    warn: 75
+    soft: 90
+    hard: 100
+```
+
+Thresholds are percentages of consumed budget. If omitted, warn is 75, soft is disabled, and hard is 100. An unlimited dimension never breaches. Warn is surfaced in reports and next-action text. Soft pauses new-wave dispatch at the boundary; hard refuses it. Raising the ceiling can clear either condition. A one-shot can resume a soft pause without being consumed; at a hard breach it allows exactly one new-wave dispatch and is then consumed.
+
+The extension registers `/omr:budget-show`, `/omr:budget-set`, and `/omr:budget-override` as native command handlers. They parse and mutate state directly, then deliver a custom command-result message; they do not ask the model to execute a budget operation. Their summaries use `Budget roadmap <dimension>` or `Budget milestone <id> <dimension>` labels and include spent, ceiling, remaining, percentage, and threshold level. When one or more request costs are unavailable, a cost summary deliberately reports its remaining amount, percentage, and level as `unknown`.
+
+When a terminal findings report is rendered in a UI, it automatically appends a `## Budget` section if any active budget ceiling or override is reportable. Existing findings text is unchanged when no budgets are configured. If no UI is available, the report tile is not rendered.

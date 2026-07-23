@@ -1,8 +1,10 @@
-import {withDiagnosticTiming} from '../diagnostics'
-import {loadRoadmapBlockers, loadState} from '../store/index'
-import {validateImplementationGate, validateRoadmapState} from '../validation'
-import {nextAction} from './next-action'
-import {formatValidationIssues, progressLines, roadmapMilestoneCheckLabel, usageLines} from './shared'
+import { formatBudgetSummaryLines, loadBudgetSummary } from '../budget-report'
+import { withDiagnosticTiming } from '../diagnostics'
+import { formatBudgetWarning } from '../enforcement'
+import { loadRoadmapBlockers, loadState } from '../store/index'
+import { validateImplementationGate, validateRoadmapState } from '../validation'
+import { nextAction } from './next-action'
+import { formatValidationIssues, progressLines, roadmapMilestoneCheckLabel, usageLines } from './shared'
 
 async function renderReportImpl(cwd: string): Promise<string> {
 	const state = await loadState(cwd)
@@ -14,6 +16,8 @@ async function renderReportImpl(cwd: string): Promise<string> {
 	const gate = await validateImplementationGate(cwd)
 	const blockers = await loadRoadmapBlockers(cwd, state.roadmap.roadmap_id)
 	const openBlockers = blockers.filter((blocker) => blocker.status === 'open')
+	const budgetSummary = await loadBudgetSummary(cwd, { state })
+	const budgetLines = formatBudgetSummaryLines(budgetSummary)
 	const lines = [
 		`# oh-my-roadmap status`,
 		``,
@@ -42,7 +46,21 @@ async function renderReportImpl(cwd: string): Promise<string> {
 		)
 	}
 	if (state.closeout) lines.push(`Milestone closeout: ${state.closeout.status}`)
-	lines.push(...usageLines(state.usage, state.active.milestone_id, state.active.change_request_id))
+	lines.push(...usageLines(state.usage, state.active.milestone_id, state.active.change_request_id, budgetLines))
+
+	const budgetWarnings = budgetSummary.scopes.flatMap((scope) => scope.dimensions
+		.filter((dimension) => dimension.level !== 'none' && dimension.level !== 'unknown' && dimension.percentage !== undefined)
+		.map((dimension) => formatBudgetWarning({
+			scope: scope.scope,
+			dimension: dimension.dimension,
+			spent: dimension.spent,
+			ceiling: dimension.ceiling,
+			percentage: dimension.percentage!,
+		})))
+	if (budgetWarnings.length > 0) {
+		lines.push(``, `Budget warnings:`)
+		for (const warning of budgetWarnings) lines.push(`- ${warning}`)
+	}
 
 	lines.push(``, `Validation: ${validation.valid ? 'valid' : 'invalid'}`)
 	lines.push(...formatValidationIssues(validation))

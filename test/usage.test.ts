@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { registerRoadmapUsageTracking } from "../packages/extension/src/extension/usage-tracking";
+import { loadBudgetSummary } from "@oh-my-roadmap/core/budget-report";
 import { roadmapDocPath, roadmapUsagePath, milestonePlanPath } from "@oh-my-roadmap/core/paths";
 import { renderReport } from "@oh-my-roadmap/core/report/index";
 import {
@@ -13,6 +14,8 @@ import {
   transition,
   updateRoadmap,
   type CreateMilestonePlanInput,
+  writeMilestoneBudgetState,
+  writeRoadmapBudgetState,
 } from "@oh-my-roadmap/core/store/index";
 import { recordMainUsage, recordTaskUsage } from "@oh-my-roadmap/core/usage";
 import { validateRoadmapState } from "@oh-my-roadmap/core/validation";
@@ -343,6 +346,54 @@ describe("omr:rm-usage command", () => {
 
     const json = renderUsageReport(state.usage!, { format: "json" });
     expect(JSON.parse(json).roadmap_id).toBe("usage-roadmap");
+  });
+
+  test("preserves exact markdown output when no budget ceilings or overrides exist", async () => {
+    await approvedMilestone();
+    const state = await loadState(cwd);
+    const options = { format: "markdown" as const, milestoneId: "m01-core" };
+    const baseline = renderUsageReport(state.usage!, options);
+    const emptyBudget = await loadBudgetSummary(cwd, {
+      state,
+      now: "2026-07-22T12:00:00.000Z",
+    });
+
+    expect(renderUsageReport(state.usage!, { ...options, budgetSummary: emptyBudget })).toBe(baseline);
+  });
+
+  test("appends configured roadmap and milestone budget lines after existing usage lines", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await recordMainUsage(cwd, {
+      role: "assistant",
+      responseId: "resp-usage-budget",
+      usage: {
+        input: 80,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoningTokens: 0,
+        cost: { total: 0.8 },
+      },
+    });
+    await writeRoadmapBudgetState(cwd, "usage-roadmap", {
+      ceilings: { tokens: 100, cost: 1 },
+      overrides: [],
+      time_tracking: { accumulated_ms: 0 },
+    });
+    await writeMilestoneBudgetState(cwd, "usage-roadmap", "m01-core", {
+      ceilings: { tokens: 50 },
+      overrides: [],
+      time_tracking: { accumulated_ms: 0 },
+    });
+
+    const { api, messages } = captureApi();
+    await showRoadmapUsage(api, { cwd } as ExtensionCommandContext, "");
+    const content = messages[0]!;
+    expect(content).toContain("- Budget roadmap tokens: spent 80 tokens; ceiling 100 tokens; remaining 20 tokens; 80% used; level warn");
+    expect(content).toContain("- Budget roadmap cost: spent $0.8000; ceiling $1.0000; remaining $0.2000; 80% used; level warn");
+    expect(content).toContain("- Budget milestone m01-core tokens: spent 80 tokens; ceiling 50 tokens; remaining -30 tokens; 160% used; level hard, over budget");
+    expect(content.indexOf("Usage milestone m01-core")).toBeLessThan(content.indexOf("Budget roadmap tokens"));
   });
 
   test("prints the summary through the command handler", async () => {

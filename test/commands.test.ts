@@ -43,6 +43,12 @@ const PROMPT_COMMANDS = [
   "omr:blk-defer",
 ] as const;
 
+const NATIVE_BUDGET_COMMANDS = [
+  "omr:budget-show",
+  "omr:budget-set",
+  "omr:budget-override",
+] as const;
+
 function createHarness(): {
   commands: Map<string, RegisteredTestCommand>;
   sentMessages: SentUserMessage[];
@@ -53,7 +59,7 @@ function createHarness(): {
   const sentMessages: SentUserMessage[] = [];
   const customMessages: SentCustomMessage[] = [];
   const api = {
-    on() {},
+    on() { },
     registerCommand(name: string, command: RegisteredTestCommand) {
       commands.set(name, command);
     },
@@ -75,7 +81,7 @@ function testContext(cwd: string, idle = true, ui: Record<string, unknown> = {},
     cwd,
     hasUI,
     isIdle: () => idle,
-    waitForIdle: async () => {},
+    waitForIdle: async () => { },
     ui: {
       notify(message: string) {
         throw new Error(`Unexpected toast notification: ${message}`);
@@ -399,6 +405,24 @@ describe("roadmap commands", () => {
     expectFindingsReportInstruction(sentMessages[0]?.content ?? "", "omr:rm-status");
   });
 
+  test("budget commands are registered as native handlers that do not queue prompts", async () => {
+    const { commands, sentMessages, customMessages } = createHarness();
+    const cwd = await testCwd();
+
+    for (const name of NATIVE_BUDGET_COMMANDS) {
+      expect(commands.get(name)?.description).toBeTruthy();
+    }
+    await commands.get("omr:budget-show")?.handler("", testContext(cwd, false));
+
+    expect(sentMessages).toHaveLength(0);
+    expect(customMessages).toHaveLength(1);
+    expect(customMessages[0]?.message).toMatchObject({
+      customType: "oh-my-roadmap.command-result",
+      display: true,
+      attribution: "agent",
+    });
+  });
+
   test("omr:fnd-clear clears the active findings report tile without prompting the model", async () => {
     const { commands, sentMessages, customMessages } = createHarness();
     const widgetCalls: Array<{ key: string; content: ExtensionWidgetContent | undefined }> = [];
@@ -463,14 +487,14 @@ describe("roadmap commands", () => {
           custom: async (factory: (...args: unknown[]) => unknown, options?: unknown) => {
             customOptions.push(options);
             capturedComponent = factory(
-              { requestRender() {} },
+              { requestRender() { } },
               {},
               {},
               () => {
                 closeCount += 1;
               },
             ) as { render(width: number): readonly string[]; handleInput?(data: string): void };
-            return new Promise(() => {});
+            return new Promise(() => { });
           },
           notify(message: string) {
             throw new Error(`Unexpected toast notification: ${message}`);
@@ -511,14 +535,14 @@ describe("roadmap commands", () => {
           ui: {
             custom: async (factory: (...args: unknown[]) => unknown) => {
               capturedComponent = factory(
-                { requestRender() {} },
+                { requestRender() { } },
                 {},
                 {},
                 () => {
                   closeCount += 1;
                 },
               ) as { handleInput?(data: string): void };
-              return new Promise(() => {});
+              return new Promise(() => { });
             },
             notify(message: string) {
               throw new Error(`Unexpected toast notification: ${message}`);

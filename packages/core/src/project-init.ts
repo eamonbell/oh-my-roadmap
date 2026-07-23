@@ -1,14 +1,14 @@
-import {readFileSync} from 'node:fs'
-import {createRequire} from 'node:module'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import {fileExists, readYamlFile, writeText, writeYamlFile} from './files'
-import {parseMarkdownDocument, serializeMarkdownDocument} from './frontmatter'
-import {withStoreWriteLock} from './lock'
-import {activeProfileFromEnv, ompAgentsDir, ompOmrConfigDir} from './omp-paths'
-import {roadmapsDir} from './paths'
-import {fileURLToPath} from 'node:url'
-import {existsSync as fileExistsSync} from 'node:fs'
+import { fileExists, readYamlFile, writeText, writeYamlFile } from './files'
+import { parseMarkdownDocument, serializeMarkdownDocument } from './frontmatter'
+import { withStoreWriteLock } from './lock'
+import { activeProfileFromEnv, ompAgentsDir, ompOmrConfigDir } from './omp-paths'
+import { roadmapsDir } from './paths'
+import { fileURLToPath } from 'node:url'
+import { existsSync as fileExistsSync } from 'node:fs'
 
 const CONFIG_FILE = 'config.yml'
 const OMP_AGENTS_DIR = path.join('.omp', 'agents')
@@ -54,6 +54,21 @@ export interface MoshiConfig {
 	trace?: boolean;
 }
 
+// Optional execution-budget threshold policy. Each level is a percentage of the
+// budget consumed (0-100, integer) at which that threshold fires. Undefined means
+// the threshold level is disabled. Absent `budgets` entirely means enforcement
+// applies hardcoded defaults (warn 75, soft none, hard 100) at consumption time;
+// no defaults are stored in config.
+export interface BudgetThresholdPolicy {
+	warn?: number;
+	soft?: number;
+	hard?: number;
+}
+
+export interface BudgetConfig {
+	thresholds: BudgetThresholdPolicy;
+}
+
 export interface RoadmapProjectConfig {
 	agents: Record<AgentRole, AgentConfig>;
 	orchestration: OrchestrationConfig;
@@ -63,6 +78,8 @@ export interface RoadmapProjectConfig {
 	style?: Record<string, StyleGuide>;
 	// Opt-in Moshi notification settings.
 	moshi?: MoshiConfig;
+	// Optional execution-budget threshold policy.
+	budgets?: BudgetConfig;
 }
 
 export interface ProjectInitResult {
@@ -83,7 +100,7 @@ function agentsDir(cwd: string): string {
 // (respecting PI_CONFIG_DIR and the active profile). Project agents live at
 // <cwd>/.omp/agents/*.md. A missing profile falls back to the ambient OMP profile.
 export function globalAgentsDir(homeDir?: string, profile?: string): string {
-	return ompAgentsDir({homeDir, profile: profile ?? activeProfileFromEnv()})
+	return ompAgentsDir({ homeDir, profile: profile ?? activeProfileFromEnv() })
 }
 
 // Auxiliary agents generated alongside the configurable worker/reviewer roles. These
@@ -188,7 +205,7 @@ function parseRoleConfig(value: unknown, role: AgentRole): AgentConfig {
 }
 
 function defaultOrchestrationConfig(): OrchestrationConfig {
-	return {transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS}
+	return { transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS }
 }
 
 function parseOrchestrationConfig(value: unknown): OrchestrationConfig {
@@ -201,7 +218,7 @@ function parseOrchestrationConfig(value: unknown): OrchestrationConfig {
 	if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1) {
 		throw new Error('orchestration.transport_resume_attempts must be a positive integer')
 	}
-	return {transport_resume_attempts: attempts}
+	return { transport_resume_attempts: attempts }
 }
 
 function parseDisabled(value: unknown): boolean | undefined {
@@ -214,7 +231,7 @@ function parseStyleGuide(value: unknown, language: string): StyleGuide {
 	const guide = requirePlainObject(value, `style.${language}`)
 	rejectUnknownKeys(guide, ['summary', 'guidelines'], `style.${language}`)
 
-	const result: StyleGuide = {guidelines: []}
+	const result: StyleGuide = { guidelines: [] }
 	if (guide.summary !== undefined) {
 		if (typeof guide.summary !== 'string') throw new Error(`style.${language}.summary must be a string`)
 		result.summary = guide.summary
@@ -263,9 +280,37 @@ function parseMoshi(value: unknown): MoshiConfig | undefined {
 	return result
 }
 
+function parseThreshold(value: unknown, level: 'warn' | 'soft' | 'hard'): number | undefined {
+	if (value === undefined) return undefined
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100) {
+		throw new Error(`budgets.thresholds.${level} must be an integer 0-100`)
+	}
+	return value
+}
+
+function parseBudgetConfig(value: unknown): BudgetConfig | undefined {
+	if (value === undefined) return undefined
+	const budgets = requirePlainObject(value, 'budgets')
+	rejectUnknownKeys(budgets, ['thresholds'], 'budgets')
+	if (budgets.thresholds === undefined) {
+		throw new Error('budgets.thresholds must be an object')
+	}
+	const thresholds = requirePlainObject(budgets.thresholds, 'budgets.thresholds')
+	rejectUnknownKeys(thresholds, ['warn', 'soft', 'hard'], 'budgets.thresholds')
+
+	const result: BudgetThresholdPolicy = {}
+	const warn = parseThreshold(thresholds.warn, 'warn')
+	if (warn !== undefined) result.warn = warn
+	const soft = parseThreshold(thresholds.soft, 'soft')
+	if (soft !== undefined) result.soft = soft
+	const hard = parseThreshold(thresholds.hard, 'hard')
+	if (hard !== undefined) result.hard = hard
+	return { thresholds: result }
+}
+
 function parseConfig(raw: unknown): RoadmapProjectConfig {
 	const root = requirePlainObject(raw, 'config')
-	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style', 'moshi'], 'config')
+	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style', 'moshi', 'budgets'], 'config')
 
 	const agents = requirePlainObject(root.agents, 'agents')
 	rejectUnknownKeys(agents, ROLE_NAMES, 'agents')
@@ -283,6 +328,8 @@ function parseConfig(raw: unknown): RoadmapProjectConfig {
 	if (style !== undefined) config.style = style
 	const moshi = parseMoshi(root.moshi)
 	if (moshi !== undefined) config.moshi = moshi
+	const budgets = parseBudgetConfig(root.budgets)
+	if (budgets !== undefined) config.budgets = budgets
 	return config
 }
 
@@ -316,12 +363,12 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 
 	const raw = await readYamlFile<unknown>(targetConfigPath)
 	const root = requirePlainObject(raw, 'config')
-	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style', 'moshi'], 'config')
+	rejectUnknownKeys(root, ['agents', 'orchestration', 'disabled', 'style', 'moshi', 'budgets'], 'config')
 	const agents = requirePlainObject(root.agents, 'agents')
 	rejectUnknownKeys(agents, ROLE_NAMES, 'agents')
 
 	let changed = false
-	const expandedAgents: Record<string, unknown> = {...agents}
+	const expandedAgents: Record<string, unknown> = { ...agents }
 	for (const role of ROLE_NAMES) {
 		if (expandedAgents[role] === undefined) {
 			expandedAgents[role] = {}
@@ -329,7 +376,7 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 		}
 	}
 
-	const expanded: Record<string, unknown> = {agents: expandedAgents}
+	const expanded: Record<string, unknown> = { agents: expandedAgents }
 	if (root.orchestration !== undefined) {
 		expanded.orchestration = root.orchestration
 	} else {
@@ -340,6 +387,7 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 	if (root.disabled !== undefined) expanded.disabled = root.disabled
 	if (root.style !== undefined) expanded.style = root.style
 	if (root.moshi !== undefined) expanded.moshi = root.moshi
+	if (root.budgets !== undefined) expanded.budgets = root.budgets
 	parseConfig(expanded)
 	if (changed) await writeYamlFile(targetConfigPath, expanded)
 	return false
@@ -348,7 +396,7 @@ export async function ensureConfig(cwd: string): Promise<boolean> {
 // Our omr global config dir: <ompRoot>/oh-my-roadmap (honoring PI_CONFIG_DIR and
 // the active profile). A missing profile falls back to the ambient OMP profile.
 export function homeConfigDir(homeDir?: string, profile?: string): string {
-	return ompOmrConfigDir({homeDir, profile: profile ?? activeProfileFromEnv()})
+	return ompOmrConfigDir({ homeDir, profile: profile ?? activeProfileFromEnv() })
 }
 
 function homeConfigPath(homeDir?: string, profile?: string): string {
@@ -364,7 +412,7 @@ export async function loadGlobalConfig(homeDir?: string, profile?: string): Prom
 
 function mergeConfigs(base: RoadmapProjectConfig, override: RoadmapProjectConfig): RoadmapProjectConfig {
 	const agents = Object.fromEntries(
-		ROLE_NAMES.map((role) => [role, {...base.agents[role], ...override.agents[role]}]),
+		ROLE_NAMES.map((role) => [role, { ...base.agents[role], ...override.agents[role] }]),
 	) as Record<AgentRole, AgentConfig>
 
 	const merged: RoadmapProjectConfig = {
@@ -377,15 +425,18 @@ function mergeConfigs(base: RoadmapProjectConfig, override: RoadmapProjectConfig
 	if (disabled !== undefined) merged.disabled = disabled
 
 	if (base.style !== undefined || override.style !== undefined) {
-		merged.style = {...(base.style ?? {}), ...(override.style ?? {})}
+		merged.style = { ...(base.style ?? {}), ...(override.style ?? {}) }
 	}
 
 	// Shallow-merge moshi so a profile-global config can enable it while a project
 	// config overrides only socket_path (or disables with `enabled: false`). The
 	// leading `enabled: false` guarantees a defined flag; later spreads win.
 	if (base.moshi !== undefined || override.moshi !== undefined) {
-		merged.moshi = {enabled: false, ...(base.moshi ?? {}), ...(override.moshi ?? {})}
+		merged.moshi = { enabled: false, ...(base.moshi ?? {}), ...(override.moshi ?? {}) }
 	}
+	// Project budgets override global (whole-section, like disabled).
+	const budgets = override.budgets ?? base.budgets
+	if (budgets !== undefined) merged.budgets = budgets
 	return merged
 }
 
@@ -404,7 +455,7 @@ export async function loadMergedConfig(cwd: string, homeDir?: string, profile?: 
 // resolves to disabled. Parse errors are not swallowed — invalid config fails loudly
 // like the rest of the config surface.
 export async function loadMoshiConfig(cwd: string, homeDir?: string, profile?: string): Promise<MoshiConfig> {
-	return (await loadMergedConfig(cwd, homeDir, profile)).moshi ?? {enabled: false}
+	return (await loadMergedConfig(cwd, homeDir, profile)).moshi ?? { enabled: false }
 }
 
 // Lockout: whether omr is paused via the unified (global + project) config.
@@ -421,7 +472,7 @@ export async function setProjectDisabled(cwd: string, disabled: boolean): Promis
 	await withStoreWriteLock(cwd, async () => {
 		const targetConfigPath = configPath(cwd)
 		const existing = (await fileExists(targetConfigPath)) ? await loadConfig(cwd) : defaultConfig()
-		const next: RoadmapProjectConfig = {...existing, disabled}
+		const next: RoadmapProjectConfig = { ...existing, disabled }
 		parseConfig(next as unknown)
 		await writeYamlFile(targetConfigPath, next)
 	})
@@ -433,7 +484,7 @@ export async function setProjectStyle(cwd: string, language: string, guide: Styl
 	await withStoreWriteLock(cwd, async () => {
 		const targetConfigPath = configPath(cwd)
 		const existing = (await fileExists(targetConfigPath)) ? await loadConfig(cwd) : defaultConfig()
-		const next: RoadmapProjectConfig = {...existing, style: {...existing.style, [language.trim()]: guide}}
+		const next: RoadmapProjectConfig = { ...existing, style: { ...existing.style, [language.trim()]: guide } }
 		parseConfig(next as unknown)
 		await writeYamlFile(targetConfigPath, next)
 	})
@@ -447,7 +498,7 @@ function loadAgentTemplate(name: AgentRole): { description: string; body: string
 	if (!doc.data.description) {
 		throw new Error(`${name} agent template is missing a description`)
 	}
-	return {description: doc.data.description, body: doc.body}
+	return { description: doc.data.description, body: doc.body }
 }
 
 function renderAgent(name: string, description: string, body: string, config: AgentConfig): string {
@@ -466,7 +517,7 @@ export async function generateAgentsAt(targetAgentsDir: string, config: RoadmapP
 		ROLE_NAMES.map((role) => [role, loadAgentTemplate(role)]),
 	) as Record<AgentRole, { description: string; body: string }>
 
-	await fs.mkdir(targetAgentsDir, {recursive: true})
+	await fs.mkdir(targetAgentsDir, { recursive: true })
 
 	const targetAgentPaths = Object.fromEntries(
 		ROLE_NAMES.map((role) => [role, path.join(targetAgentsDir, `${role}.md`)]),
@@ -539,7 +590,7 @@ export async function applyScoped(opts: {
 	homeDir?: string | undefined;
 	profile?: string | undefined;
 }): Promise<ProjectInitResult> {
-	const {scope, cwd, homeDir, profile} = opts
+	const { scope, cwd, homeDir, profile } = opts
 	if (scope === 'project') return applyProject(cwd)
 
 	return await withStoreWriteLock(cwd, async () => {
@@ -550,7 +601,7 @@ export async function applyScoped(opts: {
 		}
 		const config = parseConfig(await readYamlFile(targetConfigPath))
 		const agentPaths = await generateAgentsAt(globalAgentsDir(homeDir, profile), config)
-		return {configPath: targetConfigPath, agentPaths, createdConfig: false}
+		return { configPath: targetConfigPath, agentPaths, createdConfig: false }
 	})
 }
 
@@ -580,7 +631,7 @@ export async function initScoped(opts: {
 	homeDir?: string | undefined;
 	profile?: string | undefined;
 }): Promise<ProjectInitResult> {
-	const {scope, cwd, agents, homeDir, profile} = opts
+	const { scope, cwd, agents, homeDir, profile } = opts
 	return await withStoreWriteLock(cwd, async () => {
 		if (scope === 'global') {
 			const targetConfigPath = homeConfigPath(homeDir, profile)
@@ -592,7 +643,7 @@ export async function initScoped(opts: {
 			const agentPaths = await generateAgentsAt(globalAgentsDir(homeDir, profile), config)
 			// Always scaffold a model-free project config in the current folder.
 			await ensureConfig(cwd)
-			return {configPath: targetConfigPath, agentPaths, createdConfig: !existed}
+			return { configPath: targetConfigPath, agentPaths, createdConfig: !existed }
 		}
 
 		const targetConfigPath = configPath(cwd)
@@ -602,6 +653,6 @@ export async function initScoped(opts: {
 		parseConfig(config as unknown)
 		await writeYamlFile(targetConfigPath, config)
 		const agentPaths = await generateAgents(cwd, config)
-		return {configPath: targetConfigPath, agentPaths, createdConfig: !existed}
+		return { configPath: targetConfigPath, agentPaths, createdConfig: !existed }
 	})
 }

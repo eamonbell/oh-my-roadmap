@@ -438,7 +438,65 @@ Good blocker handling:
 - validates after mutation
 - tells you to resume
 
-## 18. Safety Rules
+## 18. Set And Recover Execution Budgets
+
+Budgets are optional. Configure only the threshold policy in `.omr/config.yml`; set individual active roadmap or milestone ceilings from the TUI:
+
+```yaml
+budgets:
+  thresholds:
+    warn: 75
+    soft: 90
+    hard: 100
+```
+
+Threshold values are percentages. If omitted, warn is `75`, soft is disabled, and hard is `100`. An unlimited ceiling never breaches.
+
+Use these native TUI commands:
+
+```text
+/omr:budget-show
+/omr:budget-show roadmap
+/omr:budget-set roadmap tokens 2500
+/omr:budget-set milestone time 1h30m
+/omr:budget-set roadmap cost unlimited
+/omr:budget-override raise roadmap tokens 4000 capacity needed for release
+/omr:budget-override one-shot roadmap --by operator finish the current dispatch
+```
+
+`/omr:budget-show [roadmap|milestone]` scopes the summary when needed. With no reportable ceilings or overrides, it returns `No active budget ceilings or overrides.`
+
+`/omr:budget-set <roadmap|milestone> <tokens|cost|time> <value|unlimited>` creates, lowers, or clears one active ceiling. `unlimited` clears that dimension.
+
+`/omr:budget-override raise <roadmap|milestone> <tokens|cost|time> <value> [--by <actor>] <reason>` raises a finite ceiling. `/omr:budget-override one-shot <roadmap|milestone> [--by <actor>] <reason>` grants a one-shot continue. An override requires a non-empty reason. The actor defaults to `user`; place `--by <actor>` before the reason to record another actor.
+
+```text
+/omr:budget-override raise milestone cost 25.00 provider pricing changed
+```
+
+The summary labels are exact. For example:
+
+```text
+Budget roadmap tokens: spent 1,000 tokens; ceiling 2,500 tokens; remaining 1,500 tokens; 40% used; level none
+```
+
+When one or more request costs are unavailable, the cost line explicitly preserves that uncertainty:
+
+```text
+Budget roadmap cost: spent $2.5000 + unknown; ceiling $10.0000; remaining unknown; percentage unknown; level unknown (some request costs unavailable)
+```
+
+At a soft threshold, new-wave dispatch pauses. Raise the affected ceiling, or grant a one-shot continue, then run `/omr:ms-implement` to resume the recorded workflow. A soft-recovery one-shot remains available.
+
+At a hard threshold, new-wave dispatch is refused. Raise the ceiling to restore capacity, or grant a one-shot continue:
+
+```text
+/omr:budget-override one-shot roadmap complete the next dispatch
+```
+
+The hard-recovery one-shot permits exactly one new-wave dispatch and is then consumed. `/omr:budget-show` includes the override audit state. A terminal findings report automatically adds a `## Budget` section when there is an active reportable budget; it leaves findings unchanged when there is none.
+
+## 19. Safety Rules
 
 Keep these rules in mind:
 
@@ -450,7 +508,7 @@ Keep these rules in mind:
 - Do not use bypasses casually. A bypass should have a clear reason, scope, risk, and approval.
 - Treat `/omr:rm-resume` as orientation. Use `/omr:ms-implement` to continue implementation.
 
-## 19. Quick Troubleshooting
+## 20. Quick Troubleshooting
 
 No active roadmap:
 

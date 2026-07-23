@@ -9,7 +9,7 @@
 	"engines":         {
 		"bun": ">=1.3.14"
 	},
-	"private":         true,
+	"private":         false,
 	"scripts":         {
 		"check":          "tsc --noEmit",
 		"build":          "bun run --filter @oh-my-roadmap/cli build",
