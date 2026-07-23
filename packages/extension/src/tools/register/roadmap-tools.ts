@@ -7,7 +7,7 @@ import {
 	updateRoadmap,
 	type UpdateRoadmapInput,
 } from '@oh-my-roadmap/core/store/index'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, type ToolRegistrationContext} from './shared'
 
 export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): void {
 	const {z, register} = ctx
@@ -33,7 +33,7 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const state = await initRoadmap(ctx.cwd, params as InitRoadmapInput)
-			return textResult(`Initialized roadmap ${state.roadmap_id}.`, state)
+			return receiptResult(ctx.cwd, `Initialized roadmap ${state.roadmap_id}.`, state)
 		},
 	} as ToolDefinition)
 
@@ -54,7 +54,7 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const state = await updateRoadmap(ctx.cwd, params as UpdateRoadmapInput)
-			return textResult(`Updated roadmap ${state.roadmap_id}.`, state)
+			return receiptResult(ctx.cwd, `Updated roadmap ${state.roadmap_id}.`, state)
 		},
 	} as ToolDefinition)
 
@@ -76,7 +76,7 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await repairRoadmap(ctx.cwd, params as RepairRoadmapInput)
-			return textResult(`Repaired roadmap ${result.roadmap_id}.`, result)
+			return receiptResult(ctx.cwd, `Repaired roadmap ${result.roadmap_id}.`, result)
 		},
 	} as ToolDefinition)
 }

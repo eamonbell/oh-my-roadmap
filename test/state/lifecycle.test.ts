@@ -1226,3 +1226,52 @@ describe("roadmap state lifecycle", () => {
     expect(validation.valid).toBe(true);
   });
 });
+
+describe("roadmap write-gate during planning phases", () => {
+  let testCwd = "";
+
+  beforeEach(async () => {
+    testCwd = await createTempRoadmapCwd();
+  });
+
+  afterEach(async () => {
+    await removeTempRoadmapCwd(testCwd);
+    testCwd = "";
+  });
+
+  test("blocks writes during roadmap_draft phase with planning-specific error message", async () => {
+    await initRoadmap(testCwd, { roadmapId: "planning-roadmap", title: "Planning Roadmap" });
+    await transition(testCwd, { operation: "record_discovery" });
+    // Finalize the roadmap to pass validation, keeping it in roadmap_draft phase
+    await updateRoadmap(testCwd, roadmapInput());
+    await recordPassedRoadmapMilestoneCheckForCwd(testCwd);
+
+    // Now manually revert phase back to roadmap_draft for testing
+    const state = await loadState(testCwd);
+    if (!state.roadmap) throw new Error("Expected roadmap state");
+    state.roadmap.phase = "roadmap_draft";
+    await writeRoadmapState(testCwd, state.roadmap);
+
+    const gate = await validateImplementationGate(testCwd);
+    expect(gate.valid).toBe(false);
+    expect(gate.errors.map((e) => e.code)).toContain("gate.phase.closed");
+
+    const phaseError = gate.errors.find((e) => e.code === "gate.phase.closed");
+    expect(phaseError?.message).toContain("Planning agents do not write files directly");
+    expect(phaseError?.message).toContain("omr_read_state scope=roadmap_checker_package");
+  });
+
+  test("blocks writes during milestone_planning phase with planning-specific error message", async () => {
+    await approvedRoadmapForCwd(testCwd);
+    await transition(testCwd, { operation: "start_milestone_planning" });
+    // Roadmap is now in milestone_planning phase
+
+    const gate = await validateImplementationGate(testCwd);
+    expect(gate.valid).toBe(false);
+    expect(gate.errors.map((e) => e.code)).toContain("gate.phase.closed");
+
+    const phaseError = gate.errors.find((e) => e.code === "gate.phase.closed");
+    expect(phaseError?.message).toContain("Planning agents do not write files directly");
+    expect(phaseError?.message).toContain("omr_read_state scope=roadmap_checker_package");
+  });
+});

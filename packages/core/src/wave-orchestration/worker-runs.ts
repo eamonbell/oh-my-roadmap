@@ -1,6 +1,6 @@
 import {withDiagnosticTiming} from '../diagnostics'
 import {nowIso} from '../store/index'
-import type {ImplementationProgressStep, TaskPlan, WorkerRun} from '../types'
+import type {ImplementationProgressStep, ReviewerRun, TaskPlan, WorkerRun} from '../types'
 import {
 	activePlanContext,
 	type ActivePlanContext,
@@ -11,7 +11,13 @@ import {
 	updateTaskStatusLocal,
 	writePlanRuntime,
 } from './context'
-import type {RecordWorkerDispatchInput, RecordWorkerRunResult, RecordWorkerRunStatusInput,} from './types'
+import type {
+	RecordReviewerDispatchInput,
+	RecordReviewerDispatchResult,
+	RecordWorkerDispatchInput,
+	RecordWorkerRunResult,
+	RecordWorkerRunStatusInput,
+} from './types'
 
 export function requireTaskInActiveWave(ctx: ActivePlanContext, taskId: string): TaskPlan {
 	const task = ctx.activeTasks.find((candidate) => candidate.id === taskId)
@@ -50,6 +56,9 @@ export async function writeProgressWithRuns(
 	activeTaskIds: string[],
 	tasks: TaskPlan[] = ctx.plan.tasks,
 	step: ImplementationProgressStep = ctx.plan.progress.step,
+	// reviewer_runs default to the current persisted set so worker-run writes never drop
+	// them; recordReviewerDispatch passes an updated list.
+	reviewerRuns: ReviewerRun[] = ctx.plan.progress.reviewer_runs,
 ): Promise<void> {
 	await writePlanRuntime(cwd, {
 		...ctx.plan,
@@ -60,6 +69,7 @@ export async function writeProgressWithRuns(
 			step,
 			active_task_ids: activeTaskIds,
 			worker_runs: workerRuns,
+			reviewer_runs: reviewerRuns,
 			updated_at: nowIso(),
 		},
 	})
@@ -191,6 +201,58 @@ export async function recordWorkerAbandoned(
 			wave_id: run.wave_id,
 			run,
 			progress_step: activeTaskIds.length > 0 ? 'workers_running' : 'dispatching',
+		}
+	})
+}
+
+// Persist a durable reviewer identity for the active wave. Mirrors recordWorkerDispatch:
+// it appends an 'active' ReviewerRun so a later prepareWaveReview can wake the SAME
+// reviewer for re-review. When replacesAgentId is given, the superseded reviewer run for
+// this wave is marked 'completed' so the newest entry is always the current reviewer.
+// The step and active_task_ids are left untouched — recording a reviewer identity is not
+// a progress transition.
+export async function recordReviewerDispatch(
+	cwd: string,
+	input: RecordReviewerDispatchInput,
+): Promise<RecordReviewerDispatchResult> {
+	return await withDiagnosticTiming({
+		component: 'core',
+		operation: 'wave.recordReviewerDispatch',
+		cwd,
+		slowMs: 250,
+		metadata: {agent_id: input.agentId, job_id: input.jobId},
+	}, async () => {
+		const ctx = await activePlanContext(cwd, input)
+		const now = nowIso()
+		const run: ReviewerRun = {
+			wave_id: ctx.activeWave.id,
+			agent_id: input.agentId,
+			job_id: input.jobId,
+			status: 'active',
+			started_at: now,
+			updated_at: now,
+			...(input.replacesAgentId ? {replaces_agent_id: input.replacesAgentId} : {}),
+		}
+		const priorRuns = input.replacesAgentId
+			? ctx.plan.progress.reviewer_runs.map((existing) =>
+				existing.wave_id === ctx.activeWave.id &&
+				existing.agent_id === input.replacesAgentId &&
+				existing.status === 'active'
+					? {...existing, status: 'completed' as const, updated_at: now}
+					: existing)
+			: ctx.plan.progress.reviewer_runs
+		await writeProgressWithRuns(
+			cwd,
+			ctx,
+			ctx.plan.progress.worker_runs,
+			ctx.plan.progress.active_task_ids,
+			ctx.plan.tasks,
+			ctx.plan.progress.step,
+			[...priorRuns, run],
+		)
+		return {
+			wave_id: ctx.activeWave.id,
+			run,
 		}
 	})
 }

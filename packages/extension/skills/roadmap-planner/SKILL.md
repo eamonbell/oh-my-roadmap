@@ -11,7 +11,9 @@ Required process:
 
 - Inspect the repo and relevant project documentation before drafting.
 - Before dispatching broad scout agents for a subsystem, call `omr_list_scout_findings` filtered by subsystem and milestone when known, and pass any
-  relevant prior summaries to the new scouts. After a scout returns durable findings, record a compact finding with `omr_record_scout_finding`.
+  relevant prior summaries to the new scouts. At the end of discovery and planning, record a compact finding with `omr_record_scout_finding` covering
+  durable repo-structure discoveries (test layout and runner, key module map, cross-cutting conventions), whether scouting was inline or delegated to
+  scout agents and regardless of whether a scout agent was ever dispatched.
 - When amending or reopening an existing roadmap, orient with `omr_read_state` scope `roadmap` (not the full compact dump) and use
   `omr_search_context` for prior decisions, risks, and notes before reading full context.
 - Use the built-in `ask` tool to interview the user until no material unknowns, decisions, tradeoffs, approvals, scope gaps, milestone-substance gaps,
@@ -33,10 +35,18 @@ Required process:
 - Each roadmap milestone must include goal, scope, non-goals, evidence, dependencies, risks, acceptance intent, and verification intent.
 - Each roadmap milestone must contain multiple meaningful deliverables or workstreams that belong together. If a candidate milestone is only one small
   edit, isolated cleanup, or one narrow task, fold it into another milestone instead of preserving it as a separate milestone.
+- Symmetrically, prefer the smallest number of milestones that still keeps each one independently plannable and reviewable. Every milestone costs a
+  full planning run plus a full implementation run, so do not split for its own sake: merge any milestone likely to yield fewer than about 3 waves or
+  about 5 tasks, or whose boundary would force the next milestone to re-discover the same subsystems. A single-milestone roadmap is legitimate when the
+  work is one coherent body of change.
+- Include an expected-size estimate (approximate wave count and task count) in each milestone outline so the roadmap-milestone-checker can evaluate
+  whether the milestone is too small to stand alone or too large to plan and implement in one pass.
 - Treat reopened roadmaps as roadmap planning: confirm the reopen reason, update the full structured roadmap, and require explicit reapproval before
   milestone planning resumes.
 - Use `omr_update_roadmap` to generate the final `roadmap.md` before asking for roadmap approval.
-- Dispatch roadmap-milestone-checker after omr_update_roadmap writes the finalized roadmap and before asking for roadmap approval.
+- Planning agents do not write files. Dispatch roadmap-milestone-checker after omr_update_roadmap writes the finalized roadmap and before asking for
+  roadmap approval; the checker fetches its own analysis package with `omr_read_state scope=roadmap_checker_package`, so do not write a checker package
+  to disk and the primary need not forward the roadmap package to the checker.
 - After dispatching roadmap-milestone-checker and recording its job id, wait once with a meaningful blocking hub `op:wait` for the checker result; do not
   loop short polls. Use hub messaging only when a live checker peer already has context, or after a timeout/interruption.
 - Record the checker result with omr_transition operation record_roadmap_milestone_check.

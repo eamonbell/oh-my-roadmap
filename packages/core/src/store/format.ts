@@ -8,6 +8,7 @@ import type {
 	PlanRuntime,
 	RoadmapMilestoneCheck,
 	RoadmapMilestoneOutline,
+	ReviewerRun,
 	RoadmapState,
 	TaskPlan,
 	WaveFlowCheck,
@@ -15,7 +16,7 @@ import type {
 	WavePlan,
 	WorkerRun
 } from '../types'
-import {WORKER_RUN_STATUSES} from '../types'
+import {REVIEWER_RUN_STATUSES, WORKER_RUN_STATUSES} from '../types'
 import type {WaveFlowCheckInput} from './contract'
 import {list, nowIso, valueList, valueNumber, valueString} from './shared'
 
@@ -160,6 +161,40 @@ export function normalizeWorkerRuns(value: unknown): WorkerRun[] {
 	})
 }
 
+export const REVIEWER_RUN_STATUS_SET = new Set<string>(REVIEWER_RUN_STATUSES)
+
+export function normalizeReviewerRun(value: unknown): ReviewerRun | undefined {
+	const raw = value && typeof value === 'object' && !Array.isArray(value)
+		? value as Record<string, unknown>
+		: {}
+	const waveId = valueString(raw.wave_id)
+	const agentId = valueString(raw.agent_id)
+	const jobId = valueString(raw.job_id)
+	const status = valueString(raw.status)
+	if (!waveId || !agentId || !jobId || !REVIEWER_RUN_STATUS_SET.has(status)) {
+		return undefined
+	}
+	return {
+		wave_id: waveId,
+		agent_id: agentId,
+		job_id: jobId,
+		status: status as ReviewerRun['status'],
+		started_at: valueString(raw.started_at) || nowIso(),
+		updated_at: valueString(raw.updated_at) || nowIso(),
+		...(valueString(raw.replaces_agent_id) ? {replaces_agent_id: valueString(raw.replaces_agent_id)} : {}),
+	}
+}
+
+// Tolerates persisted runtime that predates reviewer_runs: a missing/invalid value
+// normalizes to an empty list so resuming an in-flight roadmap never fails to load.
+export function normalizeReviewerRuns(value: unknown): ReviewerRun[] {
+	if (!Array.isArray(value)) return []
+	return value.flatMap((item) => {
+		const run = normalizeReviewerRun(item)
+		return run ? [run] : []
+	})
+}
+
 export function normalizeProgress(value: unknown, waves: WavePlan[]): ImplementationProgress {
 	const raw = value && typeof value === 'object' && !Array.isArray(value)
 		? value as Partial<ImplementationProgress>
@@ -173,6 +208,7 @@ export function normalizeProgress(value: unknown, waves: WavePlan[]): Implementa
 		step: raw.step ?? 'not_started',
 		active_task_ids: valueList(raw.active_task_ids),
 		worker_runs: normalizeWorkerRuns(raw.worker_runs),
+		reviewer_runs: normalizeReviewerRuns(raw.reviewer_runs),
 		...(typeof raw.blocked_reason === 'string' ? {blocked_reason: raw.blocked_reason} : {}),
 		updated_at: raw.updated_at ?? nowIso(),
 	}

@@ -7,6 +7,7 @@ import { appendNote, initRoadmap, loadState, transition } from "@oh-my-roadmap/c
 import {
   prepareWaveDispatch,
   recordWaveResult,
+  recordWaveReview,
   recordWorkerDispatch,
 } from "@oh-my-roadmap/core/wave-orchestration/index";
 import type { CreateMilestonePlanInput } from "@oh-my-roadmap/core/store/index";
@@ -15,8 +16,10 @@ import {
   approvedMilestone,
   approvedRoadmap,
   createTempRoadmapCwd,
+  milestoneInput,
   recordPassedWaveFlowCheck,
   removeTempRoadmapCwd,
+  testWave,
 } from "./helpers";
 
 let cwd = "";
@@ -178,5 +181,106 @@ describe("Code-review fixes", () => {
     // split would have truncated the body and written a spurious note here.
     expect(raw).toContain("Trailing sentence after the fence.");
     expect((raw.match(/\n\n---\nkind:/g) ?? []).length).toBe(1);
+  });
+
+  // R6 — a passed wave review must auto-advance active_wave_id so the very next
+  // prepareWaveDispatch call succeeds without an intervening update_implementation_progress
+  // transition. Before this fix, recordWaveReview left active_wave_id pinned to the
+  // now-complete wave, so the next prepareWaveDispatch always threw "already complete".
+  test("recordWaveReview(passed) auto-advances progress so prepareWaveDispatch immediately dispatches the next wave", async () => {
+    await approvedMilestone(cwd);
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, { taskId: "t01-state", agentId: "a1", jobId: "j1" });
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+
+    const reviewResult = await recordWaveReview(cwd, {
+      status: "passed",
+      summary: "Wave implementation passed review.",
+    });
+    expect(reviewResult.wave_status).toBe("complete");
+    expect(reviewResult.progress_step).toBe("not_started");
+
+    const stateAfterReview = await loadState(cwd);
+    expect(stateAfterReview.milestone?.progress).toMatchObject({
+      active_wave_id: "w02",
+      step: "not_started",
+      active_task_ids: [],
+    });
+
+    // No intervening update_implementation_progress transition here: prepareWaveDispatch
+    // must succeed immediately and dispatch the next wave's task, not throw.
+    const dispatch = await prepareWaveDispatch(cwd);
+    expect(dispatch.wave_id).toBe("w02");
+    expect(dispatch.assignments.map((assignment) => assignment.task_id)).toEqual(["t02-report"]);
+  });
+
+  // R6 — passing the final wave must land progress directly on closeout_ready with no
+  // further wave to advance into.
+  test("recordWaveReview(passed) on the final wave advances progress straight to closeout_ready", async () => {
+    await approvedRoadmap(cwd);
+    await transition(cwd, { operation: "start_milestone_planning" });
+    const input = milestoneInput();
+    input.tasks = [{ ...input.tasks[0]! }];
+    input.waves = [testWave("w01", ["t01-state"])];
+    await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    await recordPassedWaveFlowCheck(cwd);
+    await transition(cwd, { operation: "approve_milestone", approver: "user", summary: "ok" });
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+
+    const reviewResult = await recordWaveReview(cwd, {
+      status: "passed",
+      summary: "Final wave passed review.",
+    });
+    expect(reviewResult.wave_status).toBe("complete");
+    expect(reviewResult.progress_step).toBe("closeout_ready");
+
+    const state = await loadState(cwd);
+    expect(state.milestone?.progress.step).toBe("closeout_ready");
+  });
+
+  // R6 — the auto-advance guard: if the next wave is NOT pending (e.g. already blocked),
+  // recordWaveReview(passed) must NOT advance into it. State stays authoritative on the
+  // completed wave with step ready_for_next_wave, matching the pre-fix "none" branch.
+  test("recordWaveReview(passed) does not auto-advance when the next wave is not pending", async () => {
+    await approvedMilestone(cwd);
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, { taskId: "t01-state", agentId: "a1", jobId: "j1" });
+    await recordWaveResult(cwd, {
+      taskId: "t01-state",
+      status: "completed",
+      summary: "State task completed.",
+    });
+    // Force the next wave out of the 'pending' state so the advance guard falls to 'none'.
+    await transition(cwd, {
+      operation: "update_wave_status",
+      waveId: "w02",
+      waveStatus: "blocked",
+    });
+
+    const reviewResult = await recordWaveReview(cwd, {
+      status: "passed",
+      summary: "Wave implementation passed review.",
+    });
+    expect(reviewResult.wave_status).toBe("complete");
+    expect(reviewResult.progress_step).toBe("ready_for_next_wave");
+    expect(reviewResult.next_actions).toBeUndefined();
+
+    const state = await loadState(cwd);
+    expect(state.milestone?.progress).toMatchObject({
+      active_wave_id: "w01",
+      step: "ready_for_next_wave",
+    });
   });
 });

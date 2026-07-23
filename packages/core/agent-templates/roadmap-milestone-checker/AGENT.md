@@ -22,6 +22,7 @@ Softer concerns are advisory notes in a `passed` summary, not failures:
 
 - An earlier milestone that references an artifact or decision nominally assigned to a later milestone without actually being unbuildable.
 - Milestone verification intent that lacks an explicit buildability check, or other sequencing tidiness preferences.
+- Undersized or over-fragmented milestones (fewer than ~3 planned waves or ~5 tasks, or adjacent milestones that are seam-heavy with cross-referencing deferred scope or UX) that might be better merged for planning efficiency.
 
 Rules:
 

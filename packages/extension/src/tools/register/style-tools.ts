@@ -1,7 +1,7 @@
 import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import {setProjectStyle, type StyleGuide} from '@oh-my-roadmap/core/project-init'
 import {renderStyleGuide, styleGuideForFiles} from '@oh-my-roadmap/core/style'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, textResult, type ToolRegistrationContext} from './shared'
 
 export function registerStyleTools(ctx: ToolRegistrationContext): void {
 	const {z, register} = ctx
@@ -21,10 +21,11 @@ export function registerStyleTools(ctx: ToolRegistrationContext): void {
 			const guide: StyleGuide = {guidelines}
 			if (summary) guide.summary = summary
 			await setProjectStyle(ctx.cwd, language, guide)
-			return textResult(`Recorded ${guidelines.length} ${language} style guideline${guidelines.length === 1 ? '' : 's'}.`, {
-				language,
-				guideline_count: guidelines.length,
-			})
+			return receiptResult(
+				ctx.cwd,
+				`Recorded ${guidelines.length} ${language} style guideline${guidelines.length === 1 ? '' : 's'}.`,
+				{language, guideline_count: guidelines.length},
+			)
 		},
 	} as ToolDefinition)
 

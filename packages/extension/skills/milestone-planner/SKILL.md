@@ -18,7 +18,9 @@ Required process:
   scope.
 - Inspect relevant existing code and project documentation before planning ownership, waves, or verification.
 - Before dispatching broad scout agents for a subsystem, call `omr_list_scout_findings` filtered by subsystem and milestone when known, and pass any
-  relevant prior summaries to the new scouts. After a scout returns durable findings, record a compact finding with `omr_record_scout_finding`.
+  relevant prior summaries to the new scouts. At the end of discovery and planning, record a compact finding with `omr_record_scout_finding` covering
+  durable repo-structure discoveries (test layout and runner, key module map, cross-cutting conventions), whether scouting was inline or delegated to
+  scout agents and regardless of whether a scout agent was ever dispatched.
 - Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy
   questions, and approval questions are closed.
 - Interview for intent, not just mechanics. Beyond "how would you like to handle X" questions, explore the user's underlying goals when they are

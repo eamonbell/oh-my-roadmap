@@ -6,7 +6,7 @@ import {
 	type CreateAdhocPlanInput,
 	updateAdhocPlan,
 } from '@oh-my-roadmap/core/store/index'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, type ToolRegistrationContext} from './shared'
 
 export function registerAdhocTools(ctx: ToolRegistrationContext): void {
 	const {z, register, schemas} = ctx
@@ -35,7 +35,7 @@ export function registerAdhocTools(ctx: ToolRegistrationContext): void {
 		parameters: planParameters,
 		async execute(_id, params, _signal, _update, ctx) {
 			const plan = await createAdhocPlan(ctx.cwd, params as CreateAdhocPlanInput)
-			return textResult(`Created ad-hoc plan ${plan.adhoc_id}.`, plan)
+			return receiptResult(ctx.cwd, `Created ad-hoc plan ${plan.adhoc_id}.`, plan)
 		},
 	} as ToolDefinition)
 
@@ -47,7 +47,7 @@ export function registerAdhocTools(ctx: ToolRegistrationContext): void {
 		parameters: planParameters,
 		async execute(_id, params, _signal, _update, ctx) {
 			const plan = await updateAdhocPlan(ctx.cwd, params as CreateAdhocPlanInput)
-			return textResult(`Updated ad-hoc plan ${plan.adhoc_id}.`, plan)
+			return receiptResult(ctx.cwd, `Updated ad-hoc plan ${plan.adhoc_id}.`, plan)
 		},
 	} as ToolDefinition)
 
@@ -73,7 +73,11 @@ export function registerAdhocTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const plan = await adhocTransition(ctx.cwd, params as AdhocTransitionInput)
-			return textResult(plan ? `Ad-hoc plan ${plan.adhoc_id} is now ${plan.status}.` : 'Ad-hoc plan cancelled.', plan ?? null)
+			return receiptResult(
+				ctx.cwd,
+				plan ? `Ad-hoc plan ${plan.adhoc_id} is now ${plan.status}.` : 'Ad-hoc plan cancelled.',
+				plan ?? {},
+			)
 		},
 	} as ToolDefinition)
 }
