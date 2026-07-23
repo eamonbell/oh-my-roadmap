@@ -179,7 +179,33 @@ export interface RoadmapMilestoneCheck extends WaveFlowCheck {
 	event_id: string;
 }
 
-export interface TaskPlan {
+export interface RelevantCodeReferenceInput {
+	path: string;
+	line?: number;
+	symbol?: string;
+	note: string;
+}
+
+export interface RelevantCodeReference extends RelevantCodeReferenceInput {
+	captured_at: string;
+	source_mtime_ms: number;
+}
+
+export interface SharedInterfaceContractInput {
+	name: string;
+	signature: string;
+	source_path: string;
+	line?: number;
+	planned: boolean;
+	planned_by_task_id?: string;
+}
+
+export interface SharedInterfaceContract extends SharedInterfaceContractInput {
+	captured_at?: string;
+	source_mtime_ms?: number;
+}
+
+export interface TaskPlanInput {
 	id: string;
 	title: string;
 	objective: string;
@@ -192,6 +218,13 @@ export interface TaskPlan {
 	owned_files: string[];
 	owned_modules: string[];
 	shared_interfaces: string[];
+	relevant_existing_code: RelevantCodeReferenceInput[];
+	shared_interface_contracts: SharedInterfaceContractInput[];
+}
+
+export interface TaskPlan extends Omit<TaskPlanInput, 'relevant_existing_code' | 'shared_interface_contracts'> {
+	relevant_existing_code: RelevantCodeReference[];
+	shared_interface_contracts: SharedInterfaceContract[];
 }
 
 export interface WavePlan {

@@ -1,13 +1,50 @@
-import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {readRoadmapEvents, type ReadRoadmapEventsInput} from '@oh-my-roadmap/core/events'
-import {readContext, type ReadContextInput, searchContext, type SearchContextInput,} from '@oh-my-roadmap/core/context'
-import {listQualityGates, type ListQualityGatesInput, loadRoadmapBlockers, loadState,} from '@oh-my-roadmap/core/store/index'
-import {type StateReadScope, summarizeState} from '@oh-my-roadmap/core/state-summary'
-import {textResult, type ToolRegistrationContext} from './shared'
+import type { ToolDefinition } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import { readRoadmapEvents, type ReadRoadmapEventsInput } from '@oh-my-roadmap/core/events'
+import { readContext, type ReadContextInput, searchContext, type SearchContextInput, } from '@oh-my-roadmap/core/context'
+import { listQualityGates, type ListQualityGatesInput, loadRoadmapBlockers, loadState, } from '@oh-my-roadmap/core/store/index'
+import { refreshRepoPrimer, renderRepoPrimer } from '@oh-my-roadmap/core/repo-primer'
+import { type StateReadScope, type StateSummaryRepoPrimer, summarizeState } from '@oh-my-roadmap/core/state-summary'
+import { textResult, type ToolRegistrationContext } from './shared'
+
+const PLANNER_PRIMER_SCOPES = new Set<StateReadScope>([
+	'roadmap',
+	'active_milestone',
+	'active_change',
+	'roadmap_checker_package',
+	'wave_flow_checker_package',
+])
+const PLANNER_PRIMER_MAX_BYTES = 12 * 1024
+
+async function plannerPrimerContext(cwd: string): Promise<{
+	repoPrimer?: StateSummaryRepoPrimer
+	repoPrimerWarnings: string[]
+}> {
+	try {
+		const refreshed = await refreshRepoPrimer(cwd)
+		if (refreshed.status === 'unavailable') {
+			return { repoPrimerWarnings: refreshed.warnings }
+		}
+		const rendered = renderRepoPrimer(refreshed.primer, PLANNER_PRIMER_MAX_BYTES)
+		const warnings = [...refreshed.warnings]
+		if (rendered.truncated) {
+			warnings.push(`Repository primer was truncated to ${PLANNER_PRIMER_MAX_BYTES} bytes.`)
+		}
+		return {
+			repoPrimer: {
+				...rendered,
+				generated_at: refreshed.primer.generated_at,
+				source_fingerprint: refreshed.primer.source_fingerprint,
+			},
+			repoPrimerWarnings: warnings,
+		}
+	} catch (error) {
+		return { repoPrimerWarnings: [`Repository primer refresh failed: ${(error as Error).message}`] }
+	}
+}
 
 export function registerContextTools(ctx: ToolRegistrationContext): void {
-	const {z, register} = ctx
-	const {contextArtifactSchema, contextNoteKindSchema, contextNoteStatusSchema} = ctx.schemas
+	const { z, register } = ctx
+	const { contextArtifactSchema, contextNoteKindSchema, contextNoteStatusSchema } = ctx.schemas
 
 	register({
 		name: 'omr_read_state',
@@ -23,12 +60,12 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 			const blockers = state.roadmap ? await loadRoadmapBlockers(ctx.cwd, state.roadmap.roadmap_id) : []
 			// sectionRefs discards snippet bodies, so request a minimal snippet and skip computing thrown-away text.
 			const roadmapSections = ['compact', 'roadmap'].includes(scope)
-				? (await searchContext(ctx.cwd, {artifacts: ['roadmap'], maxResults: 50, snippetChars: 1})).results
+				? (await searchContext(ctx.cwd, { artifacts: ['roadmap'], maxResults: 50, snippetChars: 1 })).results
 				: undefined
 			const planSections = ['compact', 'active_milestone', 'active_change'].includes(scope)
-				? (await searchContext(ctx.cwd, {artifacts: ['plan'], maxResults: 80, snippetChars: 1})).results
+				? (await searchContext(ctx.cwd, { artifacts: ['plan'], maxResults: 80, snippetChars: 1 })).results
 				: undefined
-			const activePlan = state.changeRequest ?? state.milestone
+			const activePlan = state.adhoc ?? state.changeRequest ?? state.milestone
 			const activeWaveId = scope === 'active_wave' ? activePlan?.progress.active_wave_id : undefined
 			const activeWaveTasks = activeWaveId
 				? activePlan?.waves.find((wave) => wave.id === activeWaveId)?.tasks ?? []
@@ -55,10 +92,14 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 					})).results,
 				]
 				: undefined
+			const primerContext = PLANNER_PRIMER_SCOPES.has(scope)
+				? await plannerPrimerContext(ctx.cwd)
+				: undefined
 			const summary = summarizeState(state, scope, {
-				...(roadmapSections !== undefined ? {roadmapSections} : {}),
-				...(planSections !== undefined ? {planSections} : {}),
-				...(noteSections !== undefined ? {noteSections} : {}),
+				...(roadmapSections !== undefined ? { roadmapSections } : {}),
+				...(planSections !== undefined ? { planSections } : {}),
+				...(noteSections !== undefined ? { noteSections } : {}),
+				...(primerContext ?? {}),
 				blockers,
 			})
 			return textResult(JSON.stringify(summary), summary)

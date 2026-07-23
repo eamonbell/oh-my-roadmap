@@ -63,23 +63,6 @@ conventions that batch established (see **Conventions** and **Context for the as
 - Full suite must be green and typecheck clean before a wave passes review and at final closeout.
 - The IDE occasionally emits stale mid-edit TS diagnostics; trust `bun run check` as ground truth.
 
-## Orchestration approach (team-lead model)
-
-- The main session is **team lead**: it decomposes, schedules waves, dispatches workers, reviews,
-  integrates, and does final end-to-end verification — it does not do the bulk of implementation.
-- **Waves:** each wave holds only mutually-independent tasks whose prerequisites are met by earlier
-  waves; **no two tasks in a wave edit the same file** (partition by file/module). Serialize waves
-  that must touch a shared file.
-- **Worker tiers:** `worker-light` (trivial/mechanical), `worker` (standard multi-file/feature),
-  `worker-heavy` (architecture, correctness-critical, new persisted state). Give each worker
-  explicit file ownership and self-contained context (interfaces, acceptance criteria,
-  constraints).
-- **Review loop:** after each wave, run `work-reviewer` against the wave's acceptance criteria; on
-  FAIL, re-prompt the responsible worker (reuse its agent id to keep context) and re-review with
-  the **same** reviewer until PASS. Watch for cross-wave interactions (e.g. a later sweep clobbering
-  an earlier wave's behavior) — verify the whole suite after integrating, not just the wave's files.
-- **Explore first** when the layout is unclear (custom `Explore` subagent for broad fan-out).
-
 ## Repo facts (verify before relying on them)
 
 - Bun workspace: `packages/core` (`@oh-my-roadmap/core`), `packages/extension`

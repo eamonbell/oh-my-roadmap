@@ -59,6 +59,8 @@ function samplePlan(overrides: Partial<AdhocPlan> = {}): AdhocPlan {
         owned_files: ["src/a.ts"],
         owned_modules: [],
         shared_interfaces: [],
+        relevant_existing_code: [],
+        shared_interface_contracts: [],
       },
     ],
     waves: [

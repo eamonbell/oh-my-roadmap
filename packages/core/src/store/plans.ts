@@ -1,13 +1,14 @@
 import * as fs from 'node:fs/promises'
-import {normalizeCloseoutEvidenceInput, openCloseoutEvidence, writeMilestoneCloseout} from '../closeout'
-import {appendRoadmapEvent, roadmapEventId} from '../events'
-import {appendText, writeMarkdownData, writeText} from '../files'
-import {serializeMarkdownDocument} from '../frontmatter'
-import {withStoreWriteLock} from '../lock'
-import {changeRequestPath, decisionsPath, milestoneCloseoutPath, milestoneDir, milestoneNotesPath, roadmapDocPath} from '../paths'
-import type {AdhocPlan, ChangeRequest, ImplementationProgress, LoadedState, MilestonePlan, Phase, RoadmapState, TaskPlan, WavePlan} from '../types'
-import type {CreateChangeRequestInput, CreateMilestonePlanInput, TransitionInput, TransitionReceipt, TransitionResult} from './contract'
-import {appendTransitionEvent, loadedSnapshot, receiptFromEvent} from './events'
+import { normalizeCloseoutEvidenceInput, openCloseoutEvidence, writeMilestoneCloseout } from '../closeout'
+import { appendRoadmapEvent, roadmapEventId } from '../events'
+import { appendText, writeMarkdownData, writeText } from '../files'
+import { serializeMarkdownDocument } from '../frontmatter'
+import { withStoreWriteLock } from '../lock'
+import { changeRequestPath, decisionsPath, milestoneCloseoutPath, milestoneDir, milestoneNotesPath, roadmapDocPath } from '../paths'
+import { captureTaskContext } from '../task-context'
+import type { AdhocPlan, ChangeRequest, ImplementationProgress, LoadedState, MilestonePlan, Phase, RoadmapState, TaskPlan, WavePlan } from '../types'
+import type { CreateChangeRequestInput, CreateMilestonePlanInput, TransitionInput, TransitionReceipt, TransitionResult } from './contract'
+import { appendTransitionEvent, loadedSnapshot, receiptFromEvent } from './events'
 import {
 	normalizeChangeRequest,
 	pendingRoadmapMilestoneCheck,
@@ -31,7 +32,7 @@ import {
 	writeMilestoneRuntime,
 	writeRoadmapState
 } from './persistence'
-import {assertRoadmapReadyForApproval} from './roadmap'
+import { assertRoadmapReadyForApproval } from './roadmap'
 import {
 	approval,
 	assertSlug,
@@ -46,7 +47,7 @@ import {
 
 export function initialProgress(waves: WavePlan[]): ImplementationProgress {
 	return {
-		...(waves[0] ? {active_wave_id: waves[0].id} : {}),
+		...(waves[0] ? { active_wave_id: waves[0].id } : {}),
 		step: 'not_started',
 		active_task_ids: [],
 		worker_runs: [],
@@ -93,13 +94,13 @@ export async function createMilestonePlanImpl(
 				relevant_documentation: input.relevantDocumentation ?? [],
 				decisions: input.decisions ?? [],
 				dependency_analysis: input.dependencyAnalysis ?? [],
-				tasks: input.tasks,
+				tasks: await captureTaskContext(cwd, input.tasks, input.waves),
 				waves: input.waves,
 				progress: initialProgress(input.waves),
 				wave_flow_check: pendingWaveFlowCheck(),
 			}
 
-			await fs.mkdir(milestoneDir(cwd, currentRoadmap.roadmap_id, input.milestoneId), {recursive: true})
+			await fs.mkdir(milestoneDir(cwd, currentRoadmap.roadmap_id, input.milestoneId), { recursive: true })
 			await writeMilestonePlan(cwd, plan)
 			await writeMilestoneRuntime(cwd, plan)
 			await writeText(milestoneNotesPath(cwd, currentRoadmap.roadmap_id, input.milestoneId), '# Milestone Notes\n')
@@ -121,7 +122,7 @@ export async function createMilestonePlanImpl(
 				updated_at: nowIso(),
 			})
 			await appendRoadmapEvent(cwd, {
-				...(eventId ? {id: eventId} : {}),
+				...(eventId ? { id: eventId } : {}),
 				actor: 'user',
 				type: 'milestone.plan_created',
 				operation: 'create_milestone_plan',
@@ -166,7 +167,7 @@ export async function updateMilestonePlanDraft(
 		relevant_documentation: input.relevantDocumentation ?? [],
 		decisions: input.decisions ?? [],
 		dependency_analysis: input.dependencyAnalysis ?? [],
-		tasks: input.tasks,
+		tasks: await captureTaskContext(cwd, input.tasks, input.waves),
 		waves: input.waves,
 		progress: initialProgress(input.waves),
 		wave_flow_check: pendingWaveFlowCheck(),
@@ -175,7 +176,7 @@ export async function updateMilestonePlanDraft(
 		await writeMilestonePlan(cwd, updated)
 		await writeMilestoneRuntime(cwd, updated)
 		await appendRoadmapEvent(cwd, {
-			...(eventId ? {id: eventId} : {}),
+			...(eventId ? { id: eventId } : {}),
 			actor: 'user',
 			type: 'milestone.plan_updated',
 			operation: 'update_milestone_plan',
@@ -222,8 +223,8 @@ export async function writeActivePointer(
 ): Promise<void> {
 	await writeActive(cwd, {
 		roadmap_id: roadmapId,
-		...(milestoneId ? {milestone_id: milestoneId} : {}),
-		...(changeRequestId ? {change_request_id: changeRequestId} : {}),
+		...(milestoneId ? { milestone_id: milestoneId } : {}),
+		...(changeRequestId ? { change_request_id: changeRequestId } : {}),
 		updated_at: nowIso(),
 	})
 }
@@ -242,11 +243,11 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 				event_id: '',
 				event_type: 'adhoc.transition',
 				summary: `Applied ${input.operation}.`,
-				scope: {roadmap_id: adhocId, milestone_id: adhocId},
+				scope: { roadmap_id: adhocId, milestone_id: adhocId },
 				before: loadedSnapshot(loaded),
 				after: loadedSnapshot(state),
 			}
-			return {state, receipt}
+			return { state, receipt }
 		}
 		if (!loaded.active || !loaded.roadmap) {
 			throw new Error('No active roadmap. Run /omr:rm-new first.')
@@ -364,7 +365,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 							event_id: createEventId,
 							event_type: 'milestone.plan_created',
 							summary: `Created milestone plan ${input.milestone.milestoneId}.`,
-							scope: {roadmap_id: roadmap.roadmap_id, milestone_id: input.milestone.milestoneId},
+							scope: { roadmap_id: roadmap.roadmap_id, milestone_id: input.milestone.milestoneId },
 						},
 					}
 				}
@@ -372,7 +373,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					requirePhase(roadmap.phase, 'milestone_planning', input.operation)
 					requireActiveMilestone(activeMilestoneId, loaded.milestone)
 					const milestoneId = requireMilestoneId(activeMilestoneId)
-					const plan = {...loaded.milestone, status: 'milestone_approved' as Phase}
+					const plan = { ...loaded.milestone, status: 'milestone_approved' as Phase }
 					if (plan.open_questions.length > 0) throw new Error('Milestone approval requires open questions to be resolved')
 					if (plan.wave_flow_check.status !== 'passed') {
 						throw new Error('Milestone approval requires a passed wave-flow check')
@@ -397,7 +398,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 							event_id: updateEventId,
 							event_type: 'milestone.plan_updated',
 							summary: `Updated milestone plan ${input.milestone.milestoneId}.`,
-							scope: {roadmap_id: roadmap.roadmap_id, milestone_id: input.milestone.milestoneId},
+							scope: { roadmap_id: roadmap.roadmap_id, milestone_id: input.milestone.milestoneId },
 						},
 					}
 				}
@@ -409,7 +410,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						if (!['approved', 'implementing'].includes(loaded.changeRequest.status)) {
 							throw new Error('Change implementation requires an approved change request')
 						}
-						const change = {...loaded.changeRequest, status: 'implementing' as const}
+						const change = { ...loaded.changeRequest, status: 'implementing' as const }
 						await writeChangeRequest(cwd, change)
 						break
 					}
@@ -498,7 +499,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						relevant_documentation: input.changeRequest.relevantDocumentation ?? [],
 						decisions: input.changeRequest.decisions ?? [],
 						dependency_analysis: input.changeRequest.dependencyAnalysis ?? [],
-						tasks: input.changeRequest.tasks,
+						tasks: await captureTaskContext(cwd, input.changeRequest.tasks, input.changeRequest.waves),
 						waves: input.changeRequest.waves,
 						progress: initialProgress(input.changeRequest.waves),
 						wave_flow_check: pendingWaveFlowCheck(),
@@ -516,7 +517,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						loaded.changeRequest.acceptance_criteria,
 						loaded.changeRequest.verification_commands,
 					)
-					const change = {...loaded.changeRequest, status: 'closed' as const}
+					const change = { ...loaded.changeRequest, status: 'closed' as const }
 					await writeChangeRequest(cwd, change)
 					delete roadmap.active_change_request_id
 					await writeActivePointer(cwd, roadmap.roadmap_id, milestoneId)
@@ -526,13 +527,13 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					if (!input.taskId || !input.taskStatus) throw new Error('update_task_status requires taskId and taskStatus')
 					if (loaded.changeRequest) {
 						const tasks = updateTaskStatus(loaded.changeRequest.tasks, input.taskId, input.taskStatus)
-						await writeChangeRequestRuntime(cwd, {...loaded.changeRequest, tasks})
+						await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, tasks })
 						writeRoadmap = false
 						break
 					}
 					requireActiveMilestone(activeMilestoneId, loaded.milestone)
 					const tasks = updateTaskStatus(loaded.milestone.tasks, input.taskId, input.taskStatus)
-					await writeMilestoneRuntime(cwd, {...loaded.milestone, tasks})
+					await writeMilestoneRuntime(cwd, { ...loaded.milestone, tasks })
 					writeRoadmap = false
 					break
 				}
@@ -540,13 +541,13 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					if (!input.waveId || !input.waveStatus) throw new Error('update_wave_status requires waveId and waveStatus')
 					if (loaded.changeRequest) {
 						const waves = updateWaveStatus(loaded.changeRequest.waves, input.waveId, input.waveStatus)
-						await writeChangeRequestRuntime(cwd, {...loaded.changeRequest, waves})
+						await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, waves })
 						writeRoadmap = false
 						break
 					}
 					requireActiveMilestone(activeMilestoneId, loaded.milestone)
 					const waves = updateWaveStatus(loaded.milestone.waves, input.waveId, input.waveStatus)
-					await writeMilestoneRuntime(cwd, {...loaded.milestone, waves})
+					await writeMilestoneRuntime(cwd, { ...loaded.milestone, waves })
 					writeRoadmap = false
 					break
 				}
@@ -554,23 +555,23 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					if (!input.progress) throw new Error('update_implementation_progress requires progress input')
 					const existingProgress = loaded.changeRequest?.progress ?? loaded.milestone?.progress
 					const progress = {
-						...(input.progress.activeWaveId ? {active_wave_id: input.progress.activeWaveId} : {}),
+						...(input.progress.activeWaveId ? { active_wave_id: input.progress.activeWaveId } : {}),
 						step: input.progress.step,
 						active_task_ids: input.progress.activeTaskIds ?? [],
 						worker_runs: existingProgress?.worker_runs ?? [],
 						reviewer_runs: existingProgress?.reviewer_runs ?? [],
-						...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
-						...(existingProgress?.rework_queue ? {rework_queue: existingProgress.rework_queue} : {}),
-						...(existingProgress?.verification_baseline ? {verification_baseline: existingProgress.verification_baseline} : {}),
+						...(input.progress.blockedReason ? { blocked_reason: input.progress.blockedReason } : {}),
+						...(existingProgress?.rework_queue ? { rework_queue: existingProgress.rework_queue } : {}),
+						...(existingProgress?.verification_baseline ? { verification_baseline: existingProgress.verification_baseline } : {}),
 						updated_at: nowIso(),
 					} satisfies ImplementationProgress
 					if (loaded.changeRequest) {
-						await writeChangeRequestRuntime(cwd, {...loaded.changeRequest, progress})
+						await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, progress })
 						writeRoadmap = false
 						break
 					}
 					requireActiveMilestone(activeMilestoneId, loaded.milestone)
-					await writeMilestoneRuntime(cwd, {...loaded.milestone, progress})
+					await writeMilestoneRuntime(cwd, { ...loaded.milestone, progress })
 					writeRoadmap = false
 					break
 				}
@@ -587,7 +588,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						milestone_id: milestoneId,
 						status: normalized.status,
 						...(normalized.status === 'closed' && !normalized.closed_at
-							? {closed_at: nowIso()}
+							? { closed_at: nowIso() }
 							: {}),
 					}
 					if (loaded.changeRequest) {
@@ -595,7 +596,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 							...evidence,
 							change_request_id: loaded.changeRequest.change_request_id,
 						}
-						const change = {...loaded.changeRequest, closeout: changeEvidence}
+						const change = { ...loaded.changeRequest, closeout: changeEvidence }
 						await writeChangeRequest(cwd, change)
 						break
 					}
@@ -608,7 +609,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					const waveFlowCheck = recordedWaveFlowCheck(input.waveFlowCheck)
 					if (loaded.changeRequest) {
 						if (loaded.changeRequest.status !== 'draft') throw new Error('record_wave_flow_check requires a draft change request')
-						await writeChangeRequestRuntime(cwd, {...loaded.changeRequest, wave_flow_check: waveFlowCheck})
+						await writeChangeRequestRuntime(cwd, { ...loaded.changeRequest, wave_flow_check: waveFlowCheck })
 						writeRoadmap = false
 						break
 					}
@@ -616,7 +617,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 					if (loaded.milestone.status !== 'milestone_planning') {
 						throw new Error('record_wave_flow_check requires a draft milestone plan')
 					}
-					await writeMilestoneRuntime(cwd, {...loaded.milestone, wave_flow_check: waveFlowCheck})
+					await writeMilestoneRuntime(cwd, { ...loaded.milestone, wave_flow_check: waveFlowCheck })
 					writeRoadmap = false
 					break
 				}
@@ -627,7 +628,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 			if (writeRoadmap) await writeRoadmapState(cwd, roadmap)
 			const after = await loadState(cwd)
 			const event = await appendTransitionEvent(cwd, input, beforeEvent, after, transitionEventId)
-			return {state: after, receipt: receiptFromEvent(event)}
+			return { state: after, receipt: receiptFromEvent(event) }
 		})
 	})
 }
@@ -641,7 +642,7 @@ export function updateTaskStatus(
 	const updated = tasks.map((task) => {
 		if (task.id !== taskId) return task
 		found = true
-		return {...task, status}
+		return { ...task, status }
 	})
 	if (!found) throw new Error(`Unknown task: ${taskId}`)
 	return updated
@@ -653,28 +654,28 @@ async function applyAdhocStatusTransition(cwd: string, input: TransitionInput, a
 	switch (input.operation) {
 		case 'update_task_status': {
 			if (!input.taskId || !input.taskStatus) throw new Error('update_task_status requires taskId and taskStatus')
-			await writeAdhocRuntime(cwd, {...adhoc, tasks: updateTaskStatus(adhoc.tasks, input.taskId, input.taskStatus)})
+			await writeAdhocRuntime(cwd, { ...adhoc, tasks: updateTaskStatus(adhoc.tasks, input.taskId, input.taskStatus) })
 			return
 		}
 		case 'update_wave_status': {
 			if (!input.waveId || !input.waveStatus) throw new Error('update_wave_status requires waveId and waveStatus')
-			await writeAdhocRuntime(cwd, {...adhoc, waves: updateWaveStatus(adhoc.waves, input.waveId, input.waveStatus)})
+			await writeAdhocRuntime(cwd, { ...adhoc, waves: updateWaveStatus(adhoc.waves, input.waveId, input.waveStatus) })
 			return
 		}
 		case 'update_implementation_progress': {
 			if (!input.progress) throw new Error('update_implementation_progress requires progress input')
 			const progress = {
-				...(input.progress.activeWaveId ? {active_wave_id: input.progress.activeWaveId} : {}),
+				...(input.progress.activeWaveId ? { active_wave_id: input.progress.activeWaveId } : {}),
 				step: input.progress.step,
 				active_task_ids: input.progress.activeTaskIds ?? [],
 				worker_runs: adhoc.progress.worker_runs,
 				reviewer_runs: adhoc.progress.reviewer_runs,
-				...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
-				...(adhoc.progress.rework_queue ? {rework_queue: adhoc.progress.rework_queue} : {}),
-				...(adhoc.progress.verification_baseline ? {verification_baseline: adhoc.progress.verification_baseline} : {}),
+				...(input.progress.blockedReason ? { blocked_reason: input.progress.blockedReason } : {}),
+				...(adhoc.progress.rework_queue ? { rework_queue: adhoc.progress.rework_queue } : {}),
+				...(adhoc.progress.verification_baseline ? { verification_baseline: adhoc.progress.verification_baseline } : {}),
 				updated_at: nowIso(),
 			} satisfies ImplementationProgress
-			await writeAdhocRuntime(cwd, {...adhoc, progress})
+			await writeAdhocRuntime(cwd, { ...adhoc, progress })
 			return
 		}
 		default:
@@ -691,7 +692,7 @@ export function updateWaveStatus(
 	const updated = waves.map((wave) => {
 		if (wave.id !== waveId) return wave
 		found = true
-		return {...wave, status}
+		return { ...wave, status }
 	})
 	if (!found) throw new Error(`Unknown wave: ${waveId}`)
 	return updated
@@ -735,7 +736,7 @@ export async function createChangeRequestImpl(
 				relevant_documentation: input.relevantDocumentation ?? [],
 				decisions: input.decisions ?? [],
 				dependency_analysis: input.dependencyAnalysis ?? [],
-				tasks: input.tasks,
+				tasks: await captureTaskContext(cwd, input.tasks, input.waves),
 				waves: input.waves,
 				progress: initialProgress(input.waves),
 				wave_flow_check: pendingWaveFlowCheck(),
@@ -788,8 +789,8 @@ export async function createMilestonePlan(
 export async function transitionWithReceipt(cwd: string, input: TransitionInput): Promise<TransitionResult> {
 	return await storeTiming('transition', cwd, {
 		operation: input.operation,
-		...('taskId' in input ? {task_id: input.taskId} : {}),
-		...('waveId' in input ? {wave_id: input.waveId} : {}),
+		...('taskId' in input ? { task_id: input.taskId } : {}),
+		...('waveId' in input ? { wave_id: input.waveId } : {}),
 	}, async () => await transitionImpl(cwd, input))
 }
 

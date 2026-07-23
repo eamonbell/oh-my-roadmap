@@ -20,6 +20,7 @@ import {
   transition,
   updateRoadmap,
   writeRoadmapState,
+  writeMilestonePlan,
 } from "@oh-my-roadmap/core/store/index";
 import {
   changeRequestPath,
@@ -376,6 +377,8 @@ describe("roadmap report and next actions", () => {
         owned_files: ["README.md"],
         owned_modules: [],
         shared_interfaces: [],
+        relevant_existing_code: [],
+        shared_interface_contracts: [],
       },
     ];
     input.waves = [
@@ -420,8 +423,10 @@ describe("roadmap report and next actions", () => {
 
     await transition(cwd, { operation: "start_milestone_planning" });
     const input = milestoneInput();
-    input.waves = [testWave("w01", ["missing-task"])];
     await transition(cwd, { operation: "create_milestone_plan", milestone: input });
+    const plan = (await loadState(cwd)).milestone;
+    if (!plan) throw new Error("Expected milestone plan");
+    await writeMilestonePlan(cwd, { ...plan, waves: [testWave("w01", ["missing-task"])] });
 
     const validation = await validateImplementationGate(cwd);
     expect(validation.valid).toBe(false);

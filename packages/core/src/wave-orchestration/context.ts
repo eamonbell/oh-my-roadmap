@@ -1,8 +1,8 @@
-import {loadState, writeAdhocRuntime, writeChangeRequestRuntime, writeMilestoneRuntime,} from '../store/index'
-import {validateImplementationGate} from '../validation'
-import type {AdhocPlan, ChangeRequest, LoadedState, MilestonePlan, TaskPlan, WavePlan, WorkerRun, WorkerRunStatus,} from '../types'
-import {IMPLEMENTATION_WORKER_NAMES} from '../types'
-import type {WaveOrchestrationTargetInput} from './types'
+import { loadState, writeAdhocRuntime, writeChangeRequestRuntime, writeMilestoneRuntime, } from '../store/index'
+import { validateImplementationGate } from '../validation'
+import type { AdhocPlan, ChangeRequest, LoadedState, MilestonePlan, TaskPlan, WavePlan, WorkerRun, WorkerRunStatus, } from '../types'
+import { IMPLEMENTATION_WORKER_NAMES } from '../types'
+import type { WaveOrchestrationTargetInput } from './types'
 
 // Any plan the wave machinery can drive. Ad-hoc plans reuse the same tasks/waves/progress shape.
 export type WaveOrchestrationPlan = MilestonePlan | ChangeRequest | AdhocPlan;
@@ -35,7 +35,7 @@ export function updateTaskStatusLocal(tasks: TaskPlan[], taskId: string, status:
 	const updated = tasks.map((task) => {
 		if (task.id !== taskId) return task
 		found = true
-		return {...task, status}
+		return { ...task, status }
 	})
 	if (!found) throw new Error(`Unknown task: ${taskId}`)
 	return updated
@@ -70,7 +70,7 @@ export function requireMatchingTarget(
 		const adhocId = loaded.adhoc.adhoc_id
 		if (input.roadmapId && input.roadmapId !== adhocId) throw new Error(`Requested roadmap ${input.roadmapId} is not active`)
 		if (input.milestoneId && input.milestoneId !== adhocId) throw new Error(`Requested milestone ${input.milestoneId} is not active`)
-		return {roadmapId: adhocId, milestoneId: adhocId, isAdhoc: true}
+		return { roadmapId: adhocId, milestoneId: adhocId, isAdhoc: true }
 	}
 
 	const roadmapId = loaded.active?.roadmap_id
@@ -86,7 +86,7 @@ export function requireMatchingTarget(
 	if (input.changeRequestId && input.changeRequestId !== changeRequestId) {
 		throw new Error(`Requested change request ${input.changeRequestId} is not active`)
 	}
-	return {roadmapId, milestoneId, ...(changeRequestId ? {changeRequestId} : {}), isAdhoc: false}
+	return { roadmapId, milestoneId, ...(changeRequestId ? { changeRequestId } : {}), isAdhoc: false }
 }
 
 export function requireActiveWave(plan: WaveOrchestrationPlan): WavePlan {
@@ -112,7 +112,7 @@ export async function activePlanContext(
 		if (!task) throw new Error(`Active wave ${activeWave.id} references unknown task ${taskId}`)
 		return task
 	})
-	return {loaded, ...target, plan, activeWave, activeTasks}
+	return { loaded, ...target, plan, activeWave, activeTasks }
 }
 
 export function assertDispatchableWave(ctx: ActivePlanContext): void {
@@ -125,6 +125,10 @@ export function assertDispatchableWave(ctx: ActivePlanContext): void {
 }
 
 export function assertTaskDispatchFields(task: TaskPlan): void {
+	const raw = task as unknown as Record<string, unknown>
+	if (!Array.isArray(raw.relevant_existing_code) || !Array.isArray(raw.shared_interface_contracts)) {
+		throw new Error(`Task ${task.id} uses the pre-Wave-3 context schema; re-plan with the current task context schema.`)
+	}
 	if (!WORKERS.has(task.worker)) {
 		throw new Error(`Task ${task.id} must assign worker-light, worker, or worker-heavy`)
 	}

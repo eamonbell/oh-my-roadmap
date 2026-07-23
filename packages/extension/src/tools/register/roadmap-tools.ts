@@ -1,4 +1,5 @@
-import type {ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import type { ToolDefinition } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import { refreshRepoPrimer } from '@oh-my-roadmap/core'
 import {
 	initRoadmap,
 	type InitRoadmapInput,
@@ -7,11 +8,11 @@ import {
 	updateRoadmap,
 	type UpdateRoadmapInput,
 } from '@oh-my-roadmap/core/store/index'
-import {receiptResult, type ToolRegistrationContext} from './shared'
+import { receiptResult, type ToolRegistrationContext } from './shared'
 
 export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): void {
-	const {z, register} = ctx
-	const {roadmapMilestoneSchema} = ctx.schemas
+	const { z, register } = ctx
+	const { roadmapMilestoneSchema } = ctx.schemas
 
 	register({
 		name: 'omr_init',
@@ -23,17 +24,22 @@ export function registerRoadmapLifecycleTools(ctx: ToolRegistrationContext): voi
 			title: z.string(),
 			summary: z.string().optional(),
 			discovery: z
-			.object({
-				recorded: z.boolean().optional(),
-				external_research_required: z.boolean().optional(),
-				external_research_recorded: z.boolean().optional(),
-				findings: z.array(z.string()).optional(),
-			})
-			.optional(),
+				.object({
+					recorded: z.boolean().optional(),
+					external_research_required: z.boolean().optional(),
+					external_research_recorded: z.boolean().optional(),
+					findings: z.array(z.string()).optional(),
+				})
+				.optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const state = await initRoadmap(ctx.cwd, params as InitRoadmapInput)
-			return receiptResult(ctx.cwd, `Initialized roadmap ${state.roadmap_id}.`, state)
+			const primer = await refreshRepoPrimer(ctx.cwd)
+			return receiptResult(
+				ctx.cwd,
+				`Initialized roadmap ${state.roadmap_id}. Repository primer: ${primer.status}.`,
+				{ ...state, repo_primer: { status: primer.status, warnings: primer.warnings } },
+			)
 		},
 	} as ToolDefinition)
 

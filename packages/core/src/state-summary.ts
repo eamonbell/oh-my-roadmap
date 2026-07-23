@@ -1,6 +1,6 @@
-import type {ChangeRequest, CloseoutEvidence, LoadedState, MilestonePlan, RoadmapBlocker, RoadmapState, TaskPlan, WavePlan,} from './types'
-import type {ContextEntryResult} from './context-types'
-import {type CloseoutRequirement, closeoutRequirements} from './closeout'
+import type { AdhocPlan, ChangeRequest, CloseoutEvidence, LoadedState, MilestonePlan, RoadmapBlocker, RoadmapState, TaskPlan, WavePlan, } from './types'
+import type { ContextEntryResult } from './context-types'
+import { type CloseoutRequirement, closeoutRequirements } from './closeout'
 
 export type StateReadScope =
 	| 'compact'
@@ -24,11 +24,29 @@ interface SectionReference {
 	milestoneId?: string;
 }
 
+export interface StateSummaryRepoPrimer {
+	text: string;
+	bytes: number;
+	truncated: boolean;
+	generated_at: string;
+	source_fingerprint: string;
+}
+
+
 interface StateSummaryContext {
 	roadmapSections?: ContextEntryResult[];
 	planSections?: ContextEntryResult[];
 	noteSections?: ContextEntryResult[];
 	blockers?: RoadmapBlocker[];
+	repoPrimer?: StateSummaryRepoPrimer;
+	repoPrimerWarnings?: string[];
+}
+
+function plannerContext(context: StateSummaryContext): Record<string, unknown> {
+	return {
+		...(context.repoPrimer ? { repo_primer: context.repoPrimer } : {}),
+		repo_primer_warnings: context.repoPrimerWarnings ?? [],
+	}
 }
 
 function sectionRefs(entries: ContextEntryResult[] | undefined): SectionReference[] {
@@ -36,7 +54,7 @@ function sectionRefs(entries: ContextEntryResult[] | undefined): SectionReferenc
 		id: entry.id,
 		artifact: entry.artifact,
 		title: entry.title,
-		...(entry.milestoneId ? {milestoneId: entry.milestoneId} : {}),
+		...(entry.milestoneId ? { milestoneId: entry.milestoneId } : {}),
 	}))
 }
 
@@ -86,6 +104,8 @@ function taskSummary(task: TaskPlan): Record<string, unknown> {
 		owned_modules: task.owned_modules,
 		shared_interfaces: task.shared_interfaces,
 		verification_commands: task.verification_commands,
+		relevant_existing_code: task.relevant_existing_code,
+		shared_interface_contracts: task.shared_interface_contracts,
 	}
 }
 
@@ -104,7 +124,7 @@ function planSummary(plan: MilestonePlan | ChangeRequest | undefined): Record<st
 	return {
 		roadmap_id: plan.roadmap_id,
 		milestone_id: plan.milestone_id,
-		...('change_request_id' in plan ? {change_request_id: plan.change_request_id, request: plan.request} : {}),
+		...('change_request_id' in plan ? { change_request_id: plan.change_request_id, request: plan.request } : {}),
 		title: plan.title,
 		status: plan.status,
 		open_questions: 'open_questions' in plan ? plan.open_questions : undefined,
@@ -150,14 +170,14 @@ function blockerSummary(blockers: RoadmapBlocker[] | undefined): Record<string, 
 	}))
 }
 
-function statusCounts(items: {status: string}[]): Record<string, number> {
+function statusCounts(items: { status: string }[]): Record<string, number> {
 	const counts: Record<string, number> = {}
 	for (const item of items) counts[item.status] = (counts[item.status] ?? 0) + 1
 	return counts
 }
 
-function activePlan(state: LoadedState): MilestonePlan | ChangeRequest | undefined {
-	return state.changeRequest ?? state.milestone
+function activePlan(state: LoadedState): MilestonePlan | ChangeRequest | AdhocPlan | undefined {
+	return state.adhoc ?? state.changeRequest ?? state.milestone
 }
 
 function phaseSummary(state: LoadedState): Record<string, unknown> {
@@ -170,19 +190,19 @@ function phaseSummary(state: LoadedState): Record<string, unknown> {
 					roadmap_id: roadmap.roadmap_id,
 					title: roadmap.title,
 					phase: roadmap.phase,
-					...(roadmap.active_milestone_id ? {active_milestone_id: roadmap.active_milestone_id} : {}),
-					...(roadmap.active_change_request_id ? {active_change_request_id: roadmap.active_change_request_id} : {}),
+					...(roadmap.active_milestone_id ? { active_milestone_id: roadmap.active_milestone_id } : {}),
+					...(roadmap.active_change_request_id ? { active_change_request_id: roadmap.active_change_request_id } : {}),
 				},
 			}
 			: {}),
-		...(state.milestone ? {milestone_status: state.milestone.status} : {}),
-		...(state.changeRequest ? {change_request_status: state.changeRequest.status} : {}),
+		...(state.milestone ? { milestone_status: state.milestone.status } : {}),
+		...(state.changeRequest ? { change_request_status: state.changeRequest.status } : {}),
 	}
 }
 
 function progressSummary(state: LoadedState): Record<string, unknown> {
 	const plan = activePlan(state)
-	if (!plan) return {active: state.active}
+	if (!plan) return { active: state.active }
 	const progress = plan.progress
 	const activeWave = progress.active_wave_id
 		? plan.waves.find((wave) => wave.id === progress.active_wave_id)
@@ -190,13 +210,13 @@ function progressSummary(state: LoadedState): Record<string, unknown> {
 	return {
 		active: state.active,
 		progress: {
-			...(progress.active_wave_id ? {active_wave_id: progress.active_wave_id} : {}),
+			...(progress.active_wave_id ? { active_wave_id: progress.active_wave_id } : {}),
 			step: progress.step,
 			active_task_ids: progress.active_task_ids,
-			...(progress.blocked_reason ? {blocked_reason: progress.blocked_reason} : {}),
+			...(progress.blocked_reason ? { blocked_reason: progress.blocked_reason } : {}),
 			updated_at: progress.updated_at,
 		},
-		...(activeWave ? {active_wave: {id: activeWave.id, status: activeWave.status}} : {}),
+		...(activeWave ? { active_wave: { id: activeWave.id, status: activeWave.status } } : {}),
 		task_counts: statusCounts(plan.tasks),
 		wave_counts: statusCounts(plan.waves),
 	}
@@ -205,7 +225,7 @@ function progressSummary(state: LoadedState): Record<string, unknown> {
 function qualityGateSummary(state: LoadedState): Record<string, unknown> {
 	const roadmap = state.roadmap
 	const plan = activePlan(state)
-	const result: Record<string, unknown> = {active: state.active}
+	const result: Record<string, unknown> = { active: state.active }
 	if (roadmap) {
 		const check = roadmap.roadmap_milestone_check
 		const stale = check.roadmap_revision !== roadmap.roadmap_revision ||
@@ -237,7 +257,7 @@ function milestoneOutlinesSummary(state: LoadedState): Record<string, unknown> {
 		active: state.active,
 		...(roadmap
 			? {
-				roadmap: {roadmap_id: roadmap.roadmap_id, title: roadmap.title, phase: roadmap.phase},
+				roadmap: { roadmap_id: roadmap.roadmap_id, title: roadmap.title, phase: roadmap.phase },
 				milestones: roadmap.milestones.map((milestone) => ({
 					id: milestone.id,
 					title: milestone.title,
@@ -259,11 +279,11 @@ function closeoutRequirementsSummary(state: LoadedState): Record<string, unknown
 	const mapRequirement = (requirement: CloseoutRequirement) => ({
 		id: requirement.id,
 		item: requirement.item,
-		...(requirement.result ? {result_status: requirement.result.status} : {}),
+		...(requirement.result ? { result_status: requirement.result.status } : {}),
 	})
 	const requirements = plan
 		? closeoutRequirements(plan.acceptance_criteria, plan.verification_commands, evidence)
-		: {acceptance: [], verification: []}
+		: { acceptance: [], verification: [] }
 	return {
 		active: state.active,
 		status: evidence?.status ?? 'open',
@@ -275,9 +295,9 @@ function closeoutRequirementsSummary(state: LoadedState): Record<string, unknown
 	}
 }
 
-function roadmapCheckerPackageSummary(state: LoadedState): Record<string, unknown> {
+function roadmapCheckerPackageSummary(state: LoadedState, context: StateSummaryContext): Record<string, unknown> {
 	const roadmap = state.roadmap
-	if (!roadmap) return {active: state.active}
+	if (!roadmap) return { active: state.active, ...plannerContext(context) }
 	const check = roadmap.roadmap_milestone_check
 	const checkStatus = check.status !== 'pending' && (
 		check.roadmap_revision !== roadmap.roadmap_revision ||
@@ -285,6 +305,7 @@ function roadmapCheckerPackageSummary(state: LoadedState): Record<string, unknow
 	) ? 'stale' : check.status
 	return {
 		active: state.active,
+		...plannerContext(context),
 		roadmap: {
 			roadmap_id: roadmap.roadmap_id,
 			title: roadmap.title,
@@ -309,15 +330,20 @@ function roadmapCheckerPackageSummary(state: LoadedState): Record<string, unknow
 	}
 }
 
-function waveFlowCheckerPackageSummary(state: LoadedState): Record<string, unknown> {
+function waveFlowCheckerPackageSummary(state: LoadedState, context: StateSummaryContext): Record<string, unknown> {
 	const plan = activePlan(state)
-	if (!plan) return {active: state.active}
+	if (!plan) return { active: state.active, ...plannerContext(context) }
 	return {
-		active: state.active,
+		...plannerContext(context),
+		active: state.active ?? state.adhocActive,
 		plan: {
-			roadmap_id: plan.roadmap_id,
-			milestone_id: plan.milestone_id,
-			...('change_request_id' in plan ? {change_request_id: plan.change_request_id} : {}),
+			...('adhoc_id' in plan
+				? { adhoc_id: plan.adhoc_id }
+				: {
+					roadmap_id: plan.roadmap_id,
+					milestone_id: plan.milestone_id,
+					...('change_request_id' in plan ? { change_request_id: plan.change_request_id } : {}),
+				}),
 			title: plan.title,
 			status: plan.status,
 			acceptance_criteria: plan.acceptance_criteria,
@@ -334,6 +360,8 @@ function waveFlowCheckerPackageSummary(state: LoadedState): Record<string, unkno
 			shared_interfaces: task.shared_interfaces,
 			done_criteria: task.done_criteria,
 			verification_commands: task.verification_commands,
+			relevant_existing_code: task.relevant_existing_code,
+			shared_interface_contracts: task.shared_interface_contracts,
 		})),
 		waves: plan.waves.map((wave) => ({
 			id: wave.id,
@@ -371,26 +399,28 @@ export function summarizeState(
 		case 'roadmap':
 			return {
 				active: state.active,
+				...plannerContext(context),
 				roadmap: roadmapSummary(state.roadmap),
 				blockers: blockerSummary(context.blockers),
-				context_sections: {roadmap: sectionRefs(context.roadmapSections)},
+				context_sections: { roadmap: sectionRefs(context.roadmapSections) },
 			}
 		case 'active_milestone':
 			return {
 				active: state.active,
+				...plannerContext(context),
 				milestone: planSummary(state.milestone),
 				closeout: closeoutSummary(state.closeout),
-				context_sections: {plan: sectionRefs(context.planSections)},
+				context_sections: { plan: sectionRefs(context.planSections) },
 			}
 		case 'active_wave': {
-			const plan = state.changeRequest ?? state.milestone
+			const plan = activePlan(state)
 			const activeWaveId = plan?.progress.active_wave_id
 			const wave = plan?.waves.find((candidate) => candidate.id === activeWaveId)
 			const taskById = new Map((plan?.tasks ?? []).map((task) => [task.id, task]))
 			const waveTasks = (wave?.tasks ?? [])
-			.map((taskId) => taskById.get(taskId))
-			.filter((task): task is TaskPlan => task !== undefined)
-			.map(taskSummary)
+				.map((taskId) => taskById.get(taskId))
+				.filter((task): task is TaskPlan => task !== undefined)
+				.map(taskSummary)
 			return {
 				active: state.active,
 				active_wave: wave
@@ -404,14 +434,15 @@ export function summarizeState(
 					: undefined,
 				progress: plan?.progress,
 				blockers: blockerSummary((context.blockers ?? []).filter((blocker) => blocker.wave_id === activeWaveId)),
-				context_sections: {notes: sectionRefs(context.noteSections)},
+				context_sections: { notes: sectionRefs(context.noteSections) },
 			}
 		}
 		case 'active_change':
 			return {
+				...plannerContext(context),
 				active: state.active,
 				change_request: planSummary(state.changeRequest),
-				context_sections: {plan: sectionRefs(context.planSections)},
+				context_sections: { plan: sectionRefs(context.planSections) },
 			}
 		case 'usage':
 			return {
@@ -429,8 +460,8 @@ export function summarizeState(
 		case 'closeout_requirements':
 			return closeoutRequirementsSummary(state)
 		case 'roadmap_checker_package':
-			return roadmapCheckerPackageSummary(state)
+			return roadmapCheckerPackageSummary(state, context)
 		case 'wave_flow_checker_package':
-			return waveFlowCheckerPackageSummary(state)
+			return waveFlowCheckerPackageSummary(state, context)
 	}
 }

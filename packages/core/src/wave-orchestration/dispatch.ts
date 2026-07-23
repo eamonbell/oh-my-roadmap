@@ -22,11 +22,13 @@ import {
 	assertImplementationReady,
 	assertTaskDispatchFields,
 } from './context'
+import { loadWaveContextSources, sliceTaskSeededContext } from './context-seeding'
 import type {
 	PlanDerivedManifest,
 	PrepareWaveDispatchResult,
 	PrepareWorkerRedispatchInput,
 	PrepareWorkerRedispatchResult,
+	SeededContext,
 	VerificationPreflightHint,
 	WaveOrchestrationTargetInput,
 	WaveWorkerAssignment,
@@ -200,14 +202,22 @@ Guidance:
 ${WORKER_VERIFICATION_GUIDANCE(permission).map((item) => `- ${item}`).join('\n')}`
 }
 
+export function seededContextPromptSection(seededContext: SeededContext): string {
+	return `Seeded context (this compact JSON exactly matches assignment.seeded_context):
+${JSON.stringify(seededContext)}
+The seeded items above were verified when this assignment was assembled, but live repository code remains authoritative. Typed warnings name context items omitted because they were stale, missing, mismatched, outside the repository, unavailable, or truncated. Use seeded_context.style_guidance as the complete style guidance for this assignment; an explicit "No recorded code-style guidance for these files." is authoritative and requires no separate style lookup.`
+}
+
 function workerPrompt(
 	ctx: ActivePlanContext,
 	task: TaskPlan,
+	seededContext: SeededContext,
 	permission: WorkerVerificationPermissionInput,
 	continuation?: WorkerContinuation,
 ): string {
 	const reserved = reservedSiblingScope(ctx, task)
 	const manifestSection = manifestPromptSection(manifestForTask(ctx, task))
+	const seededContextSection = seededContextPromptSection(seededContext)
 	const preflightSection = workerVerificationPreflightPromptSection(
 		verificationPreflightFor(task.verification_commands),
 		permission,
@@ -245,30 +255,42 @@ Reserved by concurrent sibling tasks in THIS wave (do not edit): ${reserved.leng
 
 ${manifestSection}
 
+${seededContextSection}
+
 ${preflightSection}
 
-You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. ${ownedTestsPermitted ? 'You MAY run your task\'s own verification_commands against your OWNED files (see the verification preflight above); do NOT run the full test suite, a whole-project build, or touch unowned files.' : 'Do NOT run builds, compilers, or tests — the wave reviewer owns build and test execution and runs it once the whole wave is complete.'} Running LSP diagnostics (e.g. xd://lsp) on every file you touch before you yield is mandatory regardless of the above. Only append a blocking note if you need something genuinely outside the plan or a required decision is ambiguous. Report completed, failed, or blocked status with a concise summary, the exact commands you ran and their results (command receipts), the verification the reviewer should run, and any blocker details for the orchestrator to record with omr_record_wave_result.`
+You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. ${ownedTestsPermitted ? 'You MAY run your task\'s own verification_commands against your OWNED files (see the verification preflight above); do NOT run the full test suite, a whole-project build, or touch unowned files.' : 'Do NOT run builds, compilers, or tests — the wave reviewer owns build and test execution and runs it once the whole wave is complete.'} Run LSP diagnostics on every file you touch before yielding. In your final worker note, include the exact commands you ran (if any), exit codes, and a brief result summary so the reviewer can verify your receipts. Append a concise worker note with files changed, verification performed, and any remaining risks. Then call omr_record_wave_result for this task with status completed or blocked.`
 	return continuation ? `${base}${continuationSection(continuation)}` : base
 }
 
-function assignment(
+interface AssignmentInput {
+	task: TaskPlan;
+	permission: WorkerVerificationPermissionInput;
+	continuation?: WorkerContinuation;
+}
+
+async function assignments(
+	cwd: string,
 	ctx: ActivePlanContext,
-	task: TaskPlan,
-	permission: WorkerVerificationPermissionInput,
-	continuation?: WorkerContinuation,
-): WaveWorkerAssignment {
-	return {
-		task_id: task.id,
-		title: task.title,
-		worker: task.worker,
-		owned_files: task.owned_files,
-		owned_modules: task.owned_modules,
-		shared_interfaces: task.shared_interfaces,
-		dependencies: task.depends_on,
-		manifest: manifestForTask(ctx, task),
-		verification_preflight: verificationPreflightFor(task.verification_commands),
-		prompt: workerPrompt(ctx, task, permission, continuation),
-	}
+	inputs: AssignmentInput[],
+): Promise<WaveWorkerAssignment[]> {
+	const sources = await loadWaveContextSources(cwd, ctx)
+	return inputs.map(({ task, permission, continuation }) => {
+		const seededContext = sliceTaskSeededContext(sources, task)
+		return {
+			task_id: task.id,
+			title: task.title,
+			worker: task.worker,
+			owned_files: task.owned_files,
+			owned_modules: task.owned_modules,
+			shared_interfaces: task.shared_interfaces,
+			dependencies: task.depends_on,
+			seeded_context: seededContext,
+			manifest: manifestForTask(ctx, task),
+			verification_preflight: verificationPreflightFor(task.verification_commands),
+			prompt: workerPrompt(ctx, task, seededContext, permission, continuation),
+		}
+	})
 }
 
 export async function setProgress(
@@ -526,9 +548,10 @@ export async function prepareWaveDispatch(
 			wave_id: ctx.activeWave.id,
 			wave_goal: ctx.activeWave.goal,
 			progress_step: 'dispatching',
-			assignments: incompleteTasks.map((task) =>
-				assignment(ctx, task, { singleWorker: incompleteTasks.length === 1, isRework: false })
-			),
+			assignments: await assignments(cwd, ctx, incompleteTasks.map((task) => ({
+				task,
+				permission: { singleWorker: incompleteTasks.length === 1, isRework: false },
+			}))),
 			active_runs: [],
 			instructions:
 				'Dispatch each assignment as a background subagent (the task tool, run in the background) using the assignment\'s exact worker and prompt. Immediately call omr_record_worker_dispatch with the returned agentId and jobId before polling workers via the hub tool (op:jobs / op:wait).',
@@ -617,15 +640,14 @@ export async function prepareWorkerRedispatch(
 			// continuation has no review behind it and concurrent siblings may still be running.
 			// singleWorker is computed independently from the wave's own current incomplete-task
 			// count, so a single-task wave still gets the owned-file permission either way.
-			assignment: assignment(
-				reloaded,
-				reloadedTask,
-				{
+			assignment: (await assignments(cwd, reloaded, [{
+				task: reloadedTask,
+				permission: {
 					singleWorker: reloaded.activeTasks.filter((t) => t.status !== 'done').length === 1,
 					isRework: Boolean(input.reworkOf),
 				},
 				continuation,
-			),
+			}]))[0]!,
 			prior_run: {
 				agent_id: prior.agent_id,
 				job_id: prior.job_id,

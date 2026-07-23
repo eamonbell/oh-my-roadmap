@@ -1,4 +1,4 @@
-import {REVIEWER_REWORK_RULE, SCOUT_RECORDING_RULE, workerReworkRule} from './rule-text'
+import { REPO_PRIMER_USE_RULE, REVIEWER_REWORK_RULE, SCOUT_RECORDING_RULE, workerReworkRule } from './rule-text'
 
 function commandSpecificInstructions(name: string, transportResumeAttempts: number): string {
 	if (name === 'omr:rm-new') {
@@ -144,7 +144,10 @@ Ad-hoc plans are a roadmap-free lightweight flow that reuse the full task/wave/w
 Follow these rules:
 - Interview for intent, not just mechanics, and never guess about external SDKs/APIs — ask the user for documentation links or file paths.
 - Use omr_read_state and omr_validate to orient and check the plan before approval or implementation.
+
+${REPO_PRIMER_USE_RULE}
 - Use the ad-hoc tools (omr_init_adhoc, omr_update_adhoc_plan, omr_adhoc_transition) plus the shared wave tools (omr_prepare_wave_dispatch, omr_record_wave_result, omr_prepare_wave_review, omr_record_wave_review) — the wave tools operate on the active ad-hoc plan.
+- For every task in an ad-hoc plan, provide a required \`relevant_existing_code\` array of exact \`{ path, line?, symbol?, note }\` pointers and a required \`shared_interface_contracts\` array of exact \`{ name, signature, source_path, line?, planned, planned_by_task_id? }\` contracts. For every \`planned: true\` contract, provide \`planned_by_task_id\` naming an owning producer task in a strictly earlier wave.
 - Submit omr_submit_findings_report once at the end with title "/${name} result".
 ${adhocCommandInstructions(name)}`
 }
@@ -187,9 +190,10 @@ Follow the oh-my-roadmap workflow strictly:
 - Use omr_update_roadmap to finalize a detailed generated roadmap before asking for roadmap approval.
 - For roadmap planning, each milestone outline must group multiple meaningful deliverables or workstreams that belong together; do not create a separate milestone for one small edit, isolated cleanup, or one narrow task.
 - ${SCOUT_RECORDING_RULE}
+${REPO_PRIMER_USE_RULE}
 - Use omr_transition, omr_amend, omr_append_note, or omr_create_change_request for state changes.
 - Record discovery with omr_transition operation record_discovery before roadmap approval.
-- For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment.
+- For milestone and change planning, define concrete executable tasks before dependency analysis or wave creation; each task needs objective, implementation notes, done criteria, task verification commands, dependencies, exclusive ownership, shared interfaces, worker assignment, a required \`relevant_existing_code\` array of exact \`{ path, line?, symbol?, note }\` pointers, and a required \`shared_interface_contracts\` array of exact \`{ name, signature, source_path, line?, planned, planned_by_task_id? }\` contracts. For every \`planned: true\` contract, provide \`planned_by_task_id\` naming an owning producer task in a strictly earlier wave.
 - For milestone and change planning, assign each task to exactly one of worker-light, worker, or worker-heavy based on risk and blast radius.
 - Before milestone or change approval, dispatch wave-flow-checker, record its result with record_wave_flow_check, and revise draft plans with update_milestone_plan or update_change_request_plan until the check passes.
 - For milestone planning, explicitly ask the user what test coverage they want based on the implementation tasks: which areas should create tests, which should run existing tests, what detail those tests should cover, and what coverage is intentionally deferred or not required.

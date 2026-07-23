@@ -75,6 +75,8 @@ function milestoneInput(): CreateMilestonePlanInput {
         owned_files: ["src/core/events.ts"],
         owned_modules: [],
         shared_interfaces: ["RoadmapEvent"],
+        relevant_existing_code: [],
+        shared_interface_contracts: [],
       },
     ],
     waves: [

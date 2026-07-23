@@ -53,9 +53,13 @@ path) or that a link is still needed. Do not guess the shape or behavior of an e
 ## Required Work
 
 Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria,
-task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment. Worker assignment must be one of
-`worker-light`, `worker`, or `worker-heavy`. Do not add filler tasks to justify the milestone; every task must directly implement the approved roadmap
-milestone scope.
+task verification commands, dependencies, exclusive ownership, shared interfaces, exact relevant existing-code pointers, shared interface
+contracts, and worker assignment. Every task must provide a required `relevant_existing_code` array of exact `{ path, line?, symbol?, note }`
+pointers and a required `shared_interface_contracts` array of exact
+`{ name, signature, source_path, line?, planned, planned_by_task_id? }` contracts. Use `planned: false` for an existing source. Use `planned: true`
+only for a source owned by a producer task in a strictly earlier wave, and always provide that producer's ID in `planned_by_task_id`. Worker
+assignment must be one of `worker-light`, `worker`, or `worker-heavy`. Do not add filler tasks to justify the milestone; every task must directly
+implement the approved roadmap milestone scope.
 
 Write implementation notes at the approach and intent level — describe what each task must achieve and its constraints, not a rigid line-by-line
 script. Keep exclusive file/module ownership exact (it is required for safe parallel waves), but leave the worker room to make the concrete edits;

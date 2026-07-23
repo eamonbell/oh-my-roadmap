@@ -22,6 +22,7 @@ Config and state are stored under `.omr`:
 .omr/
   config.yml
   active.yml
+  repo-primer.yml
   <roadmap-id>/
     roadmap.md
     state.yml
@@ -35,6 +36,20 @@ Config and state are stored under `.omr`:
         changes/
           <change-id>.md
 ```
+
+## Repository Primer and Seeded Context
+
+`.omr/repo-primer.yml` is the single project-wide repository primer. Its `schema_version: 1` payload records `generated_at`, a SHA-256 `source_fingerprint`, detected package managers, hashed manifests, workspace members, detected test/build/typecheck commands, test and module roots, bounded guidance excerpts, and scan warnings. The fingerprint covers all discovered candidate names before caps and the retained source contents. If it is unchanged, refresh returns the stored primer without rewriting it or changing `generated_at`.
+
+Primer writes use atomic replacement. A successful source change produces a refreshed last-good artifact; a scan failure returns `stale_fallback` with the last valid primer and a warning, or `unavailable` with warnings when no valid primer exists. Neither result is a workflow gate. Roadmap initialization refreshes the primer, and planner, dispatch, and review consumers perform lazy refresh so a missing or drifted artifact can repair itself.
+
+Repository discovery and task-context capture accept only lexical repository-relative paths. Existing sources are resolved through realpaths, must remain inside the repository, and must be regular files; escaping symlinks and `..` paths are rejected. `relevant_existing_code` records capture time and source mtime. An existing (`planned: false`) shared-interface contract also records its verified source mtime and must match its source after whitespace normalization. A planned contract names a producer through `planned_by_task_id`; that producer must be in a strictly earlier wave and own the future `source_path`.
+
+Dispatch and review share one `loadWaveContextSources` provider call per prepare operation. It refreshes the primer once, loads non-stale scout findings once, builds style guidance for the active ownership set once, and rechecks task sources. Relevant-code references are delivered only while their current mtime exactly matches `source_mtime_ms`; interface contracts, including contracts planned by an earlier wave, are delivered only while the live source contains the whitespace-normalized signature. Missing, stale, mismatched, or outside-repository items are omitted with typed warnings.
+
+The provider creates bounded `SeededContext` packages. Per task, it caps relevant-code references and interface contracts at 20 each and matching scout findings at 10. The reviewer package deduplicates and caps each of those categories at 20 across active tasks. Style guidance is capped at 8 KiB, the rendered primer at 12 KiB, and warnings at 20 with a final aggregate `truncated` warning when needed. Caps and refresh failures are visible but non-gating.
+
+Each worker assignment receives its task slice as required `seeded_context`; fresh dispatch and redispatch use the same assembly path. A review receives one aggregate `seeded_context`, active task `done_criteria`, and `remaining_waves`: incomplete waves strictly after the active wave, in plan order, with their goals, exit criteria, task ownership, shared-interface identities, and done criteria. `remaining_waves` and plan-wide milestone acceptance are informational during wave review. Only the active wave exit criteria and active task done criteria gate that review; later-owned work cannot fail the current wave and is finally dispositioned at closeout.
 
 ## Planning Rules
 

@@ -485,7 +485,7 @@ discovery findings as scout findings too (they're exactly what milestone planner
 **Signal:** sessions 2+ of a roadmap show nonzero `omr_list_scout_findings` results and
 measurably less re-scouting.
 
-#### R11. Give wave reviewers visibility into later waves' ownership
+#### R11. Give wave reviewers visibility into later waves' ownership ✅ Implemented (Wave 3)
 
 **Impact: Medium · Complexity: Low · Confidence: High**
 
@@ -543,7 +543,7 @@ logic, which needs exactly this signal).
 
 ---
 
-#### R16. Worker context-hygiene rules (the $2.44 worker)
+#### R16. Worker context-hygiene rules (the $2.44 worker) ✅ Implemented (Wave 3)
 
 **Impact: Medium · Complexity: Low · Confidence: Medium-High**
 
@@ -632,14 +632,16 @@ itself is the use case the feature was requested for.
 | R3     | Scoped worker self-verification + evidence handoff to reviewer (mandatory LSP; conditional owned-file tests; command receipts in notes) — ✅ Implemented (Wave 2) | High     | Medium     | worker templates, dispatch.ts prompt builder, reviewer package         |
 | R4     | Verification baseline at start_implementation; reviewers diff against it — ✅ Implemented (Wave 2)                                                | High     | Medium     | reviewer template, wave-orchestration, milestone runtime               |
 | R5     | Milestone-count parsimony rule + checker fragmentation check — ✅ Implemented (Wave 1)                                                            | High     | Low        | roadmap-planner SKILL.md, roadmap-milestone-checker AGENT.md           |
+| R21 | Plan evidence + conventions in dispatch/review packages — ✅ Implemented (Wave 3) | High | Low-Med | dispatch.ts, review.ts, task context |
 | R8     | Phase-aware, never-stale next_action (init/discovery gap; post-deferral wave unblock) — ✅ Implemented (Wave 2)                                   | Med-High | Medium     | report/next-action.ts, omr_init, defer/resolve receipts                |
+| R23 | Persistent per-repo primer artifact — ✅ Implemented (Wave 3) | Med-High | Medium | repo-primer.ts, state/dispatch/review packages |
 | R6     | Auto-advance wave (or receipt payload) after passed review — ✅ Implemented (Wave 1)                                                              | Medium   | Low        | wave-orchestration/review.ts                                           |
 | R7     | prepare_worker_redispatch accepts abandoned runs (or skill/error text fixed); history:// scoping note — ✅ Implemented (Wave 1)                   | Medium   | Low        | dispatch.ts, implementation-orchestrator SKILL.md                      |
 | R9     | plan-validation self-overlap false positive — ✅ Implemented (Wave 1)                                                                             | Medium   | Low        | plan-validation.ts:86-96                                               |
 | R10    | Scout-finding recording trigger for inline scouting — ✅ Implemented (Wave 1)                                                                     | Medium   | Low        | planner skills                                                         |
-| R11    | Later-wave ownership map in reviewer package                                                                                                     | Medium   | Low        | wave-orchestration/review.ts, reviewer template                        |
+| R11    | Later-wave ownership map in reviewer package — ✅ Implemented (Wave 3)                                                                            | Medium   | Low        | wave-orchestration/review.ts, reviewer template                        |
 | R12    | Rework authorization ordering + rework-marked dispatch records + gate text — ✅ Implemented (Wave 2)                                              | Medium   | Low-Med    | prompts.ts/SKILL.md, worker-runs.ts, gate text                         |
-| R16    | Worker context-hygiene rules (batch reads, trust receipts)                                                                                       | Medium   | Low        | worker templates                                                       |
+| R16    | Worker context-hygiene rules (batch reads, trust receipts) — ✅ Implemented (Wave 3)                                                              | Medium   | Low        | worker templates                                                       |
 | R18    | Cross-model prompt robustness (single-source invariants w/ rationale + procedure) — ✅ Implemented (Wave 1)                                       | Medium   | Medium     | prompts.ts, skills                                                     |
 | R13-15 | Receipt/copy batch: append_note enum, planner gate text, uniform rich receipts — ✅ Implemented (Wave 1)                                          | Low-Med  | Low        | tool registrations, gate.ts messages                                   |
 | R17    | xd:// JSON tolerance + invocation examples + phase preconditions in docs                                                                         | Low-Med  | Medium     | tool registration / OMP transport                                      |
@@ -723,7 +725,7 @@ it" note and a source timestamp; just-in-time reads remain fully available. This
 Anthropic's context-engineering guidance recommends (pre-load small critical identifiers,
 retrieve details on demand) and it cannot make a worker *worse* informed than today.
 
-#### R21. Carry plan evidence + conventions into the dispatch package
+#### R21. Carry plan evidence + conventions into the dispatch package ✅ Implemented (Wave 3)
 
 **Impact: High · Complexity: Low-Medium · Confidence: High**
 
@@ -747,7 +749,7 @@ while leaving the worker free to read anything it still needs. (Tool-design guid
 consolidate frequently-chained operations; cap payloads —
 [anthropic.com/engineering/writing-tools-for-agents](https://www.anthropic.com/engineering/writing-tools-for-agents).)
 
-#### R23. Persistent per-repo primer artifact
+#### R23. Persistent per-repo primer artifact ✅ Implemented (Wave 3)
 
 **Impact: Medium-High · Complexity: Medium · Confidence: High**
 

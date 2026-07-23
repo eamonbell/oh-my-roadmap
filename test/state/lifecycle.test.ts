@@ -896,7 +896,7 @@ describe("roadmap state lifecycle", () => {
     expect(notes).toContain("## Concurrent note");
   });
 
-  test("rejects duplicate wave membership, unknown dependencies, and dependency cycles", async () => {
+  test("rejects duplicate wave membership at creation and still validates dependency errors", async () => {
     await approvedRoadmap();
     await transition(cwd, { operation: "start_milestone_planning" });
     const input = milestoneInput();
@@ -911,11 +911,17 @@ describe("roadmap state lifecycle", () => {
       testWave("w01", ["t01-state", "t02-report"]),
       testWave("w02", ["t01-state"]),
     ];
+    await expect(transition(cwd, { operation: "create_milestone_plan", milestone: input }))
+      .rejects.toThrow("Task t01-state must appear in exactly one wave (found 2)");
+
+    input.waves = [
+      testWave("w01", ["t01-state"]),
+      testWave("w02", ["t02-report"]),
+    ];
     await transition(cwd, { operation: "create_milestone_plan", milestone: input });
 
     const validation = await validateRoadmapState(cwd);
     expect(validation.valid).toBe(false);
-    expect(validation.errors.map((error) => error.code)).toContain("wave.task.duplicate");
     expect(validation.errors.map((error) => error.code)).toContain("task.dependency.unknown");
     expect(validation.errors.map((error) => error.code)).toContain("task.dependency.cycle");
   });

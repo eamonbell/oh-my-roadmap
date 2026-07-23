@@ -53,8 +53,12 @@ List project docs, external docs, standards, or API references used while planni
 ## Required Work
 
 Define concrete executable tasks before dependency analysis or wave creation. Each task must include objective, implementation notes, done criteria,
-task verification commands, dependencies, exclusive ownership, shared interfaces, and worker assignment. Worker assignment must be one of
-`worker-light`, `worker`, or `worker-heavy`.
+task verification commands, dependencies, exclusive ownership, shared interfaces, exact relevant existing-code pointers, shared interface
+contracts, and worker assignment. Every task must provide a required `relevant_existing_code` array of exact `{ path, line?, symbol?, note }`
+pointers and a required `shared_interface_contracts` array of exact
+`{ name, signature, source_path, line?, planned, planned_by_task_id? }` contracts. Use `planned: false` for an existing source. Use `planned: true`
+only for a source owned by a producer task in a strictly earlier wave, and always provide that producer's ID in `planned_by_task_id`. Worker
+assignment must be one of `worker-light`, `worker`, or `worker-heavy`.
 
 ## Dependency Analysis
 

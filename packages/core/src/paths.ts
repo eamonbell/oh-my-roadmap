@@ -5,6 +5,10 @@ export function roadmapsDir(cwd: string): string {
 	return path.join(cwd, ROADMAP_ROOT)
 }
 
+export function repoPrimerPath(cwd: string): string {
+	return path.join(roadmapsDir(cwd), 'repo-primer.yml')
+}
+
 export function storeLockPath(cwd: string): string {
 	return path.join(roadmapsDir(cwd), 'store.lock')
 }
