@@ -5,7 +5,7 @@ import {
 	recordScoutFinding,
 	type RecordScoutFindingInput,
 } from '@oh-my-roadmap/core/store/scout-findings'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, textResult, type ToolRegistrationContext} from './shared'
 
 export function registerScoutTools(ctx: ToolRegistrationContext): void {
 	const {z, register} = ctx
@@ -26,7 +26,7 @@ export function registerScoutTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const finding = await recordScoutFinding(ctx.cwd, params as RecordScoutFindingInput)
-			return textResult(`Recorded scout finding ${finding.id} for ${finding.subsystem}.`, finding)
+			return receiptResult(ctx.cwd, `Recorded scout finding ${finding.id} for ${finding.subsystem}.`, finding)
 		},
 	} as ToolDefinition)
 

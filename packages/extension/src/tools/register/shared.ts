@@ -1,10 +1,43 @@
 import type {AgentToolResult} from '@oh-my-pi/pi-coding-agent'
 import type {ExtensionAPI, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import {nextActionHint, nextActionPlan, type NextActionHint} from '@oh-my-roadmap/core/report/index'
 
 type ToolRegistrationZod = ExtensionAPI['zod']['z'];
 
 export function textResult<T>(text: string, details: T): AgentToolResult<T> {
 	return {content: [{type: 'text', text}], details}
+}
+
+/**
+ * Uniform rich receipt for bare-string mutating tools: computes the next
+ * executable workflow action, appends "Next action: X" to the human summary,
+ * and returns `next_actions` alongside the tool's existing details payload.
+ * Mirrors the receipt shape already used by omr_transition and omr_validate.
+ *
+ * If `details` already carries a non-empty `next_actions` array (some core
+ * operations — e.g. recordWaveReview's auto-advance hint — compute a precise,
+ * concrete hint themselves), that existing hint is preferred and is NOT
+ * overwritten by a freshly (and more generically) recomputed one.
+ */
+export async function receiptResult<T extends object>(
+	cwd: string,
+	summary: string,
+	details: T,
+	hintMessage?: string,
+): Promise<AgentToolResult<T & { next_actions: NextActionHint[] }>> {
+	const existing = (details as { next_actions?: unknown }).next_actions
+	let next_actions: NextActionHint[] = Array.isArray(existing) ? (existing as NextActionHint[]) : []
+	if (next_actions.length === 0) {
+		try {
+			const next = await nextActionPlan(cwd)
+			next_actions = nextActionHint(next, hintMessage ?? 'Action recorded; this is the next executable workflow action.')
+		} catch {
+			next_actions = []
+		}
+	}
+	const hint = next_actions[0]
+	const text = hint ? `${summary} Next action: ${hint.label}.` : summary
+	return textResult(text, {...details, next_actions})
 }
 
 export function toolMetadata(tool: ToolDefinition, toolCallId: string, params: unknown): Record<string, unknown> {

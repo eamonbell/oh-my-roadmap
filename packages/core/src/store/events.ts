@@ -65,6 +65,13 @@ export function progressSnapshot(loaded: LoadedState): Record<string, unknown> {
 			status: run.status,
 			transport_failures: run.transport_failures ?? 0,
 		})) ?? [],
+		reviewer_runs: progress?.reviewer_runs.map((run) => ({
+			wave_id: run.wave_id,
+			agent_id: run.agent_id,
+			job_id: run.job_id,
+			status: run.status,
+			...(run.replaces_agent_id ? {replaces_agent_id: run.replaces_agent_id} : {}),
+		})) ?? [],
 		blocked_reason: progress?.blocked_reason ?? null,
 	}
 }

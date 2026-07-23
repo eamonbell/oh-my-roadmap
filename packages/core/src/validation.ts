@@ -460,10 +460,14 @@ export async function validateImplementationGate(cwd: string): Promise<Validatio
 			['approved', 'implementing'].includes(state.changeRequest.status) &&
 			['reviewing', 'closeout', 'complete'].includes(state.roadmap.phase)
 		if (!activeChangeApproved && !['implementing', 'reviewing'].includes(state.roadmap.phase)) {
+			const planningPhases = new Set(['discovery', 'roadmap_draft', 'milestone_planning'])
+			const message = planningPhases.has(state.roadmap.phase)
+				? `Planning agents do not write files directly. Use omr_read_state scope=roadmap_checker_package to fetch the roadmap state for analysis.`
+				: `File writes require phase implementing or reviewing; current phase is ${state.roadmap.phase}`
 			errors.push(
 				issue(
 					'gate.phase.closed',
-					`File writes require phase implementing or reviewing; current phase is ${state.roadmap.phase}`,
+					message,
 				),
 			)
 		}

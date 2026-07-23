@@ -3,6 +3,8 @@ export type {
 	PrepareWaveReviewResult,
 	PrepareWorkerRedispatchInput,
 	PrepareWorkerRedispatchResult,
+	RecordReviewerDispatchInput,
+	RecordReviewerDispatchResult,
 	RecordWaveResultInput,
 	RecordWaveResultResult,
 	RecordWaveReviewInput,
@@ -15,6 +17,7 @@ export type {
 } from './types'
 export {prepareWaveDispatch, prepareWorkerRedispatch} from './dispatch'
 export {
+	recordReviewerDispatch,
 	recordWorkerAbandoned,
 	recordWorkerDispatch,
 	recordWorkerTransportFailed,

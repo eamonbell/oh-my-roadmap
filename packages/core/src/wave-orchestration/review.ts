@@ -2,7 +2,7 @@ import {withDiagnosticTiming} from '../diagnostics'
 import {searchContext} from '../context'
 import {listBlockers, openBlocker, transition,} from '../store/index'
 import type {NextActionHint} from '../report/index'
-import type {RoadmapBlocker} from '../types'
+import type {ImplementationProgressStep, RoadmapBlocker, WavePlan} from '../types'
 import {activePlanContext, type ActivePlanContext, assertImplementationReady,} from './context'
 import {
 	manifestPromptSection,
@@ -121,6 +121,26 @@ export async function prepareWaveReview(
 		}
 		await setProgress(cwd, ctx, 'wave_review', [])
 
+		// Re-review detection. A prior FAILED review is recorded deterministically as
+		// blockers titled `Wave <id> review failed` (see recordWaveReview below), one per
+		// finding. Their presence for the active wave means the same reviewer should be
+		// woken rather than a fresh one spawned. prior_reviewer_agent_id is the most recent
+		// reviewer_runs entry for the wave (recorded via recordReviewerDispatch).
+		const failedTitle = `Wave ${ctx.activeWave.id} review failed`
+		const waveBlockers = await listBlockers(cwd, {
+			roadmapId: ctx.roadmapId,
+			milestoneId: ctx.milestoneId,
+			...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+			waveId: ctx.activeWave.id,
+		})
+		const priorFindings = waveBlockers.blockers
+			.filter((blocker) => normalizeReviewText(blocker.title) === normalizeReviewText(failedTitle))
+			.map((blocker) => blocker.description)
+		const reReview = priorFindings.length > 0
+		const priorReviewer = ctx.plan.progress.reviewer_runs
+			.filter((run) => run.wave_id === ctx.activeWave.id)
+			.at(-1)
+
 		// Match worker notes by the wave's task IDs rather than wave_id: waveId is an
 		// optional field on append_note and worker notes are sometimes written without
 		// it, which previously excluded them here. Task IDs are unique per wave and are
@@ -139,6 +159,9 @@ export async function prepareWaveReview(
 			...(ctx.changeRequestId ? {change_request_id: ctx.changeRequestId} : {}),
 			wave_id: ctx.activeWave.id,
 			reviewer: 'reviewer',
+			re_review: reReview,
+			...(reReview && priorReviewer ? {prior_reviewer_agent_id: priorReviewer.agent_id} : {}),
+			...(reReview && priorFindings.length > 0 ? {prior_findings: priorFindings} : {}),
 			prompt: reviewPrompt(ctx),
 			manifest: reviewManifest(ctx),
 			verification_preflight: reviewVerificationPreflight(ctx),
@@ -191,27 +214,45 @@ function sameReviewBlocker(blocker: RoadmapBlocker, ctx: ActivePlanContext, titl
 	)
 }
 
-function passedWaveNextActions(ctx: ActivePlanContext): NextActionHint[] | undefined {
-	// Waves are ordered by their position in ctx.plan.waves, so the "next wave" is the
-	// first later wave (after the active wave's index) that is not yet complete.
+// Resolution of what should happen to progress immediately after a wave passes review.
+// - 'activate': a later wave exists and is pending, so progress can move straight onto it.
+// - 'closeout': every wave (including the active one) is now complete.
+// - 'none': the active wave could not be located in plan.waves, or the next incomplete wave
+//   is already running/reviewing/blocked — its existing state stays authoritative and progress
+//   is left on ready_for_next_wave for a human/agent to resolve explicitly.
+type PassedWaveAdvance =
+	| {kind: 'activate'; nextWave: WavePlan}
+	| {kind: 'closeout'}
+	| {kind: 'none'}
+
+// Waves are ordered by their position in ctx.plan.waves, so the "next wave" is the first
+// later wave (after the active wave's index) that is not yet complete.
+function resolvePassedWaveAdvance(ctx: ActivePlanContext): PassedWaveAdvance {
 	const activeWaveIndex = ctx.plan.waves.findIndex((wave) => wave.id === ctx.activeWave.id)
-	if (activeWaveIndex < 0) return undefined
+	if (activeWaveIndex < 0) return {kind: 'none'}
 	const nextWave = ctx.plan.waves.slice(activeWaveIndex + 1).find((wave) => wave.status !== 'complete')
 	if (nextWave) {
 		// Only advance into a wave that has not started. If the next pending wave is already
-		// running, reviewing, or blocked, its existing state stays authoritative and we emit
-		// no hint.
-		if (nextWave.status !== 'pending') return undefined
+		// running, reviewing, or blocked, its existing state stays authoritative.
+		if (nextWave.status !== 'pending') return {kind: 'none'}
+		return {kind: 'activate', nextWave}
+	}
+	return {kind: 'closeout'}
+}
+
+function passedWaveNextActions(ctx: ActivePlanContext, advance: PassedWaveAdvance): NextActionHint[] | undefined {
+	if (advance.kind === 'none') return undefined
+	if (advance.kind === 'activate') {
 		return [{
 			label: 'Advance to next wave',
 			tool: {
 				name: 'omr_transition',
 				input: {
 					operation: 'update_implementation_progress',
-					progress: {activeWaveId: nextWave.id, step: 'not_started', activeTaskIds: []},
+					progress: {activeWaveId: advance.nextWave.id, step: 'not_started', activeTaskIds: []},
 				},
 			},
-			why: `Wave ${ctx.activeWave.id} passed review and progress is ready_for_next_wave; ${nextWave.id} is the next pending wave.`,
+			why: `Wave ${ctx.activeWave.id} passed review and progress is ready_for_next_wave; ${advance.nextWave.id} is the next pending wave.`,
 		}]
 	}
 	return [{
@@ -225,6 +266,33 @@ function passedWaveNextActions(ctx: ActivePlanContext): NextActionHint[] | undef
 		},
 		why: `Wave ${ctx.activeWave.id} passed review and all waves are complete.`,
 	}]
+}
+
+// Applies the resolved advance in place so a passed review leaves progress ready to dispatch
+// (or closeout) without requiring a separate update_implementation_progress transition from the
+// caller. Mirrors the budget-enforcement gate's pattern in dispatch.ts of calling setProgress /
+// transition inline before the caller's next assertDispatchableWave check.
+async function applyPassedWaveAdvance(
+	cwd: string,
+	ctx: ActivePlanContext,
+	advance: PassedWaveAdvance,
+): Promise<ImplementationProgressStep> {
+	if (advance.kind === 'activate') {
+		await transition(cwd, {
+			operation: 'update_implementation_progress',
+			progress: {activeWaveId: advance.nextWave.id, step: 'not_started', activeTaskIds: []},
+		})
+		return 'not_started'
+	}
+	if (advance.kind === 'closeout') {
+		await transition(cwd, {
+			operation: 'update_implementation_progress',
+			progress: {step: 'closeout_ready', activeTaskIds: []},
+		})
+		return 'closeout_ready'
+	}
+	await setProgress(cwd, ctx, 'ready_for_next_wave', [])
+	return 'ready_for_next_wave'
 }
 
 export async function recordWaveReview(
@@ -251,12 +319,18 @@ export async function recordWaveReview(
 				waveId: ctx.activeWave.id,
 				waveStatus: 'complete',
 			})
-			await setProgress(cwd, ctx, 'ready_for_next_wave', [])
-			const nextActions = passedWaveNextActions(ctx)
+			// Auto-advance active_wave_id past the just-completed wave so a subsequent
+			// prepareWaveDispatch does not re-resolve this now-complete wave and throw. The
+			// next_actions hint below stays informational: it describes the same transition
+			// that was just applied, in case a caller inspects it, but the state is already
+			// advanced and no separate omr_transition call is required.
+			const advance = resolvePassedWaveAdvance(ctx)
+			const progressStep = await applyPassedWaveAdvance(cwd, ctx, advance)
+			const nextActions = passedWaveNextActions(ctx, advance)
 			return {
 				wave_id: ctx.activeWave.id,
 				wave_status: 'complete',
-				progress_step: 'ready_for_next_wave',
+				progress_step: progressStep,
 				blockers: [],
 				...(nextActions ? {next_actions: nextActions} : {}),
 			}

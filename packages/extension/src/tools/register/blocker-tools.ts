@@ -11,7 +11,7 @@ import {
 	resolveBlocker,
 	type ResolveBlockerInput,
 } from '@oh-my-roadmap/core/store/index'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, textResult, type ToolRegistrationContext} from './shared'
 
 export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 	const {z, register} = ctx
@@ -20,7 +20,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 	register({
 		name: 'omr_append_note',
 		label: 'Append Roadmap Note',
-		description: 'Append an immutable scoped note to the active milestone log.',
+		description: 'Append an immutable scoped note to the active milestone log. `blocker_status` is the blocker-lifecycle status (open|resolved|deferred) used only for blocking notes; it is irrelevant for ordinary non-blocking notes and does not describe task status.',
 		approval: 'write',
 		parameters: z.object({
 			kind: z.enum(['worker', 'review', 'orchestrator', 'decision', 'issue']),
@@ -30,13 +30,15 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 			taskId: z.string().optional(),
 			workerId: z.string().optional(),
 			blocking: z.boolean().optional(),
-			status: z.enum(['open', 'resolved', 'deferred']).optional(),
+			blocker_status: z.enum(['open', 'resolved', 'deferred']).optional(),
 			title: z.string(),
 			body: z.string(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
-			const filePath = await appendNote(ctx.cwd, params as AppendNoteInput)
-			return textResult(`Appended note to ${filePath}.`, {filePath})
+			const {blocker_status, ...rest} = params as Record<string, unknown> & {blocker_status?: 'open' | 'resolved' | 'deferred'}
+			const input: AppendNoteInput = {...rest, status: blocker_status} as AppendNoteInput
+			const filePath = await appendNote(ctx.cwd, input)
+			return receiptResult(ctx.cwd, `Appended note to ${filePath}.`, {filePath})
 		},
 	} as ToolDefinition)
 
@@ -59,7 +61,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const blocker = await openBlocker(ctx.cwd, params as OpenBlockerInput)
-			return textResult(`Opened blocker ${blocker.id}.`, blocker)
+			return receiptResult(ctx.cwd, `Opened blocker ${blocker.id}.`, blocker)
 		},
 	} as ToolDefinition)
 
@@ -76,7 +78,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const blocker = await resolveBlocker(ctx.cwd, params as ResolveBlockerInput)
-			return textResult(`Resolved blocker ${blocker.id}.`, blocker)
+			return receiptResult(ctx.cwd, `Resolved blocker ${blocker.id}.`, blocker)
 		},
 	} as ToolDefinition)
 
@@ -93,7 +95,7 @@ export function registerBlockerTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const blocker = await deferBlocker(ctx.cwd, params as DeferBlockerInput)
-			return textResult(`Deferred blocker ${blocker.id}.`, blocker)
+			return receiptResult(ctx.cwd, `Deferred blocker ${blocker.id}.`, blocker)
 		},
 	} as ToolDefinition)
 

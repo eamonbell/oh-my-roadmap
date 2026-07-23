@@ -150,7 +150,7 @@ If delivery failed:
 - Check whether the agent was isolated or aborted.
 - Isolated completed subagents may be parked without a reviver, because their workspace was merged/cleaned.
 - Hard-aborted agents are terminal.
-- In those cases, use `history://ApiMapper` / prior output to create a replacement only after confirming direct wake is impossible.
+- In those cases, use `history://ApiMapper` / prior output to create a replacement only after confirming direct wake is impossible. `history://<agentId>` is scoped to the current session — it is unusable after resuming in a new session ("Unknown agent"). Persisted worker notes (`omr_append_note`), not `history://`, are the cross-session memory to seed a replacement.
 
 ## Good message template
 
@@ -357,7 +357,7 @@ Interpretation: the subagent was idle and is now running a real turn.
 - **Do not resend repeatedly to a running worker.** `running` recipients get the message at the next step boundary; duplicate sends create duplicate
   instructions.
 - **Do not treat timeout as failure.** `wait` timeout is a normal result. The worker may still be running.
-- **Use `history://<id>` when deciding whether a replacement is necessary.** IRC docs note transcripts are available for live and parked agents.
+- **Use `history://<id>` when deciding whether a replacement is necessary.** IRC docs note transcripts are available for live and parked agents. This is session-scoped: `history://<id>` is unusable after resuming in a new session, so persisted worker notes are the durable cross-session record instead.
 - **Keep rework messages narrow.** Review feedback should be actionable, not a broad re-brief.
 - **Escalate only on failed delivery or terminal lifecycle.** If direct `send` returns `failed`, then inspect whether the agent was
   aborted/non-revivable before spawning a replacement.

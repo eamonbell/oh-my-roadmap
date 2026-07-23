@@ -365,6 +365,110 @@ describe("roadmap wave orchestration state", () => {
     expect(state.milestone?.progress.active_task_ids).not.toContain("t01-state");
   });
 
+  test("prepareWorkerRedispatch accepts an already-abandoned run (documented abandon-then-redispatch sequence)", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+
+    const abandoned = await recordWorkerAbandoned(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "peer gone",
+    });
+    expect(abandoned.run.status).toBe("abandoned");
+
+    const redispatch = await prepareWorkerRedispatch(cwd, { taskId: "t01-state" });
+
+    expect(redispatch.prior_run).toMatchObject({
+      agent_id: "agent-store",
+      last_error: "peer gone",
+    });
+    expect(redispatch.assignment.task_id).toBe("t01-state");
+    expect(redispatch.assignment.prompt).toContain("CONTINUATION CONTEXT");
+    expect(redispatch.assignment.prompt).toContain("history://agent-store");
+    expect(redispatch.instructions).toContain("replacesAgentId");
+
+    const state = await loadState(cwd);
+    const run = state.milestone?.progress.worker_runs.find((r) => r.agent_id === "agent-store");
+    expect(run?.status).toBe("abandoned");
+    expect(state.milestone?.progress.active_task_ids).not.toContain("t01-state");
+  });
+
+  test("prepareWorkerRedispatch still rejects while a run is running, even if a prior run for the task is abandoned", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+    await recordWorkerAbandoned(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "peer gone",
+    });
+    // A replacement worker is now dispatched and actively running.
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store-2",
+      jobId: "job-store-2",
+      replacesAgentId: "agent-store",
+    });
+
+    await expect(prepareWorkerRedispatch(cwd, { taskId: "t01-state" })).rejects.toThrow(
+      "still has a running worker",
+    );
+  });
+
+  test("prepareWorkerRedispatch requires agentId/jobId when multiple abandoned runs exist for the task", async () => {
+    await approvedMilestone();
+    await transition(cwd, { operation: "start_implementation" });
+    await prepareWaveDispatch(cwd);
+    // First run for the task, then abandon it.
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store",
+      jobId: "job-store",
+    });
+    await recordWorkerAbandoned(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store",
+      lastError: "peer gone",
+    });
+    // A second run for the same task (replacement), also abandoned — now two abandoned runs.
+    await recordWorkerDispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store-2",
+      jobId: "job-store-2",
+      replacesAgentId: "agent-store",
+    });
+    await recordWorkerAbandoned(cwd, {
+      taskId: "t01-state",
+      jobId: "job-store-2",
+      lastError: "peer gone again",
+    });
+
+    // Ambiguous: the widened transport_failed|abandoned filter matches two runs, so the
+    // "include agentId or jobId" guard must still fire.
+    await expect(prepareWorkerRedispatch(cwd, { taskId: "t01-state" })).rejects.toThrow(
+      "multiple transport_failed or abandoned worker runs",
+    );
+
+    // Disambiguating by agentId resolves it and returns a continuation assignment.
+    const redispatch = await prepareWorkerRedispatch(cwd, {
+      taskId: "t01-state",
+      agentId: "agent-store-2",
+    });
+    expect(redispatch.prior_run.agent_id).toBe("agent-store-2");
+    expect(redispatch.assignment.task_id).toBe("t01-state");
+  });
+
   test("records wave results as terminal worker runs", async () => {
     await approvedMilestone();
     await transition(cwd, { operation: "start_implementation" });
@@ -464,10 +568,11 @@ describe("roadmap wave orchestration state", () => {
     expect(result).toMatchObject({
       wave_id: "w01",
       wave_status: "complete",
-      progress_step: "ready_for_next_wave",
+      progress_step: "not_started",
       blockers: [],
     });
-    // A later pending wave exists, so the hint advances to it without mutating progress.
+    // A later pending wave exists, so progress is auto-advanced onto it in place; the
+    // next_actions hint remains informational, describing the transition that was already applied.
     expect(result.next_actions).toHaveLength(1);
     expect(result.next_actions?.[0]).toMatchObject({
       label: "Advance to next wave",
@@ -481,15 +586,19 @@ describe("roadmap wave orchestration state", () => {
     });
     const state = await loadState(cwd);
     expect(state.milestone?.waves.find((wave) => wave.id === "w01")?.status).toBe("complete");
-    // Progress is NOT auto-advanced: it stays on the completed wave in ready_for_next_wave.
+    // Progress is auto-advanced onto the next pending wave without a separate transition call.
     expect(state.milestone?.progress).toMatchObject({
-      active_wave_id: "w01",
-      step: "ready_for_next_wave",
+      active_wave_id: "w02",
+      step: "not_started",
       active_task_ids: [],
     });
+
+    // No intervening omr_transition call is required before the next wave can be dispatched.
+    const dispatched = await prepareWaveDispatch(cwd);
+    expect(dispatched.wave_id).toBe("w02");
   });
 
-  test("a passing FINAL wave hints closeout ready without auto-advancing progress", async () => {
+  test("a passing FINAL wave auto-advances progress to closeout ready", async () => {
     await approvedRoadmap();
     await transition(cwd, { operation: "start_milestone_planning" });
     // A single-wave milestone: w01 is the final (and only) wave.
@@ -516,9 +625,10 @@ describe("roadmap wave orchestration state", () => {
     expect(result).toMatchObject({
       wave_id: "w01",
       wave_status: "complete",
-      progress_step: "ready_for_next_wave",
+      progress_step: "closeout_ready",
     });
-    // No waves remain, so the hint marks closeout ready — but does not mutate progress.
+    // No waves remain, so progress is auto-advanced straight to closeout_ready; the
+    // next_actions hint remains informational, describing the transition that was already applied.
     expect(result.next_actions).toHaveLength(1);
     expect(result.next_actions?.[0]).toMatchObject({
       label: "Mark closeout ready",
@@ -531,13 +641,10 @@ describe("roadmap wave orchestration state", () => {
       },
     });
     const state = await loadState(cwd);
-    // Progress is NOT auto-advanced to closeout_ready.
-    expect(state.milestone?.progress).toMatchObject({
-      active_wave_id: "w01",
-      step: "ready_for_next_wave",
-      active_task_ids: [],
-    });
-    expect(state.milestone?.progress.step).not.toBe("closeout_ready");
+    // Progress is auto-advanced to closeout_ready immediately (active_wave_id is left as-is by
+    // update_implementation_progress when no activeWaveId is supplied).
+    expect(state.milestone?.progress.step).toBe("closeout_ready");
+    expect(state.milestone?.progress.active_task_ids).toEqual([]);
   });
 
   test("prepareWaveReview package carries the active wave's worker notes", async () => {

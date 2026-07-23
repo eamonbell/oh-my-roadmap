@@ -253,7 +253,7 @@ The orchestrator should:
 2. Prefer waking the existing worker: list peers with the `hub` tool (`op:list`), and if the worker is still a peer, `hub op:send` it a narrow "resume from your existing transcript" message rather than starting over.
 3. If it responds, collect the result.
 4. If it does not respond after 2 minutes, mark it `abandoned`.
-5. Redispatch only that abandoned task.
+5. Redispatch only that task with `omr_prepare_worker_redispatch`, which accepts a run recorded as either `transport_failed` or `abandoned`.
 
 A transport error never becomes a blocker: it is recorded as `transport_failed`, not as a wave result. Only a real implementation failure the worker reports opens a blocker.
 
@@ -265,11 +265,11 @@ If you see `active_runs` in dispatch output, the orchestrator should poll or pro
 
 ## 11. Review Waves
 
-After every wave, the orchestrator dispatches `reviewer`.
+After every wave, the orchestrator dispatches `reviewer` and records the dispatch with `omr_record_reviewer_dispatch` so the reviewer's identity persists.
 
-A passed review lets the workflow advance to the next wave.
+A passed review lets the workflow advance to the next wave automatically; no separate transition is needed before the next `omr_prepare_wave_dispatch`.
 
-When review finds problems the original worker can simply fix (a concrete code correction, no user decision needed), the orchestrator wakes that worker over the `hub` tool to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes.
+When review finds problems the original worker can simply fix (a concrete code correction, no user decision needed), the orchestrator wakes that worker over the `hub` tool to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes. For re-review, a failed `omr_prepare_wave_review` returns the prior reviewer's identity and findings, and the orchestrator wakes that same reviewer rather than spawning a new one.
 
 A failed review only opens blockers for findings that genuinely need a user decision (ambiguous acceptance, scope/approval, or risk disposition). Positive findings such as `PASS:` or informational findings should not block. If blockers are opened, use:
 

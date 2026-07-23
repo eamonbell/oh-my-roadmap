@@ -1,6 +1,6 @@
 import type {ContextEntryResult} from '../context-types'
 import type {NextActionHint} from '../report/index'
-import type {ImplementationProgressStep, ImplementationWorkerName, RoadmapBlocker, TaskPlan, WavePlan, WorkerRun,} from '../types'
+import type {ImplementationProgressStep, ImplementationWorkerName, ReviewerRun, RoadmapBlocker, TaskPlan, WavePlan, WorkerRun,} from '../types'
 
 export interface WaveOrchestrationTargetInput {
 	roadmapId?: string;
@@ -55,6 +55,18 @@ export interface RecordWorkerDispatchInput extends WaveOrchestrationTargetInput 
 	agentId: string;
 	jobId: string;
 	replacesAgentId?: string;
+}
+
+// Reviewers are per-wave, not per-task, so there is no taskId here.
+export interface RecordReviewerDispatchInput extends WaveOrchestrationTargetInput {
+	agentId: string;
+	jobId: string;
+	replacesAgentId?: string;
+}
+
+export interface RecordReviewerDispatchResult {
+	wave_id: string;
+	run: ReviewerRun;
 }
 
 export interface PrepareWorkerRedispatchInput extends WaveOrchestrationTargetInput {
@@ -119,6 +131,11 @@ export interface PrepareWaveReviewResult {
 	change_request_id?: string;
 	wave_id: string;
 	reviewer: 'reviewer';
+	// True when this wave already has a prior FAILED review; the orchestrator should wake
+	// the same reviewer (prior_reviewer_agent_id) rather than spawn a fresh one.
+	re_review: boolean;
+	prior_reviewer_agent_id?: string;
+	prior_findings?: string[];
 	prompt: string;
 	manifest?: PlanDerivedManifest;
 	verification_preflight?: VerificationPreflightHint;

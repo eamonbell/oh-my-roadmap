@@ -506,23 +506,23 @@ export async function prepareWorkerRedispatch(
 			throw new Error(`Task ${task.id} still has a running worker; stop and abandon it before redispatch`)
 		}
 
-		// Find the prior transport_failed run to replace.
+		// Find the prior transport_failed or abandoned run to replace.
 		const failedRuns = ctx.plan.progress.worker_runs.filter((run) =>
 			run.task_id === task.id &&
-			run.status === 'transport_failed' &&
+			(run.status === 'transport_failed' || run.status === 'abandoned') &&
 			(input.agentId === undefined || run.agent_id === input.agentId) &&
 			(input.jobId === undefined || run.job_id === input.jobId)
 		)
 		if (failedRuns.length === 0) {
-			throw new Error(`Task ${task.id} has no transport_failed worker run to redispatch`)
+			throw new Error(`Task ${task.id} has no transport_failed or abandoned worker run to redispatch`)
 		}
 		if (failedRuns.length > 1) {
-			throw new Error(`Task ${task.id} has multiple transport_failed worker runs; include agentId or jobId`)
+			throw new Error(`Task ${task.id} has multiple transport_failed or abandoned worker runs; include agentId or jobId`)
 		}
 		const prior = failedRuns[0]
-		if (!prior) throw new Error(`Task ${task.id} has no transport_failed worker run to redispatch`)
+		if (!prior) throw new Error(`Task ${task.id} has no transport_failed or abandoned worker run to redispatch`)
 
-		// Atomically flip the prior run to abandoned and drop it from active_task_ids.
+		// Atomically flip the prior run to abandoned (idempotent if already abandoned) and drop it from active_task_ids.
 		const abandoned: WorkerRun = {
 			...prior,
 			status: 'abandoned',

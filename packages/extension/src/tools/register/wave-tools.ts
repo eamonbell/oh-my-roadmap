@@ -4,6 +4,8 @@ import {
 	prepareWaveReview,
 	prepareWorkerRedispatch,
 	type PrepareWorkerRedispatchInput,
+	recordReviewerDispatch,
+	type RecordReviewerDispatchInput,
 	recordWaveResult,
 	type RecordWaveResultInput,
 	recordWaveReview,
@@ -16,7 +18,7 @@ import {
 	type WaveOrchestrationTargetInput,
 } from '@oh-my-roadmap/core/wave-orchestration/index'
 import {nextActionHint, nextActionPlan} from '@oh-my-roadmap/core/report/index'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, textResult, type ToolRegistrationContext} from './shared'
 
 async function appendNextActionToError(cwd: string, error: unknown, why: string): Promise<Error> {
 	const original = error instanceof Error ? error.message : String(error)
@@ -71,14 +73,30 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await recordWorkerDispatch(ctx.cwd, params as RecordWorkerDispatchInput)
-			return textResult(`Recorded worker dispatch for ${result.task_id}.`, result)
+			return receiptResult(ctx.cwd, `Recorded worker dispatch for ${result.task_id}.`, result)
+		},
+	} as ToolDefinition)
+
+	register({
+		name: 'omr_record_reviewer_dispatch',
+		label: 'Record Reviewer Dispatch',
+		description: 'Persist a durable reviewer identity for the active wave immediately after spawning (or re-spawning) a reviewer, so a failed review can wake the same reviewer for re-review.',
+		approval: 'write',
+		parameters: waveOrchestrationTargetSchema.extend({
+			agentId: z.string(),
+			jobId: z.string(),
+			replacesAgentId: z.string().optional(),
+		}),
+		async execute(_id, params, _signal, _update, ctx) {
+			const result = await recordReviewerDispatch(ctx.cwd, params as RecordReviewerDispatchInput)
+			return receiptResult(ctx.cwd, `Recorded reviewer dispatch for wave ${result.wave_id}.`, result)
 		},
 	} as ToolDefinition)
 
 	register({
 		name: 'omr_prepare_worker_redispatch',
 		label: 'Prepare Worker Redispatch',
-		description: 'Abandon a transport_failed worker run (refuses while any run is still running) and return a replacement assignment carrying continuation context.',
+		description: 'Accept a transport_failed or abandoned worker run (refuses while any run is still running), atomically abandon it if not already, and return a replacement assignment carrying continuation context.',
 		approval: 'write',
 		parameters: waveOrchestrationTargetSchema.extend({
 			taskId: z.string(),
@@ -104,7 +122,7 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await recordWorkerTransportFailed(ctx.cwd, params as RecordWorkerRunStatusInput)
-			return textResult(`Recorded worker transport failure for ${result.task_id}.`, result)
+			return receiptResult(ctx.cwd, `Recorded worker transport failure for ${result.task_id}.`, result)
 		},
 	} as ToolDefinition)
 
@@ -121,7 +139,7 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await recordWorkerAbandoned(ctx.cwd, params as RecordWorkerRunStatusInput)
-			return textResult(`Recorded worker abandoned for ${result.task_id}.`, result)
+			return receiptResult(ctx.cwd, `Recorded worker abandoned for ${result.task_id}.`, result)
 		},
 	} as ToolDefinition)
 
@@ -144,7 +162,7 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await recordWaveResult(ctx.cwd, params as RecordWaveResultInput)
-			return textResult(`Recorded wave task ${result.task_id} as ${result.status}.`, result)
+			return receiptResult(ctx.cwd, `Recorded wave task ${result.task_id} as ${result.status}.`, result)
 		},
 	} as ToolDefinition)
 
@@ -173,7 +191,7 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 		async execute(_id, params, _signal, _update, ctx) {
 			const input = params as RecordWaveReviewInput
 			const result = await recordWaveReview(ctx.cwd, input)
-			return textResult(`Recorded wave review as ${input.status}.`, result)
+			return receiptResult(ctx.cwd, `Recorded wave review as ${input.status}.`, result)
 		},
 	} as ToolDefinition)
 }

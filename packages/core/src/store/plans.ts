@@ -50,6 +50,7 @@ export function initialProgress(waves: WavePlan[]): ImplementationProgress {
 		step: 'not_started',
 		active_task_ids: [],
 		worker_runs: [],
+		reviewer_runs: [],
 		updated_at: nowIso(),
 	}
 }
@@ -557,6 +558,7 @@ export async function transitionImpl(cwd: string, input: TransitionInput): Promi
 						step: input.progress.step,
 						active_task_ids: input.progress.activeTaskIds ?? [],
 						worker_runs: existingProgress?.worker_runs ?? [],
+						reviewer_runs: existingProgress?.reviewer_runs ?? [],
 						...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
 						updated_at: nowIso(),
 					} satisfies ImplementationProgress
@@ -664,6 +666,7 @@ async function applyAdhocStatusTransition(cwd: string, input: TransitionInput, a
 				step: input.progress.step,
 				active_task_ids: input.progress.activeTaskIds ?? [],
 				worker_runs: adhoc.progress.worker_runs,
+				reviewer_runs: adhoc.progress.reviewer_runs,
 				...(input.progress.blockedReason ? {blocked_reason: input.progress.blockedReason} : {}),
 				updated_at: nowIso(),
 			} satisfies ImplementationProgress

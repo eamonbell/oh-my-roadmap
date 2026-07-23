@@ -243,11 +243,30 @@ export interface WorkerRun {
 	replaces_agent_id?: string;
 }
 
+// Reviewers have a much simpler lifecycle than workers: a reviewer is either the current
+// active reviewer for a wave, or it has handed off (completed) — typically because a
+// re-review replaced it. There is no transport/abandon probe flow for reviewers, so this
+// deliberately does NOT reuse WorkerRunStatus.
+export const REVIEWER_RUN_STATUSES = ['active', 'completed'] as const
+
+export type ReviewerRunStatus = (typeof REVIEWER_RUN_STATUSES)[number];
+
+export interface ReviewerRun {
+	wave_id: string;
+	agent_id: string;
+	job_id: string;
+	status: ReviewerRunStatus;
+	started_at: string;
+	updated_at: string;
+	replaces_agent_id?: string;
+}
+
 export interface ImplementationProgress {
 	active_wave_id?: string;
 	step: ImplementationProgressStep;
 	active_task_ids: string[];
 	worker_runs: WorkerRun[];
+	reviewer_runs: ReviewerRun[];
 	blocked_reason?: string;
 	updated_at: string;
 }

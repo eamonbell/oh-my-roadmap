@@ -154,6 +154,10 @@ export function registerTransitionTools(ctx: ToolRegistrationContext): void {
 			const nextOperation = status === 'closed'
 				? (state.changeRequest ? 'close_change' : 'complete_milestone')
 				: 'record_closeout'
+			// omr_prepare_closeout can succeed while the milestone/change-request is still in
+			// the `reviewing` phase, but `record_closeout` (via omr_transition) requires the
+			// `closeout` phase. Callers must run `omr_transition start_closeout` first.
+			const orderingHint = 'Call omr_transition start_closeout before record_closeout.'
 			const details = {
 				roadmap_id: plan.roadmap_id,
 				milestone_id: plan.milestone_id,
@@ -165,6 +169,7 @@ export function registerTransitionTools(ctx: ToolRegistrationContext): void {
 				review_summary_present: Boolean(evidence?.review_summary?.trim()),
 				unresolved_risks: evidence?.unresolved_risks ?? [],
 				next_operation: nextOperation,
+				...(nextOperation === 'record_closeout' ? {ordering_hint: orderingHint} : {}),
 				example_closeout: {
 					status: 'closed',
 					acceptance_results: requirements.acceptance.map((requirement) => ({itemId: requirement.id, status: 'passed'})),
@@ -174,7 +179,10 @@ export function registerTransitionTools(ctx: ToolRegistrationContext): void {
 					unresolved_risks: [],
 				},
 			}
-			return textResult(JSON.stringify(details), details)
+			const text = nextOperation === 'record_closeout'
+				? `${JSON.stringify(details)}\n${orderingHint}`
+				: JSON.stringify(details)
+			return textResult(text, details)
 		},
 	} as ToolDefinition)
 }

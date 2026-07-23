@@ -64,7 +64,7 @@ function samplePlan(overrides: Partial<AdhocPlan> = {}): AdhocPlan {
     waves: [
       { id: "w1", goal: "Ship task one", exit_criteria: ["t1 done"], review_checkpoint: "review w1", status: "pending", tasks: ["t1"] },
     ],
-    progress: { step: "not_started", active_task_ids: [], worker_runs: [], updated_at: "2026-07-02T00:00:00.000Z" },
+    progress: { step: "not_started", active_task_ids: [], worker_runs: [], reviewer_runs: [], updated_at: "2026-07-02T00:00:00.000Z" },
     wave_flow_check: { status: "pending", checked_by: "", checked_at: "", summary: "", findings: [] },
     ...overrides,
   };

@@ -2,7 +2,7 @@ import type {ExtensionContext, ToolDefinition} from '@oh-my-pi/pi-coding-agent/e
 import {amend, type AmendmentInput, createChangeRequest, type CreateChangeRequestInput,} from '@oh-my-roadmap/core/store/index'
 import {applyNextAction, formatValidationIssues, nextActionHint, nextActionPlan, renderReport, type NextActionHint} from '@oh-my-roadmap/core/report/index'
 import {validateRoadmapState} from '@oh-my-roadmap/core/validation'
-import {textResult, type ToolRegistrationContext} from './shared'
+import {receiptResult, textResult, type ToolRegistrationContext} from './shared'
 
 export function registerReportTools(ctx: ToolRegistrationContext): void {
 	const {z, register} = ctx
@@ -55,7 +55,7 @@ export function registerReportTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await applyNextAction(ctx.cwd, (params as { actionId: string }).actionId)
-			return textResult(`Applied next action: ${result.plan.label}.`, result)
+			return receiptResult(ctx.cwd, `Applied next action: ${result.plan.label}.`, result)
 		},
 	} as ToolDefinition)
 
@@ -74,7 +74,7 @@ export function registerReportTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const filePath = await amend(ctx.cwd, params as AmendmentInput)
-			return textResult(`Recorded amendment in ${filePath}.`, {filePath})
+			return receiptResult(ctx.cwd, `Recorded amendment in ${filePath}.`, {filePath})
 		},
 	} as ToolDefinition)
 
@@ -86,7 +86,7 @@ export function registerReportTools(ctx: ToolRegistrationContext): void {
 		parameters: changeRequestInputSchema,
 		async execute(_id, params, _signal, _update, ctx) {
 			const change = await createChangeRequest(ctx.cwd, params as CreateChangeRequestInput)
-			return textResult(`Created change request ${change.change_request_id}.`, change)
+			return receiptResult(ctx.cwd, `Created change request ${change.change_request_id}.`, change)
 		},
 	} as ToolDefinition)
 

@@ -83,9 +83,10 @@ function validateTasksAndWaves(
 			}
 			scheduledTasks.add(taskId)
 			taskWaveIndex.set(taskId, index)
-			for (const owner of [...task.owned_files, ...task.owned_modules]) {
+			const taskOwners = new Set([...task.owned_files, ...task.owned_modules])
+			for (const owner of taskOwners) {
 				const previous = owned.get(owner)
-				if (previous) {
+				if (previous && previous !== task.id) {
 					errors.push(
 						issue(
 							'wave.ownership.overlap',
