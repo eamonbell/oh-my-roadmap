@@ -244,6 +244,8 @@ The reviewer receives one deduplicated active-wave `seeded_context`, the active 
 
 Context warnings are typed as `missing_source`, `stale_source`, `signature_mismatch`, `outside_repo`, `primer_unavailable`, `primer_refresh_failed`, or `truncated`. A stale reference or mismatched interface is omitted rather than trusted; a failed primer refresh uses the last good primer when available. These warnings do not block planning, dispatch, or review. They tell the role which live source or missing context it must inspect instead.
 
+Beyond the seeded package, a worker should call `omr_task_briefing` once at the start of its task with its owned and dependency paths (and optionally `response_format: concise` or `detailed`) to get file sizes, head excerpts, and a one-hop import graph in a single call, instead of a round of exploratory reads. It does not replace symbol outlines or diagnostics — those still come from the worker's own `xd://lsp`.
+
 ## 7. Understand Worker Roles
 
 The milestone plan chooses the worker role. You usually do not need to pick manually during implementation.
@@ -283,6 +285,8 @@ The persisted progress cursor is authoritative. Notes are supporting evidence, n
 ## 9. Handle Blockers
 
 Not every failed review finding becomes a blocker. Reviewers submit structured findings with a severity: `pass` and `advisory` findings are informational and never block; `blocking_worker_fixable` findings (a concrete fix a worker can make without a user decision) become an item in the wave's rework queue instead of a blocker, so the wave can be unblocked by dispatching the worker to fix it and re-reviewing; only `blocking_needs_user` findings (something that genuinely needs a user decision) open a canonical blocker. The commands below apply to canonical blockers.
+
+The rework/re-review loop for a given wave is not unbounded: see "Review Waves" below for the review-cycle cap that eventually turns a stuck wave into exactly this kind of blocker.
 
 List blockers:
 
@@ -359,6 +363,8 @@ A passed review lets the workflow advance to the next wave automatically; no sep
 The reviewer package includes the verification baseline recorded at the start of implementation (see step 6) and, when workers reported their own verification commands, their command receipts. The reviewer verifies those receipts rather than re-running everything from scratch, then runs the plan's milestone-level verification commands once for the whole wave, judging results against the baseline (no new failures, no lost passes) rather than an absolute full-suite-green bar.
 
 Reviewers submit structured findings with a severity (`pass`, `advisory`, `blocking_worker_fixable`, `blocking_needs_user`) to `omr_record_wave_review`; a plain string `findings` list is still accepted. When review finds problems the original worker can simply fix (`blocking_worker_fixable` — a concrete code correction, no user decision needed), the finding becomes an item in the wave's rework queue rather than a blocker, and the orchestrator wakes that worker over the `hub` tool (recording the redispatch with `reworkOf` set to the rework-queue item's id) to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes. For re-review, a failed `omr_prepare_wave_review` returns the prior reviewer's identity and findings, and the orchestrator wakes that same reviewer rather than spawning a new one.
+
+This rework/re-review loop is capped so a stuck wave cannot cycle forever: the `orchestration.max_review_cycles` config setting (default `2`) limits how many times the same wave can fail review before being routed back into rework. Once a wave has failed review that many times, the next failed review no longer creates another rework-queue item — it instead auto-mints a single canonical `blocking_needs_user` blocker carrying the accumulated findings history from every prior cycle for that wave, so you see the whole trail in one place and can make the call yourself with `/omr:blk-resolve` or `/omr:blk-defer`.
 
 A failed review only opens a canonical blocker for a `blocking_needs_user` finding — something that genuinely needs a user decision (ambiguous acceptance, scope/approval, or risk disposition). `pass`, `advisory`, and `blocking_worker_fixable` findings do not open blockers. If blockers are opened, use:
 
@@ -540,6 +546,8 @@ budgets:
 ```
 
 Threshold values are percentages. If omitted, warn is `75`, soft is disabled, and hard is `100`. An unlimited ceiling never breaches.
+
+As a dogfooding default, set an explicit `soft` threshold (for example `90`) rather than leaving it disabled. A soft breach pauses new-wave dispatch at the wave boundary, which gives you a natural checkpoint to notice a runaway orchestration loop (for example, a wave stuck cycling through rework and re-review) before it consumes the full ceiling.
 
 Use these native TUI commands:
 

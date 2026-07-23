@@ -16,6 +16,9 @@ export const ROLE_NAMES = ['worker-light', 'worker', 'worker-heavy', 'reviewer',
 export const THINKING_LEVELS = ['inherit', 'auto', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 const THINKING_LEVELS_SET = new Set<string>(THINKING_LEVELS)
 export const DEFAULT_TRANSPORT_RESUME_ATTEMPTS = 3
+// R20: default cap on how many failed fix->re-review cycles a single wave may run before core
+// refuses further rework and auto-mints a needs-user blocker carrying the findings history.
+export const DEFAULT_MAX_REVIEW_CYCLES = 2
 
 export type AgentRole = (typeof ROLE_NAMES)[number];
 
@@ -31,6 +34,9 @@ export interface AgentConfig {
 export interface OrchestrationConfig {
 	transport_resume_attempts: number;
 	git_checkpoints: boolean;
+	// R20: cap on failed fix->re-review cycles per wave. Optional in the stored shape (a config
+	// authored before this key still parses); a resolved config always carries the default.
+	max_review_cycles?: number;
 }
 
 // Per-language code-style guidance produced by `omr:learn-style` (or authored by
@@ -206,13 +212,17 @@ function parseRoleConfig(value: unknown, role: AgentRole): AgentConfig {
 }
 
 function defaultOrchestrationConfig(): OrchestrationConfig {
-	return { transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS, git_checkpoints: false }
+	return {
+		transport_resume_attempts: DEFAULT_TRANSPORT_RESUME_ATTEMPTS,
+		git_checkpoints: false,
+		max_review_cycles: DEFAULT_MAX_REVIEW_CYCLES,
+	}
 }
 
 function parseOrchestrationConfig(value: unknown): OrchestrationConfig {
 	if (value === undefined) return defaultOrchestrationConfig()
 	const orchestration = requirePlainObject(value, 'orchestration')
-	rejectUnknownKeys(orchestration, ['transport_resume_attempts', 'git_checkpoints'], 'orchestration')
+	rejectUnknownKeys(orchestration, ['transport_resume_attempts', 'git_checkpoints', 'max_review_cycles'], 'orchestration')
 
 	let transport_resume_attempts = DEFAULT_TRANSPORT_RESUME_ATTEMPTS
 	if (orchestration.transport_resume_attempts !== undefined) {
@@ -231,7 +241,16 @@ function parseOrchestrationConfig(value: unknown): OrchestrationConfig {
 		git_checkpoints = orchestration.git_checkpoints
 	}
 
-	return { transport_resume_attempts, git_checkpoints }
+	let max_review_cycles = DEFAULT_MAX_REVIEW_CYCLES
+	if (orchestration.max_review_cycles !== undefined) {
+		const cycles = orchestration.max_review_cycles
+		if (typeof cycles !== 'number' || !Number.isInteger(cycles) || cycles < 1) {
+			throw new Error('orchestration.max_review_cycles must be a positive integer')
+		}
+		max_review_cycles = cycles
+	}
+
+	return { transport_resume_attempts, git_checkpoints, max_review_cycles }
 }
 
 function parseDisabled(value: unknown): boolean | undefined {

@@ -163,4 +163,28 @@ describe("skill/rule single-source drift", () => {
     expect(rule).toContain("prior_reviewer_agent_id");
     expect(rule).toContain("prior_findings");
   });
+
+  // R20: the reviewer rule must document the core-enforced fix->re-review loop cap and the
+  // needs-user blocker that carries the accumulated findings history.
+  test("reviewer rule states the R20 review-cycle cap and needs-user blocker", () => {
+    const rule = normalize(REVIEWER_REWORK_RULE);
+    expect(rule).toContain("after max_review_cycles failed reviews of the same wave (default 2)");
+    expect(rule).toContain("auto-mints a needs-user blocker carrying the accumulated findings history");
+    // And the SKILL.md copy stays in lockstep.
+    const skill = normalize(readSkill("implementation-orchestrator"));
+    expect(skill).toContain(
+      "after max_review_cycles failed reviews of the same wave (default 2)",
+    );
+  });
+
+  // R20 drift guard: a divergence in the cap sentence must break the normalized substring match.
+  test("the R20 cap drift guard detects a divergence", () => {
+    const skill = normalize(readSkill("implementation-orchestrator"));
+    const drifted = normalize(REVIEWER_REWORK_RULE).replace(
+      "after max_review_cycles failed reviews of the same wave (default 2)",
+      "after max_review_cycles failed reviews of the same wave (default 5)",
+    );
+    expect(drifted).not.toBe(normalize(REVIEWER_REWORK_RULE));
+    expect(skill).not.toContain(drifted);
+  });
 });

@@ -80,7 +80,7 @@ describe("project init scaffold", () => {
         "roadmap-milestone-checker": {},
         "style-scout": {},
       },
-      orchestration: { transport_resume_attempts: 3, git_checkpoints: false },
+      orchestration: { transport_resume_attempts: 3, git_checkpoints: false, max_review_cycles: 2 },
     });
 
     const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
@@ -166,7 +166,7 @@ describe("project init scaffold", () => {
         "roadmap-milestone-checker": {},
         "style-scout": {},
       },
-      orchestration: { transport_resume_attempts: 3, git_checkpoints: false },
+      orchestration: { transport_resume_attempts: 3, git_checkpoints: false, max_review_cycles: 2 },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
@@ -309,7 +309,7 @@ describe("project init scaffold", () => {
         "roadmap-milestone-checker": {},
         "style-scout": {},
       },
-      orchestration: { transport_resume_attempts: 3, git_checkpoints: false },
+      orchestration: { transport_resume_attempts: 3, git_checkpoints: false, max_review_cycles: 2 },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));

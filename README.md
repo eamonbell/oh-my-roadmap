@@ -12,6 +12,8 @@ discovery -> roadmap_draft -> roadmap_approved -> milestone_planning -> mileston
 
 Milestone and change implementation progress is tracked through explicit task status, wave status, and a persisted implementation progress cursor. Closeout requires structured evidence for every acceptance criterion and verification command; each item must be `passed` or `deferred` with a reason and approver.
 
+All phase and status transitions run through a single `omr_transition` tool, whose description documents the exact per-operation phase precondition (which phase the roadmap/milestone must already be in) and a canonical `write xd://omr_transition {...}` invocation example for every operation — useful groundwork for weaker models that would otherwise guess at the call shape.
+
 Planning and orchestrator prompts require user-facing agents to inspect relevant existing code and documentation, reference useful paths in artifacts, and use OMP's built-in `ask` tool to interview the user until material decisions and gaps are closed. Subagents record blockers in notes and do not request user input directly. Not every blocking finding needs a user: reviewers submit severity-tagged findings, and only ones that genuinely need a user decision open a canonical blocker — a finding a worker can just fix instead becomes a rework-queue item that gets dispatched back to a worker and re-reviewed.
 
 Workers always run LSP diagnostics on every file they touch before yielding, and — in a single-worker wave or a genuine rework — may also run their own task's verification commands against their owned files, recording the exact commands as receipts in their note. An implementation orchestrator records a verification baseline once at the start of implementation (`omr_record_verification_baseline`) so reviewers judge each wave against it (no new failures) rather than an absolute full-suite-green bar.
@@ -27,6 +29,8 @@ Every milestone, change-request, and ad-hoc task also carries required `relevant
 `omr_prepare_wave_dispatch` places verified task references, resolved interface contracts, matching scout findings, style guidance, and the compact primer in each assignment's `seeded_context`. `omr_prepare_wave_review` supplies the same categories as one bounded, deduplicated active-wave package, plus an informational `remaining_waves` map. Live repository code remains authoritative: stale, missing, mismatched, outside-repository, unavailable, or truncated context is omitted or identified by a typed warning. These context warnings do not block planning, dispatch, or review; workers and reviewers inspect live sources when a warning or uncovered gap requires it.
 
 If primer refresh fails, OMR delivers the last good primer with a `primer_refresh_failed` warning when one exists; otherwise it omits the primer with `primer_unavailable`. A changed relevant-code mtime yields `stale_source`, while a live interface whose normalized signature no longer matches yields `signature_mismatch`. None of these warnings changes the workflow gate.
+
+Workers call `omr_task_briefing` once at the start of a task instead of a batch of exploratory reads: given `owned_paths`, `dependency_paths`, and a `response_format` (`concise` or `detailed`), it returns file sizes, truncated head excerpts, and a one-hop import graph for those files in a single call. It does not include symbol outlines — workers get those from their own `xd://lsp` call on files they touch.
 
 ## Install
 
@@ -172,6 +176,13 @@ agents:
 
 `model`, `thinking`, and `prewalk` are all optional. Supported thinking values are `inherit`, `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` (`auto` lets OMP classify per turn). `prewalk` (default off) opts a role into OMP's prewalk hand-off — `true` starts the agent on its resolved model to plan and begins implementing, then hands off to the default prewalk target at its first edit/write; a string sets a custom target model pattern. Re-running `omr init` preserves existing role settings, adds any missing supported roles to `.omr/config.yml`, and overwrites generated `.omp/agents/*.md` files from the extension templates.
 
+**Per-role model tiers (recommendation, not a hard default).** Which concrete model backs each role is your call — it depends on what your provider/repo makes available — but the roles are not interchangeable in difficulty:
+
+- `worker-light` and the auxiliary `style-scout` agent do mechanical, low-judgment work and are usually fine on your cheapest available tier.
+- `worker` is the general default for standard implementation work.
+- `worker-heavy` should get your strongest/most expensive tier for architecture, gnarly debugging, and cross-cutting refactors.
+- `reviewer`, `wave-flow-checker`, and `roadmap-milestone-checker` are judgment-heavy verifier roles — this is where an under-powered model tends to produce a false PASS instead of a caught defect. Recommend keeping these at least at `worker` tier, not the cheapest one, even if that costs more than you'd otherwise spend on a "checker."
+
 `omr init` does not create or modify active roadmap workflow state.
 
 ## Git Checkpoints
@@ -195,6 +206,19 @@ orchestration:
 - If a run is retried after a checkpoint was already created, no duplicate commit is made.
 
 **Reviewer diffs:** Whenever the working directory is a git repository, the wave review package includes a list of changed files and per-file diffs — so reviewers no longer need to reconstruct changes by hand. This works regardless of whether checkpoints are enabled; it is always on in a git repository.
+
+## Review Cycle Cap
+
+`orchestration.max_review_cycles` (default `2`) caps how many times a wave can be sent back for rework after a FAILED review before OMR gives up on further automatic rework. Configure it alongside the other `orchestration:` keys in `.omr/config.yml`:
+
+```yaml
+orchestration:
+  max_review_cycles: 2
+```
+
+Once a wave has accumulated that many failed reviews, OMR stops dispatching further rework for it and instead auto-mints a single canonical needs-user blocker. That blocker's body carries the accumulated findings history from every failed review cycle, and the halt is surfaced in `next_actions` so you know to step in rather than the wave silently looping.
+
+As a dogfooding best practice, pair this with a soft execution budget (see [Set And Recover Execution Budgets](docs/tutorial.md)) — e.g. `budgets.thresholds.soft: 90` — so a runaway loop also hits a wave-boundary pause on token/time/cost, not just on review-cycle count.
 
 ## Moshi notifications
 

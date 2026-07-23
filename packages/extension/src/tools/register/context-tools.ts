@@ -4,6 +4,7 @@ import { readContext, type ReadContextInput, searchContext, type SearchContextIn
 import { listQualityGates, type ListQualityGatesInput, loadRoadmapBlockers, loadState, } from '@oh-my-roadmap/core/store/index'
 import { refreshRepoPrimer, renderRepoPrimer } from '@oh-my-roadmap/core/repo-primer'
 import { type StateReadScope, type StateSummaryRepoPrimer, summarizeState } from '@oh-my-roadmap/core/state-summary'
+import { buildTaskBriefing, type TaskBriefingResponseFormat } from '@oh-my-roadmap/core/task-briefing'
 import { textResult, type ToolRegistrationContext } from './shared'
 
 const PLANNER_PRIMER_SCOPES = new Set<StateReadScope>([
@@ -185,6 +186,27 @@ export function registerContextTools(ctx: ToolRegistrationContext): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const result = await listQualityGates(ctx.cwd, params as ListQualityGatesInput)
+			return textResult(JSON.stringify(result), result)
+		},
+	} as ToolDefinition)
+
+	register({
+		name: 'omr_task_briefing',
+		label: 'Task Briefing',
+		description: 'One-call context pack for your owned + dependency files: sizes, truncated head excerpts, and a one-hop import graph. Call this ONCE at the start of a task instead of dozens of exploratory reads, e.g. omr_task_briefing({ owned_paths: ["packages/core/src/foo.ts"], dependency_paths: ["packages/core/src/bar.ts"], response_format: "concise" }). Symbol outlines and diagnostics are out of scope here — use your own xd://lsp for those on files you touch.',
+		approval: 'read',
+		parameters: z.object({
+			owned_paths: z.array(z.string()),
+			dependency_paths: z.array(z.string()).optional(),
+			response_format: z.enum(['concise', 'detailed']).optional(),
+		}),
+		async execute(_id, params, _signal, _update, ctx) {
+			const input = params as { owned_paths: string[]; dependency_paths?: string[]; response_format?: TaskBriefingResponseFormat }
+			const result = await buildTaskBriefing(ctx.cwd, {
+				ownedPaths: input.owned_paths,
+				...(input.dependency_paths !== undefined ? { dependencyPaths: input.dependency_paths } : {}),
+				...(input.response_format !== undefined ? { responseFormat: input.response_format } : {}),
+			})
 			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
