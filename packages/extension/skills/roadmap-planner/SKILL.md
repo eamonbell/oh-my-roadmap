@@ -14,6 +14,11 @@ Required process:
   relevant prior summaries to the new scouts. At the end of discovery and planning, record a compact finding with `omr_record_scout_finding` covering
   durable repo-structure discoveries (test layout and runner, key module map, cross-cutting conventions), whether scouting was inline or delegated to
   scout agents and regardless of whether a scout agent was ever dispatched.
+- Repository primer and structured context:
+  - Use delivered repository-primer facts before repeating repository discovery.
+  - Pass the delivered compact repository primer into every delegated scout prompt.
+  - Verify delivered relevant-code pointers and shared-interface contracts against live repository sources before relying on them.
+  - Scout only gaps not already covered by the delivered primer or structured task context.
 - When amending or reopening an existing roadmap, orient with `omr_read_state` scope `roadmap` (not the full compact dump) and use
   `omr_search_context` for prior decisions, risks, and notes before reading full context.
 - Use the built-in `ask` tool to interview the user until no material unknowns, decisions, tradeoffs, approvals, scope gaps, milestone-substance gaps,

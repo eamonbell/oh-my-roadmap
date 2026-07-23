@@ -44,6 +44,8 @@ export function milestoneInput(): CreateMilestonePlanInput {
         owned_files: ["src/core/store.ts"],
         owned_modules: [],
         shared_interfaces: ["RoadmapState"],
+        relevant_existing_code: [],
+        shared_interface_contracts: [],
       },
       {
         id: "t02-report",
@@ -58,6 +60,8 @@ export function milestoneInput(): CreateMilestonePlanInput {
         owned_files: ["src/core/report.ts"],
         owned_modules: [],
         shared_interfaces: ["LoadedState"],
+        relevant_existing_code: [],
+        shared_interface_contracts: [],
       },
     ],
     waves: [

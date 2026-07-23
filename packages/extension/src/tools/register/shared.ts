@@ -1,11 +1,11 @@
-import type {AgentToolResult} from '@oh-my-pi/pi-coding-agent'
-import type {ExtensionAPI, ToolDefinition} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {nextActionHint, nextActionPlan, type NextActionHint} from '@oh-my-roadmap/core/report/index'
+import type { AgentToolResult } from '@oh-my-pi/pi-coding-agent'
+import type { ExtensionAPI, ToolDefinition } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import { nextActionHint, nextActionPlan, type NextActionHint } from '@oh-my-roadmap/core/report/index'
 
 type ToolRegistrationZod = ExtensionAPI['zod']['z'];
 
 export function textResult<T>(text: string, details: T): AgentToolResult<T> {
-	return {content: [{type: 'text', text}], details}
+	return { content: [{ type: 'text', text }], details }
 }
 
 /**
@@ -37,7 +37,7 @@ export async function receiptResult<T extends object>(
 	}
 	const hint = next_actions[0]
 	const text = hint ? `${summary} Next action: ${hint.label}.` : summary
-	return textResult(text, {...details, next_actions})
+	return textResult(text, { ...details, next_actions })
 }
 
 export function toolMetadata(tool: ToolDefinition, toolCallId: string, params: unknown): Record<string, unknown> {
@@ -48,9 +48,9 @@ export function toolMetadata(tool: ToolDefinition, toolCallId: string, params: u
 		tool_name: tool.name,
 		tool_call_id: toolCallId,
 		approval: tool.approval ?? 'exec',
-		...(typeof raw.operation === 'string' ? {operation: raw.operation} : {}),
-		...(typeof raw.scope === 'string' ? {scope: raw.scope} : {}),
-		...(typeof raw.actionId === 'string' ? {action_id: raw.actionId} : {}),
+		...(typeof raw.operation === 'string' ? { operation: raw.operation } : {}),
+		...(typeof raw.scope === 'string' ? { scope: raw.scope } : {}),
+		...(typeof raw.actionId === 'string' ? { action_id: raw.actionId } : {}),
 	}
 }
 
@@ -58,6 +58,20 @@ export function createToolRegistrationSchemas(z: ToolRegistrationZod) {
 	const approvalSchema = z.object({
 		approver: z.string().optional(),
 		summary: z.string().optional(),
+	})
+	const relevantCodeReferenceSchema = z.object({
+		path: z.string(),
+		line: z.number().int().positive().optional(),
+		symbol: z.string().optional(),
+		note: z.string(),
+	})
+	const sharedInterfaceContractSchema = z.object({
+		name: z.string(),
+		signature: z.string(),
+		source_path: z.string(),
+		line: z.number().int().positive().optional(),
+		planned: z.boolean(),
+		planned_by_task_id: z.string().optional(),
 	})
 	const taskSchema = z.object({
 		id: z.string(),
@@ -72,6 +86,8 @@ export function createToolRegistrationSchemas(z: ToolRegistrationZod) {
 		owned_files: z.array(z.string()).default([]),
 		owned_modules: z.array(z.string()).default([]),
 		shared_interfaces: z.array(z.string()).default([]),
+		relevant_existing_code: z.array(relevantCodeReferenceSchema),
+		shared_interface_contracts: z.array(sharedInterfaceContractSchema),
 	})
 	const waveSchema = z.object({
 		id: z.string(),
@@ -82,17 +98,17 @@ export function createToolRegistrationSchemas(z: ToolRegistrationZod) {
 		tasks: z.array(z.string()),
 	})
 	const evidenceResultSchema = z
-	.object({
-		item: z.string().optional(),
-		itemId: z.string().optional(),
-		status: z.enum(['open', 'passed', 'failed', 'deferred']),
-		reason: z.string().optional(),
-		approver: z.string().optional(),
-		at: z.string().optional(),
-	})
-	.refine((result) => result.item !== undefined || result.itemId !== undefined, {
-		message: 'Closeout result requires itemId or item.',
-	})
+		.object({
+			item: z.string().optional(),
+			itemId: z.string().optional(),
+			status: z.enum(['open', 'passed', 'failed', 'deferred']),
+			reason: z.string().optional(),
+			approver: z.string().optional(),
+			at: z.string().optional(),
+		})
+		.refine((result) => result.item !== undefined || result.itemId !== undefined, {
+			message: 'Closeout result requires itemId or item.',
+		})
 	const riskDispositionSchema = z.object({
 		risk: z.string(),
 		disposition: z.enum(['resolved', 'deferred']),
@@ -172,20 +188,20 @@ export function createToolRegistrationSchemas(z: ToolRegistrationZod) {
 		id: z.string(),
 		title: z.string(),
 		status: z
-		.enum([
-			'planned',
-			'blocked',
-			'discovery',
-			'roadmap_draft',
-			'roadmap_approved',
-			'milestone_planning',
-			'milestone_approved',
-			'implementing',
-			'reviewing',
-			'closeout',
-			'complete',
-		])
-		.default('planned'),
+			.enum([
+				'planned',
+				'blocked',
+				'discovery',
+				'roadmap_draft',
+				'roadmap_approved',
+				'milestone_planning',
+				'milestone_approved',
+				'implementing',
+				'reviewing',
+				'closeout',
+				'complete',
+			])
+			.default('planned'),
 		goal: z.string(),
 		scope: z.array(z.string()),
 		non_goals: z.array(z.string()),

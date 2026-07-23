@@ -45,6 +45,8 @@ function milestoneInput(): CreateMilestonePlanInput {
         owned_files: ["src/core/roadmap-detail-summary.ts"],
         owned_modules: [],
         shared_interfaces: ["RoadmapDetailSummary"],
+        relevant_existing_code: [],
+        shared_interface_contracts: [],
       },
     ],
     waves: [

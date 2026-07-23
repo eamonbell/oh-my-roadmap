@@ -393,6 +393,29 @@ describe("roadmap commands", () => {
     }
   });
 
+  test("milestone, change, and ad-hoc planning prompts require exact structured task context", async () => {
+    const { commands, sentMessages } = createHarness();
+    const cwd = await testCwd();
+
+    for (const name of ["omr:ms-plan", "omr:chg-request", "omr:adhoc-new", "omr:adhoc-plan"] as const) {
+      const command = commands.get(name);
+      expect(command).toBeDefined();
+      await command?.handler("test args", testContext(cwd));
+    }
+
+    expect(sentMessages).toHaveLength(4);
+    for (const message of sentMessages) {
+      expect(message.content).toContain("required `relevant_existing_code` array of exact `{ path, line?, symbol?, note }` pointers");
+      expect(message.content).toContain("required `shared_interface_contracts` array of exact `{ name, signature, source_path, line?, planned, planned_by_task_id? }` contracts");
+      expect(message.content).toContain("For every `planned: true` contract");
+      expect(message.content).toContain("owning producer task in a strictly earlier wave");
+      expect(message.content).toContain("Use delivered repository-primer facts before repeating repository discovery");
+      expect(message.content).toContain("Pass the delivered compact repository primer into every delegated scout prompt");
+      expect(message.content).toContain("Verify delivered relevant-code pointers and shared-interface contracts against live repository sources");
+      expect(message.content).toContain("Scout only gaps not already covered by the delivered primer or structured task context");
+    }
+  });
+
   test("prompt-backed commands queue follow-ups while busy", async () => {
     const { commands, sentMessages, customMessages } = createHarness();
 

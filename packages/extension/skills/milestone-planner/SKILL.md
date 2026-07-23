@@ -21,6 +21,11 @@ Required process:
   relevant prior summaries to the new scouts. At the end of discovery and planning, record a compact finding with `omr_record_scout_finding` covering
   durable repo-structure discoveries (test layout and runner, key module map, cross-cutting conventions), whether scouting was inline or delegated to
   scout agents and regardless of whether a scout agent was ever dispatched.
+- Repository primer and structured context:
+  - Use delivered repository-primer facts before repeating repository discovery.
+  - Pass the delivered compact repository primer into every delegated scout prompt.
+  - Verify delivered relevant-code pointers and shared-interface contracts against live repository sources before relying on them.
+  - Scout only gaps not already covered by the delivered primer or structured task context.
 - Use the built-in `ask` tool to interview the user until implementation decisions, acceptance gaps, verification gaps, ownership gaps, cleanup policy
   questions, and approval questions are closed.
 - Interview for intent, not just mechanics. Beyond "how would you like to handle X" questions, explore the user's underlying goals when they are
@@ -45,7 +50,11 @@ Required process:
   existing, and which task owns each test obligation.
 - Define concrete executable tasks before dependency analysis or wave creation.
 - For every task, include objective, implementation notes, done criteria, task-level verification commands, dependencies, exclusive file/module
-  ownership, shared interfaces, and worker assignment.
+  ownership, shared interfaces, exact relevant existing-code pointers, shared interface contracts, and worker assignment.
+- Every task's required `relevant_existing_code` array must contain exact `{ path, line?, symbol?, note }` pointers, and its required
+  `shared_interface_contracts` array must contain exact `{ name, signature, source_path, line?, planned, planned_by_task_id? }` contracts. Use
+  `planned: false` for an interface already present in the repository. Use `planned: true` only when a task in a strictly earlier wave owns the
+  source path, and always set `planned_by_task_id` to that producer task.
 - Write implementation notes at the approach and intent level: describe what the task must achieve and the constraints on it, not a rigid line-by-line
   script. Keep exclusive file/module ownership exact (it is required for safe parallel waves), but leave the worker room to make the concrete edits,
   and expect new areas of impact, issues, or revelations to surface during implementation — those are handled in-flight unless they invalidate the

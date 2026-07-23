@@ -40,6 +40,13 @@ function expectNoAskToolDirective(body: string): void {
   expect(body).not.toContain("use the built-in `ask`");
 }
 
+function expectRepoPrimerRules(body: string): void {
+  expect(body).toContain("Use delivered repository-primer facts before repeating repository discovery");
+  expect(body).toContain("Pass the delivered compact repository primer into every delegated scout prompt");
+  expect(body).toContain("Verify delivered relevant-code pointers and shared-interface contracts against live repository sources");
+  expect(body).toContain("Scout only gaps not already covered by the delivered primer or structured task context");
+}
+
 function expectWorkerDirectives(body: string): void {
   expect(body).toContain("full access to the tools");
   expect(body).toContain("Maintain hyperfocus on the assigned task");
@@ -47,10 +54,10 @@ function expectWorkerDirectives(body: string): void {
   expect(body).toContain("Do not create documentation files unless the assignment explicitly asks for them");
   expect(body).toContain("append a blocking note");
   expect(body).toContain("yield/report blocked status to the orchestrator");
-  // R13: style guide is reachable before editing.
-  expect(body).toContain(
-    "Before editing files, call `omr_style_guide` with the files you will edit",
-  );
+  // R21: delivered style guidance replaces a per-worker style-tool call.
+  expect(body).toContain("use `seeded_context.style_guidance` from the assignment package");
+  expect(body).toContain("No recorded code-style guidance for these files.");
+  expect(body).not.toContain("omr_style_guide");
   // Workers self-verify: LSP diagnostics always, owned-file verification commands only when granted.
   expect(body).toContain(
     "Mandatory on every dispatch, with no exception: run LSP diagnostics",
@@ -109,10 +116,11 @@ describe("project init scaffold", () => {
     expect(reviewer.body).toContain("# Reviewer");
     expect(reviewer.body).toContain("append a blocking review note");
     expect(reviewer.body).toContain("Do not request user input directly");
-    // R13: reviewer reaches omr_style_guide before throwaway verification code or code-level repros.
+    // R21: reviewer consumes the assembled style slice and never performs a per-review style lookup.
     expect(reviewer.body).toContain(
-      "Before creating throwaway verification code or code-level repros, call `omr_style_guide`",
+      "Use `seeded_context.style_guidance` as the complete assembled style slice",
     );
+    expect(reviewer.body).not.toContain("omr_style_guide");
     // Reviewer verifies worker command receipts and re-runs milestone-level verification once for integration.
     expect(reviewer.body).toContain(
       "VERIFY those receipts rather than re-discovering or re-running everything",
@@ -125,6 +133,7 @@ describe("project init scaffold", () => {
     expect(checker.body).toContain("Do not request user input directly");
     expect(checker.body).toContain("report `failed` with concrete findings");
     expectNoAskToolDirective(checker.body);
+    expectRepoPrimerRules(checker.body);
 
     const roadmapChecker = parseMarkdownDocument(await readFile(".omp/agents/roadmap-milestone-checker.md"));
     expect(roadmapChecker.data.name).toBe("roadmap-milestone-checker");
@@ -132,6 +141,7 @@ describe("project init scaffold", () => {
     expect(roadmapChecker.body).toContain("Do not request user input directly");
     expect(roadmapChecker.body).toContain("Report either passed");
     expectNoAskToolDirective(roadmapChecker.body);
+    expectRepoPrimerRules(roadmapChecker.body);
     expect(await pathExists(".omr/config.yml")).toBe(true);
   });
 
@@ -168,7 +178,7 @@ describe("project init scaffold", () => {
     const reviewer = parseMarkdownDocument(await readFile(".omp/agents/reviewer.md"));
     expect(reviewer.data.model).toBeUndefined();
     expect(reviewer.data["thinking-level"]).toBeUndefined();
-    expect(reviewer.body).toContain("Review implementation against the approved plan");
+    expect(reviewer.body).toContain("Review implementation against the active wave exit criteria");
     expect(reviewer.body).toContain("append a blocking review note");
     expectNoAskToolDirective(reviewer.body);
 

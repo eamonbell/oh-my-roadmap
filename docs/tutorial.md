@@ -51,6 +51,8 @@ This creates or refreshes:
 
 `omr init` does not start a roadmap. It only prepares the repo.
 
+The standalone `omr init` command scaffolds configuration and agent definitions; it does not scan the repository. The project-wide `.omr/repo-primer.yml` is created or refreshed when a roadmap is initialized and lazily refreshed by planner, dispatch, and review paths.
+
 ## 3. Create A Roadmap
 
 Start a new roadmap with a short description of the work:
@@ -140,6 +142,46 @@ Before milestone approval, the agent must dispatch `wave-flow-checker`. If the c
 
 Approve the milestone only after the plan is specific enough for workers to execute without guessing.
 
+### Add Structured Context To Every Task
+
+Every task requires `relevant_existing_code` and `shared_interface_contracts`, even when one of the arrays is empty. For example, a producer task can point at existing code:
+
+```yaml
+- id: add-user-service
+  owned_files: [src/services/user.ts]
+  relevant_existing_code:
+    - path: src/db/client.ts
+      line: 18
+      symbol: DatabaseClient
+      note: Reuse the established transaction boundary.
+  shared_interface_contracts: []
+```
+
+A task in a later wave can consume both an existing contract and an interface that the earlier task will create:
+
+```yaml
+- id: wire-user-handler
+  depends_on: [add-user-service]
+  owned_files: [src/http/users.ts]
+  relevant_existing_code:
+    - path: src/http/router.ts
+      symbol: Router
+      note: Follow the existing handler registration pattern.
+  shared_interface_contracts:
+    - name: Router.post
+      signature: "post(path: string, handler: Handler): void"
+      source_path: src/http/router.ts
+      line: 12
+      planned: false
+    - name: UserService.get
+      signature: "get(id: string): Promise<User>"
+      source_path: src/services/user.ts
+      planned: true
+      planned_by_task_id: add-user-service
+```
+
+`planned: false` means the source and whitespace-normalized signature must already exist; do not add `planned_by_task_id`. `planned: true` requires `planned_by_task_id`, and that producer must be in a strictly earlier execution wave and own the declared source file or an ancestor module. All paths are repository-relative, and relevant-code references always point to existing regular files when the plan is captured.
+
 ## 6. Implement The Milestone
 
 After milestone approval, run:
@@ -163,6 +205,14 @@ The orchestrator should not edit code directly. It should:
 11. Advance to the next wave only after review passes.
 
 Implementation proceeds one wave at a time.
+
+### Use The Seeded Worker And Reviewer Packages
+
+Each worker assignment contains `seeded_context` with verified task references, resolved shared-interface contracts, matching scout findings, recorded style guidance, the compact repository primer when available, and warnings. Fresh assignments and redispatches receive the same package. Start from these facts, but treat live repository code as authoritative and inspect any uncovered gap before editing.
+
+The reviewer receives one deduplicated active-wave `seeded_context`, the active tasks' done criteria, and an informational `remaining_waves` map. Review only the active wave exit criteria and active task done criteria. Do not fail the current wave solely for acceptance work owned by a later wave; plan-wide acceptance is finally dispositioned during closeout.
+
+Context warnings are typed as `missing_source`, `stale_source`, `signature_mismatch`, `outside_repo`, `primer_unavailable`, `primer_refresh_failed`, or `truncated`. A stale reference or mismatched interface is omitted rather than trusted; a failed primer refresh uses the last good primer when available. These warnings do not block planning, dispatch, or review. They tell the role which live source or missing context it must inspect instead.
 
 ## 7. Understand Worker Roles
 

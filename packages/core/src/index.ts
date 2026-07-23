@@ -43,4 +43,13 @@ export {
 	ompOmrConfigDir,
 	resolveScopeAndProfile,
 } from './omp-paths'
-export type {OmpScope, OmpRootOptions} from './omp-paths'
+export type { OmpScope, OmpRootOptions } from './omp-paths'
+export { refreshRepoPrimer, renderRepoPrimer } from './repo-primer'
+export type {
+	RepoPackageManager,
+	RepoPrimerManifest,
+	RepoPrimerCommand,
+	RepoPrimerGuidance,
+	RepoPrimer,
+	RepoPrimerRefreshResult,
+} from './repo-primer'

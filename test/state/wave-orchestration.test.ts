@@ -555,7 +555,16 @@ describe("roadmap wave orchestration state", () => {
     expect(review).toMatchObject({
       wave_id: "w01",
       reviewer: "reviewer",
-      tasks: [{ task_id: "t01-state", worker: "worker-light" }],
+      seeded_context: {
+        relevant_existing_code: { total: 0, included: 0, truncated: 0 },
+        shared_interface_contracts: { total: 0, included: 0, truncated: 0 },
+      },
+      remaining_waves: [{ wave_id: "w02" }],
+      tasks: [{
+        task_id: "t01-state",
+        worker: "worker-light",
+        done_criteria: ["State lifecycle operations remain valid."],
+      }],
     });
     expect(review.prompt).toContain("Review checkpoint");
     expect(review.prompt).toContain("omr_record_wave_review");

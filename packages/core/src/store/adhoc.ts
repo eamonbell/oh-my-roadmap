@@ -1,11 +1,12 @@
 import * as fs from 'node:fs/promises'
-import {withStoreWriteLock} from '../lock'
-import {adhocPlanDir} from '../paths'
-import type {AdhocPlan, CloseoutEvidence, TaskPlan, WavePlan} from '../types'
-import {pendingWaveFlowCheck} from './format'
-import {clearAdhocActive, loadActive, loadAdhocActive, loadAdhocPlan, writeAdhocActive, writeAdhocPlan, writeAdhocRuntime} from './persistence'
-import {initialProgress} from './plans'
-import {assertSlug, nowIso} from './shared'
+import { withStoreWriteLock } from '../lock'
+import { adhocPlanDir } from '../paths'
+import { captureTaskContext } from '../task-context'
+import type { AdhocPlan, CloseoutEvidence, TaskPlan, TaskPlanInput, WavePlan } from '../types'
+import { pendingWaveFlowCheck } from './format'
+import { clearAdhocActive, loadActive, loadAdhocActive, loadAdhocPlan, writeAdhocActive, writeAdhocPlan, writeAdhocRuntime } from './persistence'
+import { initialProgress } from './plans'
+import { assertSlug, nowIso } from './shared'
 
 export interface CreateAdhocPlanInput {
 	adhocId: string;
@@ -19,11 +20,11 @@ export interface CreateAdhocPlanInput {
 	relevantDocumentation?: string[];
 	decisions?: string[];
 	dependencyAnalysis?: string[];
-	tasks: TaskPlan[];
+	tasks: TaskPlanInput[];
 	waves: WavePlan[];
 }
 
-function buildAdhocPlan(input: CreateAdhocPlanInput, now: string): AdhocPlan {
+function buildAdhocPlan(input: CreateAdhocPlanInput, tasks: TaskPlan[], now: string): AdhocPlan {
 	return {
 		adhoc_id: input.adhocId,
 		title: input.title,
@@ -41,7 +42,7 @@ function buildAdhocPlan(input: CreateAdhocPlanInput, now: string): AdhocPlan {
 		relevant_documentation: input.relevantDocumentation ?? [],
 		decisions: input.decisions ?? [],
 		dependency_analysis: input.dependencyAnalysis ?? [],
-		tasks: input.tasks,
+		tasks,
 		waves: input.waves,
 		progress: initialProgress(input.waves),
 		wave_flow_check: pendingWaveFlowCheck(),
@@ -59,10 +60,10 @@ export async function createAdhocPlan(cwd: string, input: CreateAdhocPlanInput):
 		if (await loadActive(cwd)) throw new Error('A roadmap is active; close it before starting an ad-hoc plan')
 		if (await loadAdhocActive(cwd)) throw new Error('An ad-hoc plan is already active')
 
-		const plan = buildAdhocPlan(input, nowIso())
-		await fs.mkdir(adhocPlanDir(cwd, plan.adhoc_id), {recursive: true})
+		const plan = buildAdhocPlan(input, await captureTaskContext(cwd, input.tasks, input.waves), nowIso())
+		await fs.mkdir(adhocPlanDir(cwd, plan.adhoc_id), { recursive: true })
 		await persistAdhoc(cwd, plan)
-		await writeAdhocActive(cwd, {adhoc_id: plan.adhoc_id, updated_at: plan.updated_at})
+		await writeAdhocActive(cwd, { adhoc_id: plan.adhoc_id, updated_at: plan.updated_at })
 		return plan
 	})
 }
@@ -80,7 +81,7 @@ export async function updateAdhocPlan(cwd: string, input: CreateAdhocPlanInput):
 		}
 		const now = nowIso()
 		const plan: AdhocPlan = {
-			...buildAdhocPlan(input, current.created_at),
+			...buildAdhocPlan(input, await captureTaskContext(cwd, input.tasks, input.waves), current.created_at),
 			updated_at: now,
 			wave_flow_check: current.wave_flow_check,
 		}
@@ -107,11 +108,11 @@ export interface AdhocTransitionInput {
 }
 
 const STATUS_TRANSITIONS: Record<string, { from: AdhocPlan['status']; to: AdhocPlan['status'] }> = {
-	approve: {from: 'adhoc_draft', to: 'adhoc_approved'},
-	start_implementing: {from: 'adhoc_approved', to: 'implementing'},
-	start_reviewing: {from: 'implementing', to: 'reviewing'},
-	record_closeout: {from: 'reviewing', to: 'closeout'},
-	complete: {from: 'closeout', to: 'complete'},
+	approve: { from: 'adhoc_draft', to: 'adhoc_approved' },
+	start_implementing: { from: 'adhoc_approved', to: 'implementing' },
+	start_reviewing: { from: 'implementing', to: 'reviewing' },
+	record_closeout: { from: 'reviewing', to: 'closeout' },
+	complete: { from: 'closeout', to: 'complete' },
 }
 
 export async function adhocTransition(cwd: string, input: AdhocTransitionInput): Promise<AdhocPlan | undefined> {
@@ -153,13 +154,13 @@ export async function adhocTransition(cwd: string, input: AdhocTransitionInput):
 			throw new Error('Ad-hoc plan approval requires a passed wave-flow check')
 		}
 
-		const next: AdhocPlan = {...plan, status: transition.to, updated_at: now}
+		const next: AdhocPlan = { ...plan, status: transition.to, updated_at: now }
 		if (input.operation === 'approve') {
-			next.approvals = [...plan.approvals, {by: input.approver ?? 'user', at: now, summary: input.summary ?? 'approved'}]
+			next.approvals = [...plan.approvals, { by: input.approver ?? 'user', at: now, summary: input.summary ?? 'approved' }]
 		}
 		if (input.operation === 'record_closeout') {
 			if (!input.closeout) throw new Error('record_closeout requires closeout evidence')
-			next.closeout = {...input.closeout, roadmap_id: '', milestone_id: plan.adhoc_id}
+			next.closeout = { ...input.closeout, roadmap_id: '', milestone_id: plan.adhoc_id }
 		}
 
 		await persistAdhoc(cwd, next)

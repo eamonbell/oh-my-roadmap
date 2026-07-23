@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   DEFAULT_TRANSPORT_RESUME_ATTEMPTS,
+  REPO_PRIMER_USE_RULE,
   REVIEWER_REWORK_RULE,
   SCOUT_RECORDING_RULE,
   workerReworkRule,
@@ -18,9 +19,14 @@ import {
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const skillsDir = path.join(repoRoot, "packages", "extension", "skills");
+const workerTemplatesDir = path.join(repoRoot, "packages", "core", "agent-templates");
 
 function readSkill(name: string): string {
   return fs.readFileSync(path.join(skillsDir, name, "SKILL.md"), "utf8");
+}
+
+function readWorkerTemplate(name: string): string {
+  return fs.readFileSync(path.join(workerTemplatesDir, name, "AGENT.md"), "utf8");
 }
 
 // Strip inline-code backticks and bold markers, drop leading markdown bullet prefixes, then
@@ -36,6 +42,29 @@ function normalize(text: string): string {
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const R16_RULE = [
+  "Batch related reads before editing.",
+  "Trust successful edit receipts instead of reading back an applied edit.",
+  "Re-read only when the file changed or when the next unseen hunk must be grounded.",
+].join("\n");
+
+function r16RuleBlock(template: string): string {
+  const bullets = template
+    .split("\n")
+    .filter((line) => /^\s*-\s+/.test(line))
+    .map((line) => line.replace(/^\s*-\s+/, ""));
+  const start = bullets.indexOf("Batch related reads before editing.");
+  if (start < 0) {
+    throw new Error("Worker template is missing the R16 context-hygiene rule");
+  }
+  return bullets.slice(start, start + 3).join("\n");
+}
+
+function workerR16RulesMatch(templates: string[]): boolean {
+  const [first, ...rest] = templates.map((template) => normalize(r16RuleBlock(template)));
+  return first !== undefined && rest.every((rule) => rule === first);
 }
 
 const WORKER_RULE = workerReworkRule(DEFAULT_TRANSPORT_RESUME_ATTEMPTS);
@@ -55,6 +84,43 @@ describe("skill/rule single-source drift", () => {
     const scout = normalize(SCOUT_RECORDING_RULE);
     expect(normalize(readSkill("milestone-planner"))).toContain(scout);
     expect(normalize(readSkill("roadmap-planner"))).toContain(scout);
+  });
+
+  test("planner and checker roles carry the canonical repo-primer-use rule", () => {
+    const primerRule = normalize(REPO_PRIMER_USE_RULE);
+    expect(normalize(readSkill("milestone-planner"))).toContain(primerRule);
+    expect(normalize(readSkill("roadmap-planner"))).toContain(primerRule);
+    expect(normalize(readWorkerTemplate("roadmap-milestone-checker"))).toContain(primerRule);
+    expect(normalize(readWorkerTemplate("wave-flow-checker"))).toContain(primerRule);
+  });
+
+  test("the repo-primer drift guard detects a one-word divergence", () => {
+    const skill = normalize(readSkill("roadmap-planner"));
+    const drifted = normalize(REPO_PRIMER_USE_RULE).replace(
+      "Scout only gaps",
+      "Scout every gap",
+    );
+    expect(drifted).not.toBe(normalize(REPO_PRIMER_USE_RULE));
+    expect(skill).not.toContain(drifted);
+  });
+
+  test("all worker templates carry the identical R16 context-hygiene rule", () => {
+    const light = readWorkerTemplate("worker-light");
+    const standard = readWorkerTemplate("worker");
+    const heavy = readWorkerTemplate("worker-heavy");
+    expect(workerR16RulesMatch([light, standard, heavy])).toBe(true);
+    expect(normalize(r16RuleBlock(light))).toBe(normalize(R16_RULE));
+  });
+
+  test("the R16 drift guard detects a one-word divergence", () => {
+    const light = readWorkerTemplate("worker-light");
+    const standard = readWorkerTemplate("worker");
+    const heavy = readWorkerTemplate("worker-heavy");
+    const drifted = standard.replace(
+      "Trust successful edit receipts",
+      "Trust failed edit receipts",
+    );
+    expect(workerR16RulesMatch([light, drifted, heavy])).toBe(false);
   });
 
   // Robustness: the check is substantive, not a trivial substring. A one-word divergence in the

@@ -1,22 +1,25 @@
-import {randomUUID} from 'node:crypto'
-import {withDiagnosticTiming} from '../diagnostics'
-import {searchContext} from '../context'
-import type {ContextEntryResult} from '../context-types'
-import {listBlockers, nowIso, openBlocker, transition,} from '../store/index'
-import type {NextActionHint} from '../report/index'
-import type {ImplementationProgressStep, ReworkQueueItem, RoadmapBlocker, WavePlan} from '../types'
-import {activePlanContext, type ActivePlanContext, assertImplementationReady, writePlanRuntime,} from './context'
+import { randomUUID } from 'node:crypto'
+import { withDiagnosticTiming } from '../diagnostics'
+import { searchContext } from '../context'
+import type { ContextEntryResult } from '../context-types'
+import { listBlockers, nowIso, openBlocker, transition, } from '../store/index'
+import type { NextActionHint } from '../report/index'
+import type { ImplementationProgressStep, ReworkQueueItem, RoadmapBlocker, WavePlan } from '../types'
+import { activePlanContext, type ActivePlanContext, assertImplementationReady, writePlanRuntime, } from './context'
 import {
 	manifestPromptSection,
 	setProgress,
 	verificationPreflightFor,
 	verificationPreflightPromptSection,
 } from './dispatch'
+import { loadWaveContextSources, sliceReviewerSeededContext } from './context-seeding'
 import type {
 	PlanDerivedManifest,
 	PrepareWaveReviewResult,
 	RecordWaveReviewInput,
 	RecordWaveReviewResult,
+	RemainingWaveContext,
+	SeededContext,
 	VerificationPreflightHint,
 	WaveOrchestrationTargetInput,
 } from './types'
@@ -25,7 +28,7 @@ async function assertNoOpenBlockingBlockers(cwd: string, ctx: ActivePlanContext)
 	const result = await listBlockers(cwd, {
 		roadmapId: ctx.roadmapId,
 		milestoneId: ctx.milestoneId,
-		...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+		...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
 		status: 'open',
 		severity: 'blocking',
 	})
@@ -60,10 +63,47 @@ export function reviewVerificationPreflight(ctx: ActivePlanContext): Verificatio
 	return verificationPreflightFor(ctx.plan.verification_commands)
 }
 
-function reviewPrompt(ctx: ActivePlanContext): string {
+export function remainingWaveContexts(
+	plan: Pick<ActivePlanContext['plan'], 'waves' | 'tasks'>,
+	activeWaveId: string,
+): RemainingWaveContext[] {
+	const activeWaveIndex = plan.waves.findIndex((wave) => wave.id === activeWaveId)
+	if (activeWaveIndex < 0) throw new Error(`Active wave ${activeWaveId} is missing from the plan`)
+	const taskById = new Map(plan.tasks.map((task) => [task.id, task]))
+	return plan.waves
+		.slice(activeWaveIndex + 1)
+		.filter((wave) => wave.status !== 'complete')
+		.map((wave) => ({
+			wave_id: wave.id,
+			goal: wave.goal,
+			exit_criteria: wave.exit_criteria,
+			tasks: wave.tasks.map((taskId) => {
+				const task = taskById.get(taskId)
+				if (!task) throw new Error(`Wave ${wave.id} references unknown task ${taskId}`)
+				return {
+					task_id: task.id,
+					title: task.title,
+					owned_files: task.owned_files,
+					owned_modules: task.owned_modules,
+					shared_interfaces: task.shared_interfaces,
+					done_criteria: task.done_criteria,
+				}
+			}),
+		}))
+}
+
+function reviewPrompt(
+	ctx: ActivePlanContext,
+	seededContext: SeededContext,
+	remainingWaves: RemainingWaveContext[],
+): string {
 	const taskLines = ctx.activeTasks
-	.map((task) => `- ${task.id}: ${task.title} (${task.worker}); owned files ${task.owned_files.join(', ') || '(none)'}; owned modules ${task.owned_modules.join(', ') || '(none)'}`)
-	.join('\n')
+		.flatMap((task) => [
+			`- ${task.id}: ${task.title} (${task.worker}); owned files ${task.owned_files.join(', ') || '(none)'}; owned modules ${task.owned_modules.join(', ') || '(none)'}`,
+			'  Done criteria:',
+			...(task.done_criteria.length > 0 ? task.done_criteria.map((item) => `  - ${item}`) : ['  - (none)']),
+		])
+		.join('\n')
 	const manifestSection = manifestPromptSection(reviewManifest(ctx))
 	const preflightSection = verificationPreflightPromptSection(reviewVerificationPreflight(ctx))
 	const scopeHeader = ctx.isAdhoc
@@ -74,14 +114,21 @@ function reviewPrompt(ctx: ActivePlanContext): string {
 ${scopeHeader}Review checkpoint:
 ${ctx.activeWave.review_checkpoint}
 
-Wave exit criteria:
+Active wave exit criteria:
 ${ctx.activeWave.exit_criteria.map((item) => `- ${item}`).join('\n')}
 
-Tasks in this wave:
+Active tasks and done criteria:
 ${taskLines}
 
-Acceptance criteria:
+Milestone acceptance context (non-gating for this wave; final disposition is closeout)
 ${ctx.plan.acceptance_criteria.map((item) => `- ${item}`).join('\n')}
+
+Remaining waves (informational future map; non-gating for this wave):
+${JSON.stringify(remainingWaves)}
+
+Seeded reviewer context (this compact JSON exactly matches result.seeded_context):
+${JSON.stringify(seededContext)}
+These seeded items were verified when this review package was assembled, but live repository code remains authoritative. Typed warnings name context omitted because it was stale, missing, mismatched, outside the repository, unavailable, or truncated. Use seeded_context.style_guidance as the complete style guidance for this review; an explicit "No recorded code-style guidance for these files." is authoritative and requires no separate style lookup.
 
 Verification commands:
 ${ctx.plan.verification_commands.map((item) => `- ${item}`).join('\n')}
@@ -90,11 +137,13 @@ ${manifestSection}
 
 ${preflightSection}
 
-Workers self-verify before yielding: they always run LSP diagnostics on every file they touch, and — when their dispatch grants it (a single-worker wave, or a genuine rework) — also run their task's own verification commands against their OWNED files, recording exact command receipts (a "Commands run:" section and/or "VERIFIED:" lines) in their worker note. Verify those receipts rather than re-discovering or re-running everything from scratch; the review package carries worker_command_receipts (best-effort parses of what each worker reported running) as your starting point. Then, once for the whole wave, run the plan's milestone-level verification commands above yourself to confirm the assembled wave holds together — a concurrent sibling task may have been incomplete when any single worker finished, so this integration pass is still the first point where the whole wave is verified together. Judge results RELATIVE TO the verification_baseline in the review package (captured at implementation start): the bar is no NEW failures and no lost passes versus that baseline, not an absolute full-suite-green bar; pre-existing baseline failures are informational. Treat a genuine NEW failure (a regression vs the baseline) as a BLOCKING (worker-fixable) finding that names the failing command and cause; note any command you could not run.
+Workers self-verify before yielding: they always run LSP diagnostics on every file they touch, and — when their dispatch grants it (a single-worker wave, or a genuine rework) — also run their task's own verification commands against their OWNED files, recording exact command receipts (a "Commands run:" section and/or "VERIFIED:" lines) in their worker note. Verify those receipts rather than re-discovering or re-running everything from scratch; the review package carries worker_command_receipts (best-effort parses of what each worker reported running) as your starting point. Then, once for the whole wave, run the plan's milestone-level verification commands above yourself to confirm the assembled wave holds together — a concurrent sibling task may have been incomplete when any single worker finished, so this integration pass is still the first point where the whole wave is verified together.
 
-Before creating throwaway verification code or code-level repros, call omr_style_guide with the relevant task owned files from the manifest above or the files you are inspecting, and follow any recorded hard/style guidance where practical. If no relevant file path is known, skip the call and do not invent language-specific rules.
+Judge verification results RELATIVE TO the verification_baseline captured at implementation start: the bar is no new failures and no lost passes, not absolute full-suite success. Treat pre-existing baseline failures as informational. When rework_queue is present, confirm each pending item is resolved rather than re-reporting it as a new finding.
 
-Review only this active wave. Verify completed work against task scope, ownership, shared interfaces, exit criteria, and acceptance criteria. Report passed or failed status with a summary and concrete findings for the orchestrator to record with omr_record_wave_review.`
+Judge this wave only against the active wave exit criteria and active task done criteria above. Milestone acceptance context and remaining_waves are informational during this review. Do not fail this wave solely because an item is owned by remaining_waves; final milestone acceptance disposition belongs to closeout.
+
+Report passed or failed status with a summary and concrete findings for the orchestrator to record with omr_record_wave_review.`
 }
 
 export async function prepareWaveReview(
@@ -118,8 +167,12 @@ export async function prepareWaveReview(
 			throw new Error(`Active wave ${ctx.activeWave.id} still has incomplete tasks: ${incomplete.map((task) => task.id).join(', ')}`)
 		}
 
+		const contextSources = await loadWaveContextSources(cwd, ctx)
+		const seededContext = sliceReviewerSeededContext(contextSources, ctx.activeTasks)
+		const remainingWaves = remainingWaveContexts(ctx.plan, ctx.activeWave.id)
+
 		if (ctx.activeWave.status !== 'reviewing') {
-			await transition(cwd, {operation: 'update_wave_status', waveId: ctx.activeWave.id, waveStatus: 'reviewing'})
+			await transition(cwd, { operation: 'update_wave_status', waveId: ctx.activeWave.id, waveStatus: 'reviewing' })
 		}
 		await setProgress(cwd, ctx, 'wave_review', [])
 
@@ -132,7 +185,7 @@ export async function prepareWaveReview(
 		const waveBlockers = await listBlockers(cwd, {
 			roadmapId: ctx.roadmapId,
 			milestoneId: ctx.milestoneId,
-			...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+			...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
 			waveId: ctx.activeWave.id,
 		})
 		const priorFindings = waveBlockers.blockers
@@ -171,13 +224,15 @@ export async function prepareWaveReview(
 		return {
 			roadmap_id: ctx.roadmapId,
 			milestone_id: ctx.milestoneId,
-			...(ctx.changeRequestId ? {change_request_id: ctx.changeRequestId} : {}),
+			...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
 			wave_id: ctx.activeWave.id,
 			reviewer: 'reviewer',
 			re_review: reReview,
-			...(reReview && priorReviewer ? {prior_reviewer_agent_id: priorReviewer.agent_id} : {}),
-			...(reReview && priorFindings.length > 0 ? {prior_findings: priorFindings} : {}),
-			prompt: reviewPrompt(ctx),
+			...(reReview && priorReviewer ? { prior_reviewer_agent_id: priorReviewer.agent_id } : {}),
+			...(reReview && priorFindings.length > 0 ? { prior_findings: priorFindings } : {}),
+			prompt: reviewPrompt(ctx, seededContext, remainingWaves),
+			seeded_context: seededContext,
+			remaining_waves: remainingWaves,
 			manifest: reviewManifest(ctx),
 			verification_preflight: reviewVerificationPreflight(ctx),
 			tasks: ctx.activeTasks.map((task) => ({
@@ -187,11 +242,12 @@ export async function prepareWaveReview(
 				owned_files: task.owned_files,
 				owned_modules: task.owned_modules,
 				shared_interfaces: task.shared_interfaces,
+				done_criteria: task.done_criteria,
 			})),
 			worker_notes: workerNotes.results,
-			...(verificationBaseline ? {verification_baseline: verificationBaseline} : {}),
-			...(pendingRework.length > 0 ? {rework_queue: pendingRework} : {}),
-			...(commandReceipts.length > 0 ? {worker_command_receipts: commandReceipts} : {}),
+			...(verificationBaseline ? { verification_baseline: verificationBaseline } : {}),
+			...(pendingRework.length > 0 ? { rework_queue: pendingRework } : {}),
+			...(commandReceipts.length > 0 ? { worker_command_receipts: commandReceipts } : {}),
 		}
 	})
 }
@@ -256,8 +312,8 @@ function extractWorkerCommands(body: string): string[] {
 
 function parseWorkerCommandReceipts(
 	notes: ContextEntryResult[],
-): {task_id: string; agent_id?: string; commands: string[]}[] {
-	const receipts: {task_id: string; agent_id?: string; commands: string[]}[] = []
+): { task_id: string; agent_id?: string; commands: string[] }[] {
+	const receipts: { task_id: string; agent_id?: string; commands: string[] }[] = []
 	for (const note of notes) {
 		const body = typeof note.body === 'string' ? note.body : ''
 		if (!body) continue
@@ -265,7 +321,7 @@ function parseWorkerCommandReceipts(
 		if (commands.length === 0) continue
 		const taskId = typeof note.metadata.task_id === 'string' ? note.metadata.task_id : ''
 		const agentId = typeof note.metadata.worker_id === 'string' ? note.metadata.worker_id : undefined
-		receipts.push({task_id: taskId, ...(agentId ? {agent_id: agentId} : {}), commands})
+		receipts.push({ task_id: taskId, ...(agentId ? { agent_id: agentId } : {}), commands })
 	}
 	return receipts
 }
@@ -309,23 +365,23 @@ function sameReviewBlocker(blocker: RoadmapBlocker, ctx: ActivePlanContext, titl
 //   is already running/reviewing/blocked — its existing state stays authoritative and progress
 //   is left on ready_for_next_wave for a human/agent to resolve explicitly.
 type PassedWaveAdvance =
-	| {kind: 'activate'; nextWave: WavePlan}
-	| {kind: 'closeout'}
-	| {kind: 'none'}
+	| { kind: 'activate'; nextWave: WavePlan }
+	| { kind: 'closeout' }
+	| { kind: 'none' }
 
 // Waves are ordered by their position in ctx.plan.waves, so the "next wave" is the first
 // later wave (after the active wave's index) that is not yet complete.
 function resolvePassedWaveAdvance(ctx: ActivePlanContext): PassedWaveAdvance {
 	const activeWaveIndex = ctx.plan.waves.findIndex((wave) => wave.id === ctx.activeWave.id)
-	if (activeWaveIndex < 0) return {kind: 'none'}
+	if (activeWaveIndex < 0) return { kind: 'none' }
 	const nextWave = ctx.plan.waves.slice(activeWaveIndex + 1).find((wave) => wave.status !== 'complete')
 	if (nextWave) {
 		// Only advance into a wave that has not started. If the next pending wave is already
 		// running, reviewing, or blocked, its existing state stays authoritative.
-		if (nextWave.status !== 'pending') return {kind: 'none'}
-		return {kind: 'activate', nextWave}
+		if (nextWave.status !== 'pending') return { kind: 'none' }
+		return { kind: 'activate', nextWave }
 	}
-	return {kind: 'closeout'}
+	return { kind: 'closeout' }
 }
 
 function passedWaveNextActions(ctx: ActivePlanContext, advance: PassedWaveAdvance): NextActionHint[] | undefined {
@@ -337,7 +393,7 @@ function passedWaveNextActions(ctx: ActivePlanContext, advance: PassedWaveAdvanc
 				name: 'omr_transition',
 				input: {
 					operation: 'update_implementation_progress',
-					progress: {activeWaveId: advance.nextWave.id, step: 'not_started', activeTaskIds: []},
+					progress: { activeWaveId: advance.nextWave.id, step: 'not_started', activeTaskIds: [] },
 				},
 			},
 			why: `Wave ${ctx.activeWave.id} passed review and progress is ready_for_next_wave; ${advance.nextWave.id} is the next pending wave.`,
@@ -349,7 +405,7 @@ function passedWaveNextActions(ctx: ActivePlanContext, advance: PassedWaveAdvanc
 			name: 'omr_transition',
 			input: {
 				operation: 'update_implementation_progress',
-				progress: {step: 'closeout_ready', activeTaskIds: []},
+				progress: { step: 'closeout_ready', activeTaskIds: [] },
 			},
 		},
 		why: `Wave ${ctx.activeWave.id} passed review and all waves are complete.`,
@@ -368,14 +424,14 @@ async function applyPassedWaveAdvance(
 	if (advance.kind === 'activate') {
 		await transition(cwd, {
 			operation: 'update_implementation_progress',
-			progress: {activeWaveId: advance.nextWave.id, step: 'not_started', activeTaskIds: []},
+			progress: { activeWaveId: advance.nextWave.id, step: 'not_started', activeTaskIds: [] },
 		})
 		return 'not_started'
 	}
 	if (advance.kind === 'closeout') {
 		await transition(cwd, {
 			operation: 'update_implementation_progress',
-			progress: {step: 'closeout_ready', activeTaskIds: []},
+			progress: { step: 'closeout_ready', activeTaskIds: [] },
 		})
 		return 'closeout_ready'
 	}
@@ -392,7 +448,7 @@ export async function recordWaveReview(
 		operation: 'wave.recordWaveReview',
 		cwd,
 		slowMs: 250,
-		metadata: {status: input.status},
+		metadata: { status: input.status },
 	}, async () => {
 		const ctx = await activePlanContext(cwd, input)
 		const incomplete = ctx.activeTasks.filter((task) => task.status !== 'done')
@@ -420,14 +476,14 @@ export async function recordWaveReview(
 				wave_status: 'complete',
 				progress_step: progressStep,
 				blockers: [],
-				...(nextActions ? {next_actions: nextActions} : {}),
+				...(nextActions ? { next_actions: nextActions } : {}),
 			}
 		}
 
 		const existingBlockers = await listBlockers(cwd, {
 			roadmapId: ctx.roadmapId,
 			milestoneId: ctx.milestoneId,
-			...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+			...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
 			waveId: ctx.activeWave.id,
 		})
 		const title = `Wave ${ctx.activeWave.id} review failed`
@@ -456,9 +512,9 @@ export async function recordWaveReview(
 					blockers.push(await openBlocker(cwd, {
 						roadmapId: ctx.roadmapId,
 						milestoneId: ctx.milestoneId,
-						...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+						...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
 						waveId: ctx.activeWave.id,
-						...(finding.task_id ? {taskId: finding.task_id} : {}),
+						...(finding.task_id ? { taskId: finding.task_id } : {}),
 						severity: 'blocking',
 						title,
 						description,
@@ -490,7 +546,7 @@ export async function recordWaveReview(
 				blockers.push(await openBlocker(cwd, {
 					roadmapId: ctx.roadmapId,
 					milestoneId: ctx.milestoneId,
-					...(ctx.changeRequestId ? {changeRequestId: ctx.changeRequestId} : {}),
+					...(ctx.changeRequestId ? { changeRequestId: ctx.changeRequestId } : {}),
 					waveId: ctx.activeWave.id,
 					severity: 'blocking',
 					title,
@@ -523,7 +579,7 @@ export async function recordWaveReview(
 				...reloaded.plan,
 				progress: {
 					...reloaded.plan.progress,
-					...(carriedBaseline ? {verification_baseline: carriedBaseline} : {}),
+					...(carriedBaseline ? { verification_baseline: carriedBaseline } : {}),
 					rework_queue: [...existingQueue, ...reworkItems],
 					updated_at: nowIso(),
 				},

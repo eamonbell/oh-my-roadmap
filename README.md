@@ -18,6 +18,16 @@ Workers always run LSP diagnostics on every file they touch before yielding, and
 
 Agents should use compact `omr_read_state` scopes and `omr_search_context` to inspect active-roadmap notes, roadmap sections, plan sections, decisions, risks, issues, and review findings before reading large `.omr` artifacts directly. Search returns compact snippets by default; agents can call `omr_read_context` with selected result IDs when full entry detail is needed.
 
+## Repository and Task Context
+
+OMR maintains a project-wide repository primer at `.omr/repo-primer.yml`. Roadmap initialization creates or refreshes this bounded, fingerprinted inventory of detected manifests and package managers, workspace members, test and module roots, runnable test/build/typecheck commands, and repository guidance. Planner, dispatch, and review paths lazily refresh it when needed; an unchanged fingerprint preserves the existing artifact and timestamp.
+
+Every milestone, change-request, and ad-hoc task also carries required `relevant_existing_code` and `shared_interface_contracts` arrays. Planning validates repository-relative paths and existing signatures. A planned interface must name the strictly earlier task that owns its future source through `planned_by_task_id`.
+
+`omr_prepare_wave_dispatch` places verified task references, resolved interface contracts, matching scout findings, style guidance, and the compact primer in each assignment's `seeded_context`. `omr_prepare_wave_review` supplies the same categories as one bounded, deduplicated active-wave package, plus an informational `remaining_waves` map. Live repository code remains authoritative: stale, missing, mismatched, outside-repository, unavailable, or truncated context is omitted or identified by a typed warning. These context warnings do not block planning, dispatch, or review; workers and reviewers inspect live sources when a warning or uncovered gap requires it.
+
+If primer refresh fails, OMR delivers the last good primer with a `primer_refresh_failed` warning when one exists; otherwise it omits the primer with `primer_unavailable`. A changed relevant-code mtime yields `stale_source`, while a live interface whose normalized signature no longer matches yields `signature_mismatch`. None of these warnings changes the workflow gate.
+
 ## Install
 
 This repo publishes two user-facing packages to npm, plus `oh-my-roadmap-core` as their shared runtime dependency:
@@ -112,7 +122,7 @@ Lifecycle: `adhoc_draft → adhoc_approved → implementing → reviewing → cl
 
 Run `/omr:learn-style` to teach oh-my-roadmap how your codebase is written. It dispatches a dedicated `style-scout` agent that inspects representative source files and records concise, per-language conventions (naming, formatting, quoting, error handling, and so on) into a `style:` map in `.omr/config.yml` via the `omr_set_style` tool. You can also hand-author `style:` entries in the global config.
 
-Before writing code, worker agents call the `omr_style_guide` tool with the files they will edit; it returns the recorded guidance for those files' languages from the unified config. The guidance is advisory — reviewers do not fail a review solely for a style deviation.
+Workers and reviewers receive the applicable recorded conventions in `seeded_context.style_guidance`; an explicit “No recorded code-style guidance for these files.” is authoritative, so they do not repeat a style lookup. The guidance is advisory — reviewers do not fail a review solely for a style deviation.
 
 ## Project Init
 

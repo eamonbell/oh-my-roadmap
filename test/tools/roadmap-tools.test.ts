@@ -1,12 +1,12 @@
-import {describe, expect, test} from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import {readYamlFile, writeYamlFile} from '@oh-my-roadmap/core/files'
-import {roadmapStatePath} from '@oh-my-roadmap/core/paths'
-import {initRoadmap, loadState, transition, updateRoadmap} from '@oh-my-roadmap/core/store/index'
-import type {RoadmapState} from '@oh-my-roadmap/core/types'
-import {registeredTool, registerTools, roadmapInput, toolContext} from './helpers'
+import { readYamlFile, writeYamlFile } from '@oh-my-roadmap/core/files'
+import { repoPrimerPath, roadmapStatePath } from '@oh-my-roadmap/core/paths'
+import { initRoadmap, loadState, transition, updateRoadmap } from '@oh-my-roadmap/core/store/index'
+import type { RoadmapState } from '@oh-my-roadmap/core/types'
+import { registeredTool, registerTools, roadmapInput, toolContext } from './helpers'
 
 describe('roadmap lifecycle tools', () => {
 	test('records roadmap milestone check through the transition tool', async () => {
@@ -17,10 +17,10 @@ describe('roadmap lifecycle tools', () => {
 
 		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'roadmap-transition-tool-'))
 		try {
-			await initRoadmap(cwd, {roadmapId: 'tool-transition-roadmap', title: 'Tool Transition Roadmap'})
+			await initRoadmap(cwd, { roadmapId: 'tool-transition-roadmap', title: 'Tool Transition Roadmap' })
 			await transition(cwd, {
 				operation: 'record_discovery',
-				discovery: {findings: ['Inspected transition tool wiring.']},
+				discovery: { findings: ['Inspected transition tool wiring.'] },
 			})
 			await updateRoadmap(cwd, roadmapInput())
 
@@ -44,7 +44,7 @@ describe('roadmap lifecycle tools', () => {
 			expect(result?.details).toMatchObject({
 				operation: 'record_roadmap_milestone_check',
 				event_type: 'quality_gate.recorded',
-				scope: {gate: 'roadmap_milestone_check'},
+				scope: { gate: 'roadmap_milestone_check' },
 				after: {
 					status: 'passed',
 					checked_by: 'roadmap-milestone-checker',
@@ -59,7 +59,7 @@ describe('roadmap lifecycle tools', () => {
 
 			const gates = await listQualityGatesTool?.execute(
 				'quality-gates',
-				{gate: 'roadmap_milestone_check', status: 'passed'},
+				{ gate: 'roadmap_milestone_check', status: 'passed' },
 				new AbortController().signal,
 				undefined,
 				toolContext(cwd),
@@ -72,7 +72,7 @@ describe('roadmap lifecycle tools', () => {
 				history: [
 					{
 						type: 'quality_gate.recorded',
-						scope: {gate: 'roadmap_milestone_check'},
+						scope: { gate: 'roadmap_milestone_check' },
 						details: {
 							gate_status: 'passed',
 							roadmap_revision: 2,
@@ -81,7 +81,7 @@ describe('roadmap lifecycle tools', () => {
 				],
 			})
 		} finally {
-			await fs.rm(cwd, {recursive: true, force: true})
+			await fs.rm(cwd, { recursive: true, force: true })
 		}
 	})
 
@@ -91,10 +91,10 @@ describe('roadmap lifecycle tools', () => {
 
 		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'roadmap-return-scope-'))
 		try {
-			await initRoadmap(cwd, {roadmapId: 'return-scope-roadmap', title: 'Return Scope Roadmap'})
+			await initRoadmap(cwd, { roadmapId: 'return-scope-roadmap', title: 'Return Scope Roadmap' })
 			await transition(cwd, {
 				operation: 'record_discovery',
-				discovery: {findings: ['Inspected return-scope wiring.']},
+				discovery: { findings: ['Inspected return-scope wiring.'] },
 			})
 			await updateRoadmap(cwd, roadmapInput())
 			await transition(cwd, {
@@ -106,75 +106,75 @@ describe('roadmap lifecycle tools', () => {
 					findings: [],
 				},
 			})
-			await transition(cwd, {operation: 'approve_roadmap', approver: 'user'})
+			await transition(cwd, { operation: 'approve_roadmap', approver: 'user' })
 
 			const started = await transitionTool?.execute(
 				'transition-return-scope',
-				{operation: 'start_milestone_planning', returnScope: 'state'},
+				{ operation: 'start_milestone_planning', returnScope: 'state' },
 				new AbortController().signal,
 				undefined,
 				toolContext(cwd),
 			)
 			// returnScope: "state" returns the old top-level full loaded-state shape.
 			expect(started?.details).toMatchObject({
-				roadmap: {roadmap_id: 'return-scope-roadmap', phase: 'milestone_planning'},
+				roadmap: { roadmap_id: 'return-scope-roadmap', phase: 'milestone_planning' },
 			})
 			expect(started?.details).toHaveProperty('next_actions')
 			// Receipt-only fields are not surfaced at the top level in state scope.
 			expect(started?.details).not.toHaveProperty('event_id')
 		} finally {
-			await fs.rm(cwd, {recursive: true, force: true})
+			await fs.rm(cwd, { recursive: true, force: true })
 		}
 	})
 
 	/*test("rejects irrelevant operation fields and accepts the bare valid payload", async () => {
-	  const tools = registerTools();
-	  const transitionTool = registeredTool(tools, "omr_transition");
+		const tools = registerTools();
+		const transitionTool = registeredTool(tools, "omr_transition");
 
-	  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-strict-input-"));
-	  try {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "roadmap-strict-input-"));
+		try {
 		await initRoadmap(cwd, { roadmapId: "strict-input-roadmap", title: "Strict Input Roadmap" });
 		await transition(cwd, {
-		  operation: "record_discovery",
-		  discovery: { findings: ["Inspected strict input wiring."] },
+			operation: "record_discovery",
+			discovery: { findings: ["Inspected strict input wiring."] },
 		});
 		await updateRoadmap(cwd, roadmapInput());
 		await transition(cwd, {
-		  operation: "record_roadmap_milestone_check",
-		  roadmapMilestoneCheck: {
+			operation: "record_roadmap_milestone_check",
+			roadmapMilestoneCheck: {
 			status: "passed",
 			checkedBy: "roadmap-milestone-checker",
 			summary: "Milestone flow is coherent and buildable.",
 			findings: [],
-		  },
+			},
 		});
 		await transition(cwd, { operation: "approve_roadmap", approver: "user" });
 
 		// start_milestone_planning accepts no operation-specific fields; `milestone` is irrelevant
 		// and must be rejected before the core state machine runs, with a focused message.
 		await expect(
-		  transitionTool?.execute(
+			transitionTool?.execute(
 			"transition-strict-reject",
 			{ operation: "start_milestone_planning", milestone: { milestoneId: "m01-core" } },
 			new AbortController().signal,
 			undefined,
 			toolContext(cwd),
-		  ),
+			),
 		).rejects.toThrow("Operation start_milestone_planning does not accept field milestone.");
 
 		// The bare valid payload succeeds in the roadmap_approved phase.
 		const started = await transitionTool?.execute(
-		  "transition-strict-accept",
-		  { operation: "start_milestone_planning" },
-		  new AbortController().signal,
-		  undefined,
-		  toolContext(cwd),
+			"transition-strict-accept",
+			{ operation: "start_milestone_planning" },
+			new AbortController().signal,
+			undefined,
+			toolContext(cwd),
 		);
 		expect(started?.details).toMatchObject({ operation: "start_milestone_planning" });
 		expect((await loadState(cwd)).roadmap?.phase).toBe("milestone_planning");
-	  } finally {
+		} finally {
 		await fs.rm(cwd, { recursive: true, force: true });
-	  }
+		}
 	});*/
 
 	test('surfaces the next executable action on transition and validate tool success', async () => {
@@ -184,10 +184,10 @@ describe('roadmap lifecycle tools', () => {
 
 		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'roadmap-next-action-tool-'))
 		try {
-			await initRoadmap(cwd, {roadmapId: 'tool-next-action-roadmap', title: 'Tool Next Action Roadmap'})
+			await initRoadmap(cwd, { roadmapId: 'tool-next-action-roadmap', title: 'Tool Next Action Roadmap' })
 			await transition(cwd, {
 				operation: 'record_discovery',
-				discovery: {findings: ['Inspected next-action wiring.']},
+				discovery: { findings: ['Inspected next-action wiring.'] },
 			})
 			await updateRoadmap(cwd, roadmapInput())
 			await transition(cwd, {
@@ -202,7 +202,7 @@ describe('roadmap lifecycle tools', () => {
 
 			const approved = await transitionTool?.execute(
 				'transition-approve',
-				{operation: 'approve_roadmap', approver: 'user'},
+				{ operation: 'approve_roadmap', approver: 'user' },
 				new AbortController().signal,
 				undefined,
 				toolContext(cwd),
@@ -228,7 +228,7 @@ describe('roadmap lifecycle tools', () => {
 			expect(validatedActions?.valid).toBe(true)
 			expect(validatedActions?.next_actions?.[0]?.tool.input.operation).toBe('start_milestone_planning')
 		} finally {
-			await fs.rm(cwd, {recursive: true, force: true})
+			await fs.rm(cwd, { recursive: true, force: true })
 		}
 	})
 
@@ -240,10 +240,10 @@ describe('roadmap lifecycle tools', () => {
 
 		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'roadmap-repair-tool-'))
 		try {
-			await initRoadmap(cwd, {roadmapId: 'tool-repair-roadmap', title: 'Tool Repair Roadmap'})
+			await initRoadmap(cwd, { roadmapId: 'tool-repair-roadmap', title: 'Tool Repair Roadmap' })
 			await transition(cwd, {
 				operation: 'record_discovery',
-				discovery: {findings: ['Inspected repair tool wiring.']},
+				discovery: { findings: ['Inspected repair tool wiring.'] },
 			})
 			await updateRoadmap(cwd, roadmapInput())
 			await transition(cwd, {
@@ -255,7 +255,7 @@ describe('roadmap lifecycle tools', () => {
 					findings: [],
 				},
 			})
-			await transition(cwd, {operation: 'approve_roadmap', approver: 'user'})
+			await transition(cwd, { operation: 'approve_roadmap', approver: 'user' })
 
 			const before = await loadState(cwd)
 			if (!before.roadmap) throw new Error('Expected roadmap state')
@@ -291,7 +291,7 @@ describe('roadmap lifecycle tools', () => {
 
 			const gates = await listQualityGatesTool?.execute(
 				'quality-gates',
-				{gate: 'roadmap_milestone_check', status: 'passed', limit: 1},
+				{ gate: 'roadmap_milestone_check', status: 'passed', limit: 1 },
 				new AbortController().signal,
 				undefined,
 				toolContext(cwd),
@@ -312,7 +312,63 @@ describe('roadmap lifecycle tools', () => {
 				],
 			})
 		} finally {
-			await fs.rm(cwd, {recursive: true, force: true})
+			await fs.rm(cwd, { recursive: true, force: true })
+		}
+	})
+
+	test('refreshes the repository primer after omr_init and includes its status and warnings in the receipt', async () => {
+		const initTool = registeredTool(registerTools(), 'omr_init')
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'roadmap-init-primer-'))
+		try {
+			await fs.writeFile(
+				path.join(cwd, 'package.json'),
+				JSON.stringify({ packageManager: 'bun@1.3.14', scripts: { test: 'bun test' } }),
+				'utf8',
+			)
+			await fs.writeFile(path.join(cwd, 'bun.lock'), '', 'utf8')
+			const result = await initTool?.execute(
+				'init-with-primer',
+				{ roadmapId: 'primer-roadmap', title: 'Primer Roadmap' },
+				new AbortController().signal,
+				undefined,
+				toolContext(cwd),
+			)
+
+			expect(result?.details).toMatchObject({
+				roadmap_id: 'primer-roadmap',
+				repo_primer: { status: 'created', warnings: [] },
+			})
+			expect(await readYamlFile<{ schema_version: number }>(repoPrimerPath(cwd))).toMatchObject({ schema_version: 1 })
+			expect(result?.content[0]).toMatchObject({ type: 'text' })
+			expect(result?.content[0]?.type === 'text' ? result.content[0].text : '').toContain('Repository primer: created.')
+		} finally {
+			await fs.rm(cwd, { recursive: true, force: true })
+		}
+	})
+
+	test('does not gate omr_init when the initial repository scan is unavailable', async () => {
+		const initTool = registeredTool(registerTools(), 'omr_init')
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'roadmap-init-primer-failure-'))
+		try {
+			await fs.writeFile(path.join(cwd, 'package.json'), '{malformed', 'utf8')
+			const result = await initTool?.execute(
+				'init-with-primer-failure',
+				{ roadmapId: 'primer-failure-roadmap', title: 'Primer Failure Roadmap' },
+				new AbortController().signal,
+				undefined,
+				toolContext(cwd),
+			)
+
+			expect(result?.details).toMatchObject({
+				roadmap_id: 'primer-failure-roadmap',
+				repo_primer: { status: 'unavailable' },
+			})
+			const warnings = (result?.details as { repo_primer?: { warnings?: string[] } } | undefined)?.repo_primer?.warnings
+			expect(warnings?.[0]).toContain('Cannot parse package.json')
+			expect(await loadState(cwd)).toMatchObject({ roadmap: { roadmap_id: 'primer-failure-roadmap' } })
+			expect(await fs.stat(repoPrimerPath(cwd)).catch(() => undefined)).toBeUndefined()
+		} finally {
+			await fs.rm(cwd, { recursive: true, force: true })
 		}
 	})
 })

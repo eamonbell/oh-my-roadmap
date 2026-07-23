@@ -1,24 +1,26 @@
 import * as crypto from 'node:crypto'
-import {serializeMarkdownDocument} from '../frontmatter'
+import { serializeMarkdownDocument } from '../frontmatter'
 import type {
 	AdhocPlan,
 	ChangeRequest,
 	ImplementationProgress,
 	MilestonePlan,
 	PlanRuntime,
+	RelevantCodeReference,
+	ReviewerRun,
 	RoadmapMilestoneCheck,
 	RoadmapMilestoneOutline,
-	ReviewerRun,
 	RoadmapState,
+	SharedInterfaceContract,
 	TaskPlan,
 	WaveFlowCheck,
 	WaveFlowCheckStatus,
 	WavePlan,
 	WorkerRun
 } from '../types'
-import {REVIEWER_RUN_STATUSES, WORKER_RUN_STATUSES} from '../types'
-import type {WaveFlowCheckInput} from './contract'
-import {list, nowIso, valueList, valueNumber, valueString} from './shared'
+import { REVIEWER_RUN_STATUSES, WORKER_RUN_STATUSES } from '../types'
+import type { WaveFlowCheckInput } from './contract'
+import { list, nowIso, valueList, valueNumber, valueString } from './shared'
 
 export function pendingWaveFlowCheck(): WaveFlowCheck {
 	return {
@@ -92,8 +94,41 @@ export function normalizeRoadmapMilestoneCheck(value: unknown, roadmapRevision: 
 	}
 }
 
+function normalizeRelevantCodeReference(value: unknown): RelevantCodeReference {
+	const raw = value && typeof value === 'object' && !Array.isArray(value)
+		? value as Record<string, unknown>
+		: {}
+	return {
+		path: valueString(raw.path),
+		...(typeof raw.line === 'number' ? { line: raw.line } : {}),
+		...(valueString(raw.symbol) ? { symbol: valueString(raw.symbol) } : {}),
+		note: valueString(raw.note),
+		captured_at: valueString(raw.captured_at),
+		source_mtime_ms: valueNumber(raw.source_mtime_ms),
+	}
+}
+
+function normalizeSharedInterfaceContract(value: unknown): SharedInterfaceContract {
+	const raw = value && typeof value === 'object' && !Array.isArray(value)
+		? value as Record<string, unknown>
+		: {}
+	return {
+		name: valueString(raw.name),
+		signature: valueString(raw.signature),
+		source_path: valueString(raw.source_path),
+		...(typeof raw.line === 'number' ? { line: raw.line } : {}),
+		planned: raw.planned === true,
+		...(valueString(raw.planned_by_task_id) ? { planned_by_task_id: valueString(raw.planned_by_task_id) } : {}),
+		...(valueString(raw.captured_at) ? { captured_at: valueString(raw.captured_at) } : {}),
+		...(typeof raw.source_mtime_ms === 'number' ? { source_mtime_ms: raw.source_mtime_ms } : {}),
+	}
+}
+
 export function normalizeTask(task: TaskPlan): TaskPlan {
 	const raw = task as unknown as Record<string, unknown>
+	if (!Array.isArray(raw.relevant_existing_code) || !Array.isArray(raw.shared_interface_contracts)) {
+		throw new Error(`Task ${valueString(raw.id)} uses the pre-Wave-3 context schema; re-plan with the current task context schema.`)
+	}
 	return {
 		...task,
 		status: (raw.status as TaskPlan['status']) ?? 'assigned',
@@ -105,6 +140,8 @@ export function normalizeTask(task: TaskPlan): TaskPlan {
 		owned_files: valueList(raw.owned_files),
 		owned_modules: valueList(raw.owned_modules),
 		shared_interfaces: valueList(raw.shared_interfaces),
+		relevant_existing_code: raw.relevant_existing_code.map(normalizeRelevantCodeReference),
+		shared_interface_contracts: raw.shared_interface_contracts.map(normalizeSharedInterfaceContract),
 	}
 }
 
@@ -148,9 +185,9 @@ export function normalizeWorkerRun(value: unknown): WorkerRun | undefined {
 		started_at: valueString(raw.started_at) || nowIso(),
 		updated_at: valueString(raw.updated_at) || nowIso(),
 		transport_failures: valueNumber(raw.transport_failures, 0),
-		...(valueString(raw.last_error) ? {last_error: valueString(raw.last_error)} : {}),
-		...(valueString(raw.replaces_agent_id) ? {replaces_agent_id: valueString(raw.replaces_agent_id)} : {}),
-		...(valueString(raw.rework_of) ? {rework_of: valueString(raw.rework_of)} : {}),
+		...(valueString(raw.last_error) ? { last_error: valueString(raw.last_error) } : {}),
+		...(valueString(raw.replaces_agent_id) ? { replaces_agent_id: valueString(raw.replaces_agent_id) } : {}),
+		...(valueString(raw.rework_of) ? { rework_of: valueString(raw.rework_of) } : {}),
 	}
 }
 
@@ -182,7 +219,7 @@ export function normalizeReviewerRun(value: unknown): ReviewerRun | undefined {
 		status: status as ReviewerRun['status'],
 		started_at: valueString(raw.started_at) || nowIso(),
 		updated_at: valueString(raw.updated_at) || nowIso(),
-		...(valueString(raw.replaces_agent_id) ? {replaces_agent_id: valueString(raw.replaces_agent_id)} : {}),
+		...(valueString(raw.replaces_agent_id) ? { replaces_agent_id: valueString(raw.replaces_agent_id) } : {}),
 	}
 }
 
@@ -202,18 +239,18 @@ export function normalizeProgress(value: unknown, waves: WavePlan[]): Implementa
 		: {}
 	return {
 		...(typeof raw.active_wave_id === 'string'
-			? {active_wave_id: raw.active_wave_id}
+			? { active_wave_id: raw.active_wave_id }
 			: waves[0]
-				? {active_wave_id: waves[0].id}
+				? { active_wave_id: waves[0].id }
 				: {}),
 		step: raw.step ?? 'not_started',
 		active_task_ids: valueList(raw.active_task_ids),
 		worker_runs: normalizeWorkerRuns(raw.worker_runs),
 		reviewer_runs: normalizeReviewerRuns(raw.reviewer_runs),
-		...(typeof raw.blocked_reason === 'string' ? {blocked_reason: raw.blocked_reason} : {}),
+		...(typeof raw.blocked_reason === 'string' ? { blocked_reason: raw.blocked_reason } : {}),
 		updated_at: raw.updated_at ?? nowIso(),
-		...(raw.verification_baseline ? {verification_baseline: raw.verification_baseline} : {}),
-		...(Array.isArray(raw.rework_queue) ? {rework_queue: raw.rework_queue} : {}),
+		...(raw.verification_baseline ? { verification_baseline: raw.verification_baseline } : {}),
+		...(Array.isArray(raw.rework_queue) ? { rework_queue: raw.rework_queue } : {}),
 	}
 }
 
@@ -303,8 +340,8 @@ export function normalizePlanRuntime(value: unknown, plan: MilestonePlan | Chang
 
 export function runtimeFromPlan(plan: MilestonePlan | ChangeRequest | AdhocPlan): PlanRuntime {
 	return {
-		tasks: plan.tasks.map((task) => ({id: task.id, status: task.status})),
-		waves: plan.waves.map((wave) => ({id: wave.id, status: wave.status})),
+		tasks: plan.tasks.map((task) => ({ id: task.id, status: task.status })),
+		waves: plan.waves.map((wave) => ({ id: wave.id, status: wave.status })),
 		progress: plan.progress,
 		wave_flow_check: plan.wave_flow_check,
 	}
@@ -329,11 +366,11 @@ export function applyRuntime<T extends MilestonePlan | ChangeRequest | AdhocPlan
 }
 
 export function planDefinitionData(plan: MilestonePlan | ChangeRequest | AdhocPlan): Record<string, unknown> {
-	const {progress, wave_flow_check, tasks, waves, ...definition} = plan
+	const { progress, wave_flow_check, tasks, waves, ...definition } = plan
 	return {
 		...definition,
-		tasks: tasks.map(({status, ...task}) => task),
-		waves: waves.map(({status, ...wave}) => wave),
+		tasks: tasks.map(({ status, ...task }) => task),
+		waves: waves.map(({ status, ...wave }) => wave),
 	}
 }
 
@@ -450,6 +487,30 @@ export function renderPlanSummary(plan: MilestonePlan | ChangeRequest | AdhocPla
 	].join('\n')
 }
 
+function renderRelevantCodeReference(reference: RelevantCodeReference): string {
+	return [
+		`- path: ${reference.path}`,
+		...(reference.line !== undefined ? [`  line: ${reference.line}`] : []),
+		...(reference.symbol ? [`  symbol: ${reference.symbol}`] : []),
+		`  note: ${reference.note}`,
+		`  captured_at: ${reference.captured_at}`,
+		`  source_mtime_ms: ${reference.source_mtime_ms}`,
+	].join('\n')
+}
+
+function renderSharedInterfaceContract(contract: SharedInterfaceContract): string {
+	return [
+		`- name: ${contract.name}`,
+		`  signature: ${contract.signature}`,
+		`  source_path: ${contract.source_path}`,
+		...(contract.line !== undefined ? [`  line: ${contract.line}`] : []),
+		`  planned: ${contract.planned}`,
+		...(contract.planned_by_task_id ? [`  planned_by_task_id: ${contract.planned_by_task_id}`] : []),
+		...(contract.captured_at ? [`  captured_at: ${contract.captured_at}`] : []),
+		...(contract.source_mtime_ms !== undefined ? [`  source_mtime_ms: ${contract.source_mtime_ms}`] : []),
+	].join('\n')
+}
+
 export function renderTask(task: TaskPlan): string {
 	return [
 		`### ${task.id} - ${task.title}`,
@@ -477,6 +538,16 @@ export function renderTask(task: TaskPlan): string {
 		``,
 		`Shared Interfaces:`,
 		list(task.shared_interfaces),
+		``,
+		`Relevant Existing Code:`,
+		task.relevant_existing_code.length > 0
+			? task.relevant_existing_code.map(renderRelevantCodeReference).join('\n')
+			: '- (none)',
+		``,
+		`Shared Interface Contracts:`,
+		task.shared_interface_contracts.length > 0
+			? task.shared_interface_contracts.map(renderSharedInterfaceContract).join('\n')
+			: '- (none)',
 	].join('\n')
 }
 

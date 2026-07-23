@@ -3,9 +3,8 @@
 // (packages/extension/skills/*/SKILL.md). Keeping the substantive rule text here means the
 // prompt and the skill can never silently drift: prompts.ts interpolates these consts, and
 // test/skill-rule-drift.test.ts asserts each SKILL.md still contains the canonical text
-// (whitespace/markdown-normalized). Only two rule families are single-sourced here — the
-// worker recovery/rework rule and the reviewer rework rule (both implementation-only) and the
-// scout-recording rule (planner-only). Unrelated invariants stay where they live.
+// The worker recovery/rework rule, reviewer rework rule, scout-recording rule, and
+// repo-primer-use rule are single-sourced here. Unrelated invariants stay where they live.
 //
 // Voice: bare tool/op names (no backticks) so the text drops straight into the prompt
 // template. The skill copies may add markdown backticks/bold/bullets for readability; the
@@ -55,3 +54,11 @@ export const REVIEWER_REWORK_RULE = `Wave review and rework (wake the prior revi
 // discovery/planning REGARDLESS of whether scouting was inline or delegated to scout agents —
 // the trigger no longer waits on "after a scout agent returns", so inline scouting records too.
 export const SCOUT_RECORDING_RULE = `Before dispatching broad scout agents for a subsystem, call omr_list_scout_findings filtered by subsystem and milestone when known, and pass any relevant prior summaries to the new scouts. At the end of discovery and planning, record a compact finding with omr_record_scout_finding covering durable repo-structure discoveries (test layout and runner, key module map, cross-cutting conventions), whether scouting was inline or delegated to scout agents and regardless of whether a scout agent was ever dispatched.`
+
+// (d) Repository-primer-use rule. Planner and checker roles consume the same compact facts,
+// carry those facts into delegated discovery, and inspect live sources only where needed.
+export const REPO_PRIMER_USE_RULE = `Repository primer and structured context:
+- Use delivered repository-primer facts before repeating repository discovery.
+- Pass the delivered compact repository primer into every delegated scout prompt.
+- Verify delivered relevant-code pointers and shared-interface contracts against live repository sources before relying on them.
+- Scout only gaps not already covered by the delivered primer or structured task context.`
