@@ -1,0 +1,120 @@
+tasks:
+  - id: enforcement-eval
+    status: done
+  - id: gate-eval
+    status: done
+  - id: dispatch-enforcement
+    status: done
+  - id: override-exposure
+    status: done
+waves:
+  - id: wave-1
+    status: complete
+  - id: wave-2
+    status: complete
+progress:
+  active_wave_id: wave-1
+  step: closeout_ready
+  active_task_ids: []
+  worker_runs:
+    - task_id: enforcement-eval
+      wave_id: wave-1
+      worker: worker-heavy
+      agent_id: EnforcementEval
+      job_id: EnforcementEval
+      owned_files:
+        - packages/core/src/enforcement.ts
+        - test/enforcement.test.ts
+      owned_modules: []
+      status: abandoned
+      started_at: 2026-07-22T22:16:09.346Z
+      updated_at: 2026-07-22T22:18:09.223Z
+      transport_failures: 0
+      last_error: "Worker run absent from current session on /omr:rm-resume: hub
+        op:jobs reports no background jobs and op:list reports no peer agents.
+        Owned files packages/core/src/enforcement.ts and
+        test/enforcement.test.ts do not yet exist, so no work was produced
+        before the session interruption."
+    - task_id: enforcement-eval
+      wave_id: wave-1
+      worker: worker-heavy
+      agent_id: EnforcementEval
+      job_id: EnforcementEval
+      owned_files:
+        - packages/core/src/enforcement.ts
+        - test/enforcement.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T22:19:30.950Z
+      updated_at: 2026-07-22T22:31:09.391Z
+      transport_failures: 0
+      replaces_agent_id: EnforcementEval
+    - task_id: gate-eval
+      wave_id: wave-2
+      worker: worker
+      agent_id: GateEval
+      job_id: GateEval
+      owned_files:
+        - packages/core/src/gate.ts
+        - test/budget-gate.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T22:44:56.563Z
+      updated_at: 2026-07-22T22:54:10.415Z
+      transport_failures: 0
+    - task_id: dispatch-enforcement
+      wave_id: wave-2
+      worker: worker-heavy
+      agent_id: DispatchEnforcement
+      job_id: DispatchEnforcement
+      owned_files:
+        - packages/core/src/wave-orchestration/dispatch.ts
+        - packages/core/src/wave-orchestration/context.ts
+        - test/budget-enforcement.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T22:44:56.582Z
+      updated_at: 2026-07-22T23:02:21.299Z
+      transport_failures: 0
+    - task_id: override-exposure
+      wave_id: wave-2
+      worker: worker
+      agent_id: OverrideExposure
+      job_id: OverrideExposure
+      owned_files:
+        - packages/core/src/enforcement.ts
+        - packages/core/src/report/render.ts
+        - packages/core/src/report/next-action.ts
+        - test/budget-override.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T22:44:56.594Z
+      updated_at: 2026-07-22T22:57:49.647Z
+      transport_failures: 0
+  updated_at: 2026-07-22T23:14:10.891Z
+wave_flow_check:
+  status: passed
+  checked_by: wave-flow-checker
+  checked_at: 2026-07-22T22:09:19.528Z
+  summary: "The ms-enforcement draft plan passes the wave-flow check. Dependency
+    DAG is acyclic and well-ordered: all three wave-2 tasks depend solely on
+    wave-1's enforcement-eval, with no intra-wave dependencies or cycles.
+    Ownership is clean — no two same-wave tasks share owned files/modules;
+    override-exposure's additive edit to enforcement.ts is a safe cross-wave
+    staged edit (enforcement-eval in wave-1 completes first). Within wave-2,
+    gate.ts, dispatch.ts, context.ts, render.ts, and next-action.ts are each
+    owned by exactly one task. The enforcement.ts export contract is consistent
+    across the wave-1→wave-2 edge. Every task has runnable verification_commands
+    and concrete done_criteria; wave exit criteria map to their tasks; both
+    review checkpoints are runnable. Worker assignment is sane (worker-heavy for
+    stateful/cross-module tasks, worker for bounded tasks)."
+  findings:
+    - "Advisory (non-blocking): gate-eval consumes enforcement.ts exports
+      (formatBudgetBlockReason, EnforcementState, evaluateBudgetEnforcement) but
+      its shared_interfaces array is empty; contract is still consistent because
+      enforcement-eval exports every symbol gate-eval needs. Tidiness only."
+    - "Advisory (non-blocking): override-exposure both consumes from and
+      additively edits enforcement.ts (adding
+      applyBudgetRaiseCeiling/grantBudgetOneShot); safe as the sole wave-2
+      editor of that file with wave-1 complete first. Reviewers should expect
+      enforcement.ts to grow new exports during wave-2."

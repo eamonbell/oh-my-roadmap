@@ -1,10 +1,12 @@
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import {withDiagnosticTiming} from '../diagnostics'
-import {loadMilestoneCloseout} from '../closeout'
-import {fileExists, readMarkdownData, readYamlFile, writeMarkdownData, writeText, writeYamlFile} from '../files'
-import {withStoreWriteLock} from '../lock'
+import { withDiagnosticTiming } from '../diagnostics'
+import { loadMilestoneCloseout } from '../closeout'
+import { fileExists, readMarkdownData, readYamlFile, writeMarkdownData, writeText, writeYamlFile } from '../files'
+import { withStoreWriteLock } from '../lock'
+import { isEmptyBudgetScopeState, normalizeBudgetScopeState } from '../budget'
+import type { BudgetScopeState } from '../budget'
 import {
 	activePointerPath,
 	adhocActivePointerPath,
@@ -15,7 +17,9 @@ import {
 	milestoneCloseoutPath,
 	milestonePlanPath,
 	milestoneRuntimePath,
+	milestoneBudgetPath,
 	roadmapBlockersPath,
+	roadmapBudgetPath,
 	roadmapDir,
 	roadmapDocPath,
 	roadmapsDir,
@@ -34,7 +38,7 @@ import type {
 	RoadmapBlocker,
 	RoadmapState
 } from '../types'
-import {loadUsageSummary} from '../usage'
+import { loadUsageSummary } from '../usage'
 import {
 	applyRuntime,
 	normalizeAdhocPlan,
@@ -48,7 +52,7 @@ import {
 	roadmapContentHash,
 	runtimeFromPlan
 } from './format'
-import {nowIso} from './shared'
+import { nowIso } from './shared'
 
 export interface StoreMutationSnapshot {
 	roadmapId: string;
@@ -71,7 +75,7 @@ export async function createStoreMutationSnapshot(cwd: string, roadmapId: string
 	}
 
 	if (snapshot.roadmapExisted) {
-		await fs.cp(roadmapDir(cwd, roadmapId), snapshot.roadmapBackupPath, {recursive: true})
+		await fs.cp(roadmapDir(cwd, roadmapId), snapshot.roadmapBackupPath, { recursive: true })
 	}
 	if (snapshot.activeExisted) {
 		await fs.copyFile(activePointerPath(cwd), snapshot.activeBackupPath)
@@ -81,14 +85,14 @@ export async function createStoreMutationSnapshot(cwd: string, roadmapId: string
 }
 
 export async function restoreStoreMutationSnapshot(cwd: string, snapshot: StoreMutationSnapshot): Promise<void> {
-	await fs.rm(roadmapDir(cwd, snapshot.roadmapId), {recursive: true, force: true})
+	await fs.rm(roadmapDir(cwd, snapshot.roadmapId), { recursive: true, force: true })
 	if (snapshot.roadmapExisted) {
-		await fs.cp(snapshot.roadmapBackupPath, roadmapDir(cwd, snapshot.roadmapId), {recursive: true})
+		await fs.cp(snapshot.roadmapBackupPath, roadmapDir(cwd, snapshot.roadmapId), { recursive: true })
 	}
 
-	await fs.rm(activePointerPath(cwd), {force: true})
+	await fs.rm(activePointerPath(cwd), { force: true })
 	if (snapshot.activeExisted) {
-		await fs.mkdir(path.dirname(activePointerPath(cwd)), {recursive: true})
+		await fs.mkdir(path.dirname(activePointerPath(cwd)), { recursive: true })
 		await fs.copyFile(snapshot.activeBackupPath, activePointerPath(cwd))
 	}
 }
@@ -101,20 +105,20 @@ export async function withStoreMutationRollback<T>(
 	const snapshot = await createStoreMutationSnapshot(cwd, roadmapId)
 	try {
 		const result = await fn()
-		await fs.rm(snapshot.tempDir, {recursive: true, force: true}).catch(() => undefined)
+		await fs.rm(snapshot.tempDir, { recursive: true, force: true }).catch(() => undefined)
 		return result
 	} catch (error) {
 		try {
 			await restoreStoreMutationSnapshot(cwd, snapshot)
 		} finally {
-			await fs.rm(snapshot.tempDir, {recursive: true, force: true}).catch(() => undefined)
+			await fs.rm(snapshot.tempDir, { recursive: true, force: true }).catch(() => undefined)
 		}
 		throw error
 	}
 }
 
 export function blockerYaml(blockers: RoadmapBlocker[]): { blockers: RoadmapBlocker[] } {
-	return {blockers}
+	return { blockers }
 }
 
 export function normalizeBlockers(value: unknown): RoadmapBlocker[] {
@@ -144,6 +148,12 @@ export async function loadRoadmapBlockersImpl(cwd: string, roadmapId: string): P
 	if (!(await fileExists(filePath))) return []
 	return normalizeBlockers(await readYamlFile<unknown>(filePath))
 }
+export async function loadRoadmapBudgetStateImpl(cwd: string, roadmapId: string): Promise<BudgetScopeState | undefined> {
+	const filePath = roadmapBudgetPath(cwd, roadmapId)
+	if (!(await fileExists(filePath))) return undefined
+	const state = normalizeBudgetScopeState(await readYamlFile<unknown>(filePath))
+	return isEmptyBudgetScopeState(state) ? undefined : state
+}
 
 export async function writeRoadmapBlockersImpl(
 	cwd: string,
@@ -151,6 +161,9 @@ export async function writeRoadmapBlockersImpl(
 	blockers: RoadmapBlocker[],
 ): Promise<void> {
 	await writeYamlFile(roadmapBlockersPath(cwd, roadmapId), blockerYaml(blockers))
+}
+export async function writeRoadmapBudgetStateImpl(cwd: string, roadmapId: string, state: BudgetScopeState): Promise<void> {
+	await writeYamlFile(roadmapBudgetPath(cwd, roadmapId), state)
 }
 
 export async function writeRoadmapStateImpl(cwd: string, state: RoadmapState): Promise<void> {
@@ -214,6 +227,24 @@ export async function writeMilestoneRuntimeImpl(
 		milestoneRuntimePath(cwd, normalized.roadmap_id, normalized.milestone_id),
 		runtimeFromPlan(normalized),
 	)
+}
+export async function loadMilestoneBudgetStateImpl(
+	cwd: string,
+	roadmapId: string,
+	milestoneId: string,
+): Promise<BudgetScopeState | undefined> {
+	const filePath = milestoneBudgetPath(cwd, roadmapId, milestoneId)
+	if (!(await fileExists(filePath))) return undefined
+	const state = normalizeBudgetScopeState(await readYamlFile<unknown>(filePath))
+	return isEmptyBudgetScopeState(state) ? undefined : state
+}
+export async function writeMilestoneBudgetStateImpl(
+	cwd: string,
+	roadmapId: string,
+	milestoneId: string,
+	state: BudgetScopeState,
+): Promise<void> {
+	await writeYamlFile(milestoneBudgetPath(cwd, roadmapId, milestoneId), state)
 }
 
 export async function loadChangeRequestImpl(
@@ -345,7 +376,7 @@ export function storeTiming<T>(
 		operation: `store.${operation}`,
 		cwd,
 		slowMs: 250,
-		...(metadata ? {metadata} : {}),
+		...(metadata ? { metadata } : {}),
 	}, fn)
 }
 
@@ -354,7 +385,7 @@ export async function loadActive(cwd: string): Promise<ActivePointer | undefined
 }
 
 export async function writeActive(cwd: string, active: ActivePointer): Promise<void> {
-	return await storeTiming('writeActive', cwd, {roadmap_id: active.roadmap_id}, async () => await writeActiveImpl(cwd, active))
+	return await storeTiming('writeActive', cwd, { roadmap_id: active.roadmap_id }, async () => await writeActiveImpl(cwd, active))
 }
 
 // Stamp a lockout pause marker on the active roadmap pointer. No-op when no roadmap is active.
@@ -362,8 +393,8 @@ export async function markActivePaused(cwd: string, pausedAt: string): Promise<b
 	return await withStoreWriteLock(cwd, async () => {
 		const active = await loadActiveImpl(cwd)
 		if (!active) return false
-		const {resumed_at: _cleared, ...rest} = active
-		await writeYamlFile(activePointerPath(cwd), {...rest, paused_at: pausedAt})
+		const { resumed_at: _cleared, ...rest } = active
+		await writeYamlFile(activePointerPath(cwd), { ...rest, paused_at: pausedAt })
 		return true
 	})
 }
@@ -373,7 +404,7 @@ export async function markActiveResumed(cwd: string, resumedAt: string): Promise
 	return await withStoreWriteLock(cwd, async () => {
 		const active = await loadActiveImpl(cwd)
 		if (!active) return false
-		await writeYamlFile(activePointerPath(cwd), {...active, resumed_at: resumedAt})
+		await writeYamlFile(activePointerPath(cwd), { ...active, resumed_at: resumedAt })
 		return true
 	})
 }
@@ -383,7 +414,7 @@ export async function clearActivePauseMarkers(cwd: string): Promise<void> {
 	await withStoreWriteLock(cwd, async () => {
 		const active = await loadActiveImpl(cwd)
 		if (!active) return
-		const {paused_at: _p, resumed_at: _r, ...rest} = active
+		const { paused_at: _p, resumed_at: _r, ...rest } = active
 		await writeYamlFile(activePointerPath(cwd), rest)
 	})
 }
@@ -395,29 +426,29 @@ export async function loadAdhocActive(cwd: string): Promise<AdhocPointer | undef
 }
 
 export async function writeAdhocActive(cwd: string, pointer: AdhocPointer): Promise<void> {
-	return await storeTiming('writeAdhocActive', cwd, {adhoc_id: pointer.adhoc_id} as Record<string, unknown>, async () => await writeAdhocActiveImpl(cwd, pointer))
+	return await storeTiming('writeAdhocActive', cwd, { adhoc_id: pointer.adhoc_id } as Record<string, unknown>, async () => await writeAdhocActiveImpl(cwd, pointer))
 }
 
 export async function clearAdhocActive(cwd: string): Promise<void> {
 	await withStoreWriteLock(cwd, async () => {
-		await fs.rm(adhocActivePointerPath(cwd), {force: true})
+		await fs.rm(adhocActivePointerPath(cwd), { force: true })
 	})
 }
 
 export async function loadAdhocPlan(cwd: string, adhocId: string): Promise<AdhocPlan> {
-	return await storeTiming('loadAdhocPlan', cwd, {adhoc_id: adhocId} as Record<string, unknown>, async () => await loadAdhocPlanImpl(cwd, adhocId))
+	return await storeTiming('loadAdhocPlan', cwd, { adhoc_id: adhocId } as Record<string, unknown>, async () => await loadAdhocPlanImpl(cwd, adhocId))
 }
 
 export async function writeAdhocPlan(cwd: string, plan: AdhocPlan, body?: string): Promise<void> {
-	return await storeTiming('writeAdhocPlan', cwd, {adhoc_id: plan.adhoc_id} as Record<string, unknown>, async () => await writeAdhocPlanImpl(cwd, plan, body))
+	return await storeTiming('writeAdhocPlan', cwd, { adhoc_id: plan.adhoc_id } as Record<string, unknown>, async () => await writeAdhocPlanImpl(cwd, plan, body))
 }
 
 export async function loadAdhocRuntime(cwd: string, adhocId: string): Promise<AdhocRuntime> {
-	return await storeTiming('loadAdhocRuntime', cwd, {adhoc_id: adhocId} as Record<string, unknown>, async () => await loadAdhocRuntimeImpl(cwd, adhocId))
+	return await storeTiming('loadAdhocRuntime', cwd, { adhoc_id: adhocId } as Record<string, unknown>, async () => await loadAdhocRuntimeImpl(cwd, adhocId))
 }
 
 export async function writeAdhocRuntime(cwd: string, plan: AdhocPlan): Promise<void> {
-	return await storeTiming('writeAdhocRuntime', cwd, {adhoc_id: plan.adhoc_id} as Record<string, unknown>, async () => await writeAdhocRuntimeImpl(cwd, plan))
+	return await storeTiming('writeAdhocRuntime', cwd, { adhoc_id: plan.adhoc_id } as Record<string, unknown>, async () => await writeAdhocRuntimeImpl(cwd, plan))
 }
 
 // Lockout markers for the ad-hoc pointer (parity with the roadmap pointer). No-op when none.
@@ -425,8 +456,8 @@ export async function markAdhocPaused(cwd: string, pausedAt: string): Promise<bo
 	return await withStoreWriteLock(cwd, async () => {
 		const pointer = await loadAdhocActiveImpl(cwd)
 		if (!pointer) return false
-		const {resumed_at: _cleared, ...rest} = pointer
-		await writeYamlFile(adhocActivePointerPath(cwd), {...rest, paused_at: pausedAt})
+		const { resumed_at: _cleared, ...rest } = pointer
+		await writeYamlFile(adhocActivePointerPath(cwd), { ...rest, paused_at: pausedAt })
 		return true
 	})
 }
@@ -435,7 +466,7 @@ export async function markAdhocResumed(cwd: string, resumedAt: string): Promise<
 	return await withStoreWriteLock(cwd, async () => {
 		const pointer = await loadAdhocActiveImpl(cwd)
 		if (!pointer) return false
-		await writeYamlFile(adhocActivePointerPath(cwd), {...pointer, resumed_at: resumedAt})
+		await writeYamlFile(adhocActivePointerPath(cwd), { ...pointer, resumed_at: resumedAt })
 		return true
 	})
 }
@@ -444,17 +475,20 @@ export async function clearAdhocPauseMarkers(cwd: string): Promise<void> {
 	await withStoreWriteLock(cwd, async () => {
 		const pointer = await loadAdhocActiveImpl(cwd)
 		if (!pointer) return
-		const {paused_at: _p, resumed_at: _r, ...rest} = pointer
+		const { paused_at: _p, resumed_at: _r, ...rest } = pointer
 		await writeYamlFile(adhocActivePointerPath(cwd), rest)
 	})
 }
 
 export async function loadRoadmapState(cwd: string, roadmapId: string): Promise<RoadmapState> {
-	return await storeTiming('loadRoadmapState', cwd, {roadmap_id: roadmapId}, async () => await loadRoadmapStateImpl(cwd, roadmapId))
+	return await storeTiming('loadRoadmapState', cwd, { roadmap_id: roadmapId }, async () => await loadRoadmapStateImpl(cwd, roadmapId))
 }
 
 export async function loadRoadmapBlockers(cwd: string, roadmapId: string): Promise<RoadmapBlocker[]> {
-	return await storeTiming('loadRoadmapBlockers', cwd, {roadmap_id: roadmapId}, async () => await loadRoadmapBlockersImpl(cwd, roadmapId))
+	return await storeTiming('loadRoadmapBlockers', cwd, { roadmap_id: roadmapId }, async () => await loadRoadmapBlockersImpl(cwd, roadmapId))
+}
+export async function loadRoadmapBudgetState(cwd: string, roadmapId: string): Promise<BudgetScopeState | undefined> {
+	return await storeTiming('loadRoadmapBudgetState', cwd, { roadmap_id: roadmapId }, async () => await loadRoadmapBudgetStateImpl(cwd, roadmapId))
 }
 
 export async function writeRoadmapBlockers(
@@ -466,6 +500,9 @@ export async function writeRoadmapBlockers(
 		roadmap_id: roadmapId,
 		blocker_count: blockers.length,
 	}, async () => await writeRoadmapBlockersImpl(cwd, roadmapId, blockers))
+}
+export async function writeRoadmapBudgetState(cwd: string, roadmapId: string, state: BudgetScopeState): Promise<void> {
+	return await storeTiming('writeRoadmapBudgetState', cwd, { roadmap_id: roadmapId }, async () => await writeRoadmapBudgetStateImpl(cwd, roadmapId, state))
 }
 
 export async function writeRoadmapState(cwd: string, state: RoadmapState): Promise<void> {
@@ -517,6 +554,22 @@ export async function writeMilestoneRuntime(
 		milestone_id: plan.milestone_id,
 	}, async () => await writeMilestoneRuntimeImpl(cwd, plan))
 }
+export async function loadMilestoneBudgetState(
+	cwd: string,
+	roadmapId: string,
+	milestoneId: string,
+): Promise<BudgetScopeState | undefined> {
+	return await storeTiming('loadMilestoneBudgetState', cwd, { roadmap_id: roadmapId, milestone_id: milestoneId }, async () => await loadMilestoneBudgetStateImpl(cwd, roadmapId, milestoneId))
+}
+
+export async function writeMilestoneBudgetState(
+	cwd: string,
+	roadmapId: string,
+	milestoneId: string,
+	state: BudgetScopeState,
+): Promise<void> {
+	return await storeTiming('writeMilestoneBudgetState', cwd, { roadmap_id: roadmapId, milestone_id: milestoneId }, async () => await writeMilestoneBudgetStateImpl(cwd, roadmapId, milestoneId, state))
+}
 
 export async function loadChangeRequest(
 	cwd: string,
@@ -560,5 +613,5 @@ export async function loadState(cwd: string): Promise<LoadedState> {
 }
 
 export async function resetRoadmapStateForTest(cwd: string): Promise<void> {
-	await fs.rm(roadmapsDir(cwd), {recursive: true, force: true})
+	await fs.rm(roadmapsDir(cwd), { recursive: true, force: true })
 }

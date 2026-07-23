@@ -1,0 +1,352 @@
+blockers:
+  - id: blk_2d2fe190-7800-4346-941a-0111f6639e67
+    roadmap_id: execution-budgets
+    milestone_id: ms-enforcement
+    task_id: enforcement-eval
+    wave_id: wave-1
+    severity: blocking
+    status: deferred
+    title: "wave-1 review: FAIL — evaluateBudgetEnforcement crashes on missing
+      .omr/config.yml (7 test failures)"
+    description: >-
+      ## Verdict: FAILED (1 blocking, worker-fixable)
+
+
+      ### Verification commands run
+
+      - `bun run check` (tsc --noEmit): **PASS** (exit 0). Exports resolve,
+      types clean.
+
+      - `bun test test/enforcement.test.ts`: **FAIL** — 14 pass, 7 fail.
+
+      - `bun test` (full): 378 pass, 10 fail. 7 are this wave's; 3 are
+      pre-existing/unrelated (`styleGuideForFiles`, `scoped init > global
+      init…`, `plugin install > resolvePluginRoot…` —
+      profile/plugin-root/style-merge tests in files enforcement.ts does not
+      touch).
+
+
+      ### What passes (correct)
+
+      The pure-function layer is solid and matches acceptance criteria:
+
+      - `evaluateThresholds`: warn/soft/hard, no-ceiling→none, over_budget→hard,
+      default policy (warn 75 / soft disabled / hard 100), soft-disabled skip,
+      raised-ceiling lowers level, most-severe across dimensions, ceiling-zero
+      edges. All 9 tests pass.
+
+      - `formatBudgetBlockReason`: hard/soft messages + infinite-percentage →
+      "over budget". All 3 tests pass.
+
+      - Exports present: `evaluateThresholds`, `evaluateBudgetEnforcement`,
+      `formatBudgetBlockReason`, `EnforcementLevel`, `EnforcementState`,
+      `BudgetWarning` (plus `BudgetScope`, `ThresholdEvaluation`,
+      `ScopeEnforcement`). Package export `@oh-my-roadmap/core/enforcement`
+      resolves via `"./*": "./src/*.ts"`.
+
+      - No mutation / no I/O writes in the evaluator; `softBreached`
+      (level>=soft) and `hardBreached` (level==hard) semantics are sensible;
+      overall level = most-severe across scopes; warnings flatMapped from both
+      scopes.
+
+
+      ### BLOCKING (worker-fixable): evaluateBudgetEnforcement throws ENOENT on
+      missing config.yml
+
+
+      `packages/core/src/enforcement.ts:164` calls `await loadConfig(cwd)`
+      unconditionally once `state.active` exists. `loadConfig`
+      (project-init.ts:336-338) does `readYamlFile(configPath(cwd))`, which
+      throws `ENOENT` when `.omr/config.yml` is absent.
+
+
+      `initRoadmap` (store/roadmap.ts:119-203) creates an active roadmap
+      **without** creating `config.yml` — only
+      `initProject`/`ensureConfig`/`initScoped` do. The worker's residual-risk
+      note claims "config always exists after initRoadmap"; this is false. Every
+      `evaluateBudgetEnforcement` test sets up an active roadmap via
+      `initRoadmap`/`approvedMilestone` (no config.yml) and therefore crashes
+      before reaching the ceiling/no-op logic.
+
+
+      Failing tests (all same root cause):
+
+      1. `returns a no-op state when no ceilings are configured`
+
+      2. `evaluates only the roadmap scope when no milestone is active`
+
+      3. `reports per-scope consumption and the most-severe breach across
+      scopes`
+
+      4. `reports one-shot availability per scope`
+
+      5. `applies custom thresholds from project config` (also fails in
+      `setThresholds` helper reading the absent config)
+
+      6. `collects warnings for all breached dimensions`
+
+      7. `skips a scope whose budget state has no ceilings`
+
+
+      This violates exit criterion "test/enforcement.test.ts passes" and
+      acceptance criteria "evaluateBudgetEnforcement is a no-op when no ceilings
+      are configured" + "With no budgets configured, behavior is byte-for-byte
+      the current behavior": a missing config.yml IS the canonical no-budgets
+      state and must yield default thresholds, not throw.
+
+
+      ### Required fix (owned file: packages/core/src/enforcement.ts)
+
+      Guard the config load so an absent `.omr/config.yml` falls back to the
+      default (empty) policy `{}` instead of throwing. The codebase already has
+      this exact pattern:
+
+      - `loadTransportResumeAttempts` (project-init.ts:340-345): `if (!(await
+      fileExists(configPath(cwd)))) return DEFAULT…`
+
+      - `loadMergedConfig`/effective-config (project-init.ts:447-451): `const
+      project = (await fileExists(configPath(cwd))) ? await loadConfig(cwd) :
+      undefined; … return project ?? defaultConfig()`
+
+
+      Suggested: `const policy: BudgetThresholdPolicy = (await
+      fileExists(configPath(cwd))) ? (await loadConfig(cwd)).budgets?.thresholds
+      ?? {} : {}` (import `fileExists` from `./files` and `configPath` from
+      `./project-init`, or reuse an existing effective-config helper). After
+      this fix the no-op-when-no-ceilings and default-threshold paths become
+      reachable and all 7 tests should pass; `loadConfig` would only run (and
+      only matter) when budgets are actually configured.
+
+
+      ### NON_BLOCKING notes
+
+      - The 3 non-enforcement full-suite failures are pre-existing and outside
+      this wave's scope (enforcement.ts is a new isolated module that imports
+      but does not modify style/plugin/init code paths). Flagging only for
+      awareness.
+
+      - Residual risk (already noted by worker, valid): the `time` dimension is
+      time-dependent when the clock is running (`started_at` set); tests
+      correctly use paused clocks. Downstream consumers should keep this in mind
+      — not a wave-1 concern.
+
+      - `loadConfig` is also called even when no scope ends up having ceilings.
+      After the fix, consider lazy-loading config only when at least one scope
+      has ceilings to avoid unnecessary I/O on the no-op path — optional, not
+      blocking.
+
+
+      ### Scope confirmation
+
+      This wave delivers only the evaluation source + tests.
+      Gate/dispatch/override/report integration (gate-eval,
+      dispatch-enforcement, override-exposure) are later waves and were
+      correctly NOT attempted here — no scope creep. The single blocking issue
+      is the config-load crash, which is worker-fixable with no user decision
+      needed.
+    created_by: review
+    created_at: 2026-07-22T22:34:44.636Z
+    note_path: /Users/eamon/Development/Agents/omp-engineer/.omr/execution-budgets/milestones/ms-enforcement/notes.md
+    deferred_by: user
+    deferred_at: 2026-07-22T22:38:12.090Z
+    defer_reason: "Deferring to apply the worker-fixable rework: guarding loadConfig
+      with a fileExists check in packages/core/src/enforcement.ts. The fix is in
+      my owned file and requires no user decision. Will re-verify by reading
+      code after the edit."
+  - id: blk_fafe35d9-bd66-4459-a5dc-58639f10c356
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    wave_id: wave-2
+    severity: blocking
+    status: resolved
+    title: "Wave 2 review failed: budget command expectation and documentation scope"
+    description: >-
+      BLOCKING (worker-fixable): `bun test test/budget-controls.test.ts
+      test/budget-report.test.ts test/budget-commands.test.ts
+      test/tools/findings-report-tool.test.ts
+      test/budget-operator-integration.test.ts test/usage.test.ts
+      test/commands.test.ts` fails in `test/budget-commands.test.ts:103`. The
+      shared formatter correctly emits `Budget milestone m01-core time`, but the
+      new command test asserts the non-existent `Budget milestone time`. Update
+      the expected command output to match the shared milestone line format,
+      then rerun the command. `bun test` also fails on that same command test;
+      its other three failures are unrelated pre-existing `style.test.ts` and
+      `cli.test.ts` expectations outside this wave. `bun run check` passes.
+
+
+      BLOCKING (needs-user-decision): The approved acceptance criteria require
+      `docs/design.md` and `docs/tutorial.md` to document budget thresholds,
+      command syntax, governance, output/unknown-cost behavior, and recovery.
+      Neither file is owned by either wave-2 task nor contains any budget
+      guidance. Assign and approve this omitted documentation scope before the
+      wave can meet the stated acceptance criteria.
+
+
+      PASS: Native handlers are registered with diagnostic timing and dispatch
+      custom command-result messages rather than model prompts. Handler parsing
+      invokes core set/raise/one-shot mutations, preserving the core
+      persistence/lock semantics; tests cover default and explicit audit actors,
+      missing milestone, rejected ordinary raise, malformed inputs, and
+      no-prompt behavior. Findings use the shared Markdown formatter and
+      preserve caller Markdown byte-for-byte when no budget summary exists;
+      tests cover configured dimensions, overrides, two independent submissions,
+      UI unavailable, and shutdown cleanup.
+
+
+      NON_BLOCKING: The targeted command excludes
+      `test/budget-operator-integration.test.ts` because that path does not
+      exist, so Bun reported it as skipped; the planned end-to-end integration
+      coverage cannot be confirmed from the supplied path.
+    created_by: review
+    created_at: 2026-07-22T23:56:49.018Z
+    note_path: /Users/eamon/Development/Agents/omp-engineer/.omr/execution-budgets/milestones/ms-operator-surface/notes.md
+    resolved_by: implementation-orchestrator
+    resolved_at: 2026-07-22T23:58:10.829Z
+    resolution: "The worker-fixable command-test assertion was corrected to the
+      shared formatter label and recorded in a resolved rework note. The
+      documentation concern requires no user decision: docs/design.md and
+      docs/tutorial.md are explicitly owned by approved wave-3 task
+      integration-docs, so they are intentionally outside wave-2 exit criteria
+      and remain scheduled before milestone closeout."
+  - id: blk_71dee48d-5fb3-4fcf-8fa7-4ec2af67c4ac
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    task_id: budget-commands
+    wave_id: wave-2
+    severity: blocking
+    status: resolved
+    title: Rework edit blocked by implementation gate
+    description: Attempted the requested one-line test expectation correction in
+      test/budget-commands.test.ts after confirming the target assertion. The
+      edit gate rejected it because the wave-2 review blocker is still open,
+      even though this is the authorized worker-fixable rework. No files
+      changed. Main/orchestrator should activate or redispatch budget-commands
+      for rework (or otherwise restore its write authorization) and then have
+      this worker apply the exact one-line assertion update. No user decision or
+      unowned file is needed.
+    created_by: worker
+    created_at: 2026-07-22T23:57:24.227Z
+    note_path: /Users/eamon/Development/Agents/omp-engineer/.omr/execution-budgets/milestones/ms-operator-surface/notes.md
+    resolved_by: implementation-orchestrator
+    resolved_at: 2026-07-22T23:57:54.811Z
+    resolution: Task budget-commands resolved; superseded issue note retracted.
+  - id: blk_b67e2eb1-c074-4991-bdb0-555c074372a8
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    task_id: integration-docs
+    wave_id: wave-3
+    severity: blocking
+    status: deferred
+    title: "Wave 3 review: targeted verification passes; full suite blocked by
+      unrelated regressions"
+    description: >-
+      PASS: integration-docs stayed within its three owned files and supplied
+      the required worker note. The integration test covers no-budget behavior,
+      roadmap and milestone baseline ceilings, usage consumption, hard threshold
+      reporting, rejected ordinary increase, audited raise, one-shot audit
+      state, and active one-shot availability.
+
+      PASS: `bun run check` passed.
+
+      PASS: `bun test test/budget-controls.test.ts test/budget-report.test.ts
+      test/budget-commands.test.ts test/tools/findings-report-tool.test.ts
+      test/budget-operator-integration.test.ts test/usage.test.ts
+      test/commands.test.ts` passed: 46 tests, 0 failures. Native command parser
+      grammar and rendered summary behavior agree with docs/design.md and
+      docs/tutorial.md: show optional scope, set three-argument
+      ceiling/unlimited syntax, raise and one-shot override syntax,
+      default/explicit actor, no-budget message, exact standard/unknown-cost
+      summary text, threshold recovery, and findings Budget section behavior.
+
+      BLOCKING (worker-fixable): `bun test` failed with 3 failures outside
+      wave-3 ownership: test/style.test.ts expects Go guidance from the global
+      config but `styleGuideForFiles` returns none; test/cli.test.ts expects
+      global config and plugin roots under `<home>/.omp/...` but `initScoped`
+      and `resolvePluginRoot` return `<home>/.omp/profiles/omr/...` without a
+      requested profile. Restore the expected no-profile global paths and global
+      style merge behavior (or update those tests only if the profile behavior
+      is an approved, recorded change). Full-suite exit criterion remains unmet.
+    created_by: WaveThreeReview
+    created_at: 2026-07-23T00:02:14.060Z
+    note_path: /Users/eamon/Development/Agents/omp-engineer/.omr/execution-budgets/milestones/ms-operator-surface/notes.md
+    deferred_by: user
+    deferred_at: 2026-07-23T00:04:05.116Z
+    defer_reason: User approved deferring the three unrelated global style/profile
+      full-suite failures; milestone-focused typecheck and 46 tests pass.
+  - id: blk_9d9a7724-ea58-4ccf-828e-9e9b56ae72d7
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    wave_id: wave-3
+    severity: blocking
+    status: resolved
+    title: Wave wave-3 review failed
+    description: bun run check passed.
+    created_by: reviewer
+    created_at: 2026-07-23T00:02:28.462Z
+    resolved_by: implementation-orchestrator
+    resolved_at: 2026-07-23T00:04:05.133Z
+    resolution: This finding is passing evidence (`bun run check` passed), not a
+      defect; no action required.
+  - id: blk_28c1851c-529d-41d8-8189-c274080e8cc0
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    wave_id: wave-3
+    severity: blocking
+    status: resolved
+    title: Wave wave-3 review failed
+    description: Focused budget verification passed 46 tests.
+    created_by: reviewer
+    created_at: 2026-07-23T00:02:28.478Z
+    resolved_by: implementation-orchestrator
+    resolved_at: 2026-07-23T00:04:05.150Z
+    resolution: This finding is passing evidence (46 focused tests passed), not a
+      defect; no action required.
+  - id: blk_dfde0197-4c9a-446c-a5d3-9adfdf58623d
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    wave_id: wave-3
+    severity: blocking
+    status: resolved
+    title: Wave wave-3 review failed
+    description: Integration coverage and documentation grammar/output match the
+      implemented budget surface.
+    created_by: reviewer
+    created_at: 2026-07-23T00:02:28.493Z
+    resolved_by: implementation-orchestrator
+    resolved_at: 2026-07-23T00:04:05.167Z
+    resolution: This finding is passing evidence for integration coverage and
+      documentation, not a defect; no action required.
+  - id: blk_daef0d67-bcc0-4621-93ff-9cc0e58de043
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    wave_id: wave-3
+    severity: blocking
+    status: deferred
+    title: Wave wave-3 review failed
+    description: "bun test fails in unrelated style/profile configuration
+      expectations: styleGuideForFiles omits global Go guidance, and
+      initScoped/resolvePluginRoot use .omp/profiles/omr when no profile is
+      passed."
+    created_by: reviewer
+    created_at: 2026-07-23T00:02:28.508Z
+    deferred_by: user
+    deferred_at: 2026-07-23T00:04:05.182Z
+    defer_reason: User explicitly approved deferring unrelated style/profile
+      configuration failures instead of expanding the budget milestone scope.
+  - id: blk_5962225b-4649-4ba8-b3f4-ee08a4c7a153
+    roadmap_id: execution-budgets
+    milestone_id: ms-operator-surface
+    wave_id: wave-3
+    severity: blocking
+    status: resolved
+    title: Wave wave-3 review failed
+    description: Resolving those failures requires files outside the approved
+      integration-docs ownership; user must choose scope expansion or explicit
+      deferral before closeout.
+    created_by: reviewer
+    created_at: 2026-07-23T00:02:28.521Z
+    resolved_by: user
+    resolved_at: 2026-07-23T00:04:05.198Z
+    resolution: User chose explicit deferral of the unrelated full-suite failures;
+      the disposition decision is complete and recorded in a milestone
+      amendment.

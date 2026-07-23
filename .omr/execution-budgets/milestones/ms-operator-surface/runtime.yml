@@ -1,0 +1,135 @@
+tasks:
+  - id: budget-control
+    status: done
+  - id: budget-reporting
+    status: done
+  - id: budget-commands
+    status: done
+  - id: findings-budget
+    status: done
+  - id: integration-docs
+    status: done
+waves:
+  - id: wave-1
+    status: complete
+  - id: wave-2
+    status: complete
+  - id: wave-3
+    status: complete
+progress:
+  active_wave_id: wave-3
+  step: closeout_ready
+  active_task_ids: []
+  worker_runs:
+    - task_id: budget-control
+      wave_id: wave-1
+      worker: worker-heavy
+      agent_id: BudgetControl
+      job_id: BudgetControl
+      owned_files:
+        - packages/core/src/enforcement.ts
+        - test/budget-controls.test.ts
+        - test/budget-override.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T23:44:03.970Z
+      updated_at: 2026-07-22T23:48:37.043Z
+      transport_failures: 0
+    - task_id: budget-reporting
+      wave_id: wave-1
+      worker: worker-heavy
+      agent_id: BudgetReporting
+      job_id: BudgetReporting
+      owned_files:
+        - packages/core/src/budget-report.ts
+        - packages/core/src/report/shared.ts
+        - packages/core/src/report/render.ts
+        - packages/extension/src/extension/commands/usage.ts
+        - test/budget-report.test.ts
+        - test/usage.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T23:44:03.987Z
+      updated_at: 2026-07-22T23:50:10.662Z
+      transport_failures: 0
+    - task_id: budget-commands
+      wave_id: wave-2
+      worker: worker
+      agent_id: BudgetCommands
+      job_id: BudgetCommands
+      owned_files:
+        - packages/extension/src/extension/commands/budget.ts
+        - packages/extension/src/extension/commands/catalog.ts
+        - packages/extension/src/extension/commands/register.ts
+        - test/budget-commands.test.ts
+        - test/commands.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T23:52:30.593Z
+      updated_at: 2026-07-22T23:55:36.248Z
+      transport_failures: 0
+    - task_id: findings-budget
+      wave_id: wave-2
+      worker: worker
+      agent_id: FindingsBudget
+      job_id: FindingsBudget
+      owned_files:
+        - packages/extension/src/tools/register/findings-report-tool.ts
+        - test/tools/findings-report-tool.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T23:52:30.611Z
+      updated_at: 2026-07-22T23:54:27.072Z
+      transport_failures: 0
+    - task_id: budget-commands
+      wave_id: wave-2
+      worker: worker
+      agent_id: BudgetCommands
+      job_id: BudgetCommands
+      owned_files:
+        - packages/extension/src/extension/commands/budget.ts
+        - packages/extension/src/extension/commands/catalog.ts
+        - packages/extension/src/extension/commands/register.ts
+        - test/budget-commands.test.ts
+        - test/commands.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T23:57:34.735Z
+      updated_at: 2026-07-22T23:57:54.825Z
+      transport_failures: 0
+    - task_id: integration-docs
+      wave_id: wave-3
+      worker: worker
+      agent_id: IntegrationDocs
+      job_id: IntegrationDocs
+      owned_files:
+        - test/budget-operator-integration.test.ts
+        - docs/design.md
+        - docs/tutorial.md
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T23:59:13.326Z
+      updated_at: 2026-07-23T00:00:59.690Z
+      transport_failures: 0
+  updated_at: 2026-07-23T00:04:59.615Z
+wave_flow_check:
+  status: passed
+  checked_by: wave-flow-checker
+  checked_at: 2026-07-22T23:38:20.466Z
+  summary: The ms-operator-surface draft is dispatchable in order. Its three
+    sequential waves form an acyclic, buildable dependency flow; concurrent
+    tasks have disjoint declared ownership; and the native-handler amendment
+    plus full focused coverage are represented without CLI or prompt-template
+    scope drift.
+  findings:
+    - "Dependency DAG is acyclic and ordered: wave-1 foundations precede
+      command/findings consumers and final integration/docs."
+    - Same-wave file and module ownership is disjoint in all three waves.
+    - Shared-interface handoffs from controls and reporting to commands/findings
+      are explicit and dependency-backed.
+    - Verification progresses from focused foundation checks to
+      native-handler/findings checks and finally integration, typecheck, and
+      full suite.
+    - The approved native-handler amendment is represented exactly; no CLI or
+      prompt-template work remains.
+    - Full focused coverage is assigned to owning tasks without filler.

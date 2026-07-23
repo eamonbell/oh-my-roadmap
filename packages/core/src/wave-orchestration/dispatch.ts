@@ -1,6 +1,18 @@
-import {withDiagnosticTiming} from '../diagnostics'
-import {nowIso, transition} from '../store/index'
-import type {ImplementationProgressStep, TaskPlan, WorkerRun} from '../types'
+import { consumeOneShot, hasAvailableOneShot } from '../budget'
+import type { BudgetDimension } from '../budget'
+import { withDiagnosticTiming } from '../diagnostics'
+import { startTimeClock, pauseTimeClock, resumeTimeClock } from '../elapsed-time'
+import { evaluateBudgetEnforcement, formatBudgetBlockReason } from '../enforcement'
+import type { BudgetScope, EnforcementState } from '../enforcement'
+import {
+	loadMilestoneBudgetState,
+	loadRoadmapBudgetState,
+	nowIso,
+	transition,
+	writeMilestoneBudgetState,
+	writeRoadmapBudgetState,
+} from '../store/index'
+import type { ImplementationProgressStep, TaskPlan, WorkerRun } from '../types'
 import {
 	activePlanContext,
 	type ActivePlanContext,
@@ -19,7 +31,7 @@ import type {
 	WaveOrchestrationTargetInput,
 	WaveWorkerAssignment,
 } from './types'
-import {replaceWorkerRun, requireTaskInActiveWave, writeProgressWithRuns} from './worker-runs'
+import { replaceWorkerRun, requireTaskInActiveWave, writeProgressWithRuns } from './worker-runs'
 
 export function notesText(notes: string[] | undefined): string {
 	return notes && notes.length > 0 ? notes.join('\n') : ''
@@ -220,9 +232,188 @@ export async function setProgress(
 			activeWaveId: ctx.activeWave.id,
 			step,
 			activeTaskIds,
-			...(blockedReason ? {blockedReason} : {}),
+			...(blockedReason ? { blockedReason } : {}),
 		},
 	})
+}
+
+// --- Budget enforcement dispatch gate ---
+
+interface BudgetDispatchGate {
+	enforcement: EnforcementState
+	mustConsumeOneShot: boolean
+}
+
+const BUDGET_BLOCK_PREFIX = 'Budget '
+
+// Find the first scope + dimension at the given breach level for block-reason formatting.
+function budgetBlockDetails(
+	enforcement: EnforcementState,
+	level: 'soft' | 'hard',
+): { scope: BudgetScope; dimension: BudgetDimension; spent: number; ceiling: number; percentage: number } {
+	for (const s of enforcement.scopes) {
+		if (!(level === 'hard' ? s.hardBreached : s.softBreached)) continue
+		for (const dim of ['tokens', 'cost', 'time'] as BudgetDimension[]) {
+			if (s.levels[dim] === level) {
+				const consumption = s.consumption.find((c) => c.dimension === dim)
+				if (consumption) {
+					return {
+						scope: s.scope,
+						dimension: dim,
+						spent: consumption.spent,
+						ceiling: consumption.ceiling ?? 0,
+						percentage: consumption.percentage ?? 0,
+					}
+				}
+			}
+		}
+	}
+	throw new Error(`Budget ${level} breach reported but no breached dimension found`)
+}
+
+async function pauseBudgetTimeClocks(cwd: string, ctx: ActivePlanContext): Promise<void> {
+	const now = nowIso()
+	const roadmapBudget = await loadRoadmapBudgetState(cwd, ctx.roadmapId)
+	if (roadmapBudget) {
+		await writeRoadmapBudgetState(cwd, ctx.roadmapId, {
+			...roadmapBudget,
+			time_tracking: pauseTimeClock(roadmapBudget.time_tracking, now),
+		})
+	}
+	if (ctx.milestoneId) {
+		const milestoneBudget = await loadMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId)
+		if (milestoneBudget) {
+			await writeMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId, {
+				...milestoneBudget,
+				time_tracking: pauseTimeClock(milestoneBudget.time_tracking, now),
+			})
+		}
+	}
+}
+
+async function resumeBudgetTimeClocks(cwd: string, ctx: ActivePlanContext): Promise<void> {
+	const now = nowIso()
+	const roadmapBudget = await loadRoadmapBudgetState(cwd, ctx.roadmapId)
+	if (roadmapBudget) {
+		await writeRoadmapBudgetState(cwd, ctx.roadmapId, {
+			...roadmapBudget,
+			time_tracking: resumeTimeClock(roadmapBudget.time_tracking, now),
+		})
+	}
+	if (ctx.milestoneId) {
+		const milestoneBudget = await loadMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId)
+		if (milestoneBudget) {
+			await writeMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId, {
+				...milestoneBudget,
+				time_tracking: resumeTimeClock(milestoneBudget.time_tracking, now),
+			})
+		}
+	}
+}
+
+async function startBudgetTimeClocks(cwd: string, ctx: ActivePlanContext): Promise<void> {
+	const now = nowIso()
+	const roadmapBudget = await loadRoadmapBudgetState(cwd, ctx.roadmapId)
+	if (roadmapBudget) {
+		await writeRoadmapBudgetState(cwd, ctx.roadmapId, {
+			...roadmapBudget,
+			time_tracking: startTimeClock(roadmapBudget.time_tracking, now),
+		})
+	}
+	if (ctx.milestoneId) {
+		const milestoneBudget = await loadMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId)
+		if (milestoneBudget) {
+			await writeMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId, {
+				...milestoneBudget,
+				time_tracking: startTimeClock(milestoneBudget.time_tracking, now),
+			})
+		}
+	}
+}
+
+// Consume a one-shot from each hard-breached scope that has one available.
+async function consumeBudgetOneShot(cwd: string, ctx: ActivePlanContext, enforcement: EnforcementState): Promise<void> {
+	for (const scope of enforcement.scopes) {
+		if (!scope.hardBreached || !scope.hasAvailableOneShot) continue
+		if (scope.scope === 'roadmap') {
+			const budget = await loadRoadmapBudgetState(cwd, ctx.roadmapId)
+			if (budget && hasAvailableOneShot(budget)) {
+				await writeRoadmapBudgetState(cwd, ctx.roadmapId, consumeOneShot(budget))
+			}
+		} else if (ctx.milestoneId) {
+			const budget = await loadMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId)
+			if (budget && hasAvailableOneShot(budget)) {
+				await writeMilestoneBudgetState(cwd, ctx.roadmapId, ctx.milestoneId, consumeOneShot(budget))
+			}
+		}
+	}
+}
+
+// Budget enforcement gate for wave dispatch: evaluates thresholds, handles
+// resume/clear from a prior soft-pause, pauses on soft breach, throws a
+// backstop on hard breach, and signals one-shot consumption when a hard
+// breach is resolvable. Returns a no-op gate when no budgets are configured.
+async function checkBudgetEnforcementForDispatch(
+	cwd: string,
+	ctx: ActivePlanContext,
+): Promise<BudgetDispatchGate> {
+	const enforcement = await evaluateBudgetEnforcement(cwd)
+	if (enforcement.scopes.length === 0) {
+		return { enforcement, mustConsumeOneShot: false }
+	}
+
+	const step = ctx.plan.progress.step
+	const blockedReason = ctx.plan.progress.blocked_reason ?? ''
+
+	// If the wave is resolving blockers for a non-budget reason, skip —
+	// assertDispatchableWave (called by the caller) handles the refusal.
+	if (step === 'resolving_blockers' && !blockedReason.startsWith(BUDGET_BLOCK_PREFIX)) {
+		return { enforcement, mustConsumeOneShot: false }
+	}
+
+	const softResolvable = enforcement.scopes.some((s) => s.softBreached && s.hasAvailableOneShot)
+	const hardResolvable = enforcement.scopes.some((s) => s.hardBreached && s.hasAvailableOneShot)
+
+	// Resume/clear: previously paused on a budget soft limit, now the breach
+	// is gone (ceiling raised) or a one-shot is available.
+	if (step === 'resolving_blockers' && blockedReason.startsWith(BUDGET_BLOCK_PREFIX)) {
+		const softCleared = !enforcement.softBreached
+		if (softCleared || softResolvable || hardResolvable) {
+			await resumeBudgetTimeClocks(cwd, ctx)
+			const activeRuns = activeWorkerRuns(ctx.plan).filter((r) => r.wave_id === ctx.activeWave.id)
+			const targetStep: ImplementationProgressStep = activeRuns.length > 0 ? 'workers_running' : 'dispatching'
+			const targetTaskIds = activeRuns.length > 0
+				? activeRuns.map((r) => r.task_id)
+				: ctx.activeTasks.filter((t) => t.status !== 'done').map((t) => t.id)
+			await setProgress(cwd, ctx, targetStep, targetTaskIds)
+			// Keep the in-memory ctx consistent for the caller's assertions.
+			ctx.plan.progress.step = targetStep
+		} else {
+			throw new Error(
+				`Active wave ${ctx.activeWave.id} is paused on budget limit: ${blockedReason}`,
+			)
+		}
+	}
+
+	// Hard breach backstop.
+	if (enforcement.hardBreached) {
+		if (hardResolvable) {
+			return { enforcement, mustConsumeOneShot: true }
+		}
+		const d = budgetBlockDetails(enforcement, 'hard')
+		throw new Error(formatBudgetBlockReason('hard', d.scope, d.dimension, d.spent, d.ceiling, d.percentage))
+	}
+
+	// Soft breach pause (not resolvable by a one-shot).
+	if (enforcement.softBreached && !softResolvable) {
+		const d = budgetBlockDetails(enforcement, 'soft')
+		const reason = formatBudgetBlockReason('soft', d.scope, d.dimension, d.spent, d.ceiling, d.percentage)
+		await pauseBudgetTimeClocks(cwd, ctx)
+		await setProgress(cwd, ctx, 'resolving_blockers', ctx.plan.progress.active_task_ids, reason)
+		throw new Error(reason)
+	}
+
+	return { enforcement, mustConsumeOneShot: false }
 }
 
 export async function prepareWaveDispatch(
@@ -237,6 +428,7 @@ export async function prepareWaveDispatch(
 	}, async () => {
 		await assertImplementationReady(cwd)
 		const ctx = await activePlanContext(cwd, input)
+		const budgetGate = await checkBudgetEnforcementForDispatch(cwd, ctx)
 		assertDispatchableWave(ctx)
 
 		const incompleteTasks = ctx.activeTasks.filter((task) => task.status !== 'done')
@@ -253,7 +445,7 @@ export async function prepareWaveDispatch(
 			return {
 				roadmap_id: ctx.roadmapId,
 				milestone_id: ctx.milestoneId,
-				...(ctx.changeRequestId ? {change_request_id: ctx.changeRequestId} : {}),
+				...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
 				wave_id: ctx.activeWave.id,
 				wave_goal: ctx.activeWave.goal,
 				progress_step: 'workers_running',
@@ -265,14 +457,20 @@ export async function prepareWaveDispatch(
 		}
 
 		if (ctx.activeWave.status === 'pending') {
-			await transition(cwd, {operation: 'update_wave_status', waveId: ctx.activeWave.id, waveStatus: 'running'})
+			await transition(cwd, { operation: 'update_wave_status', waveId: ctx.activeWave.id, waveStatus: 'running' })
 		}
 		await setProgress(cwd, ctx, 'dispatching', incompleteTasks.map((task) => task.id))
+		// New-wave dispatch: consume a one-shot if the hard breach was resolvable
+		// and start per-scope time clocks for budget consumption tracking.
+		if (budgetGate.mustConsumeOneShot) {
+			await consumeBudgetOneShot(cwd, ctx, budgetGate.enforcement)
+		}
+		await startBudgetTimeClocks(cwd, ctx)
 
 		return {
 			roadmap_id: ctx.roadmapId,
 			milestone_id: ctx.milestoneId,
-			...(ctx.changeRequestId ? {change_request_id: ctx.changeRequestId} : {}),
+			...(ctx.changeRequestId ? { change_request_id: ctx.changeRequestId } : {}),
 			wave_id: ctx.activeWave.id,
 			wave_goal: ctx.activeWave.goal,
 			progress_step: 'dispatching',
@@ -293,10 +491,11 @@ export async function prepareWorkerRedispatch(
 		operation: 'wave.prepareWorkerRedispatch',
 		cwd,
 		slowMs: 250,
-		metadata: {task_id: input.taskId},
+		metadata: { task_id: input.taskId },
 	}, async () => {
 		await assertImplementationReady(cwd)
 		const ctx = await activePlanContext(cwd, input)
+		const budgetGate = await checkBudgetEnforcementForDispatch(cwd, ctx)
 		const task = requireTaskInActiveWave(ctx, input.taskId)
 
 		// Core guard: never redispatch while a run for this task is still running.
@@ -345,19 +544,23 @@ export async function prepareWorkerRedispatch(
 		const continuation: WorkerContinuation = {
 			priorAgentId: prior.agent_id,
 			transportFailures: prior.transport_failures ?? 0,
-			...(prior.last_error ? {lastError: prior.last_error} : {}),
+			...(prior.last_error ? { lastError: prior.last_error } : {}),
+		}
+		// Consume a one-shot if the hard breach was resolvable at the dispatch gate.
+		if (budgetGate.mustConsumeOneShot) {
+			await consumeBudgetOneShot(cwd, reloaded, budgetGate.enforcement)
 		}
 		return {
 			roadmap_id: reloaded.roadmapId,
 			milestone_id: reloaded.milestoneId,
-			...(reloaded.changeRequestId ? {change_request_id: reloaded.changeRequestId} : {}),
+			...(reloaded.changeRequestId ? { change_request_id: reloaded.changeRequestId } : {}),
 			wave_id: reloaded.activeWave.id,
 			assignment: assignment(reloaded, reloadedTask, continuation),
 			prior_run: {
 				agent_id: prior.agent_id,
 				job_id: prior.job_id,
 				transport_failures: prior.transport_failures ?? 0,
-				...(prior.last_error ? {last_error: prior.last_error} : {}),
+				...(prior.last_error ? { last_error: prior.last_error } : {}),
 			},
 			instructions:
 				`Spawn the replacement as a background subagent (the task tool, run in the background) using the assignment's exact worker and prompt (the prompt carries CONTINUATION CONTEXT, the prior worker's history://${prior.agent_id} transcript pointer, and a live-peer coordination warning). Only spawn after the prior peer is stopped and confirmed gone via hub op:list (hub op:cancel its job if still live). Then call omr_record_worker_dispatch with the new agentId and jobId and replacesAgentId set to ${prior.agent_id}.`,

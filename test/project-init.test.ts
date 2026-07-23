@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initProject, loadMergedConfig } from "@oh-my-roadmap/core/project-init";
+import { ensureConfig, homeConfigDir, initProject, loadMergedConfig, type RoadmapProjectConfig } from "@oh-my-roadmap/core/project-init";
 import { parseMarkdownDocument, parseYaml } from "@oh-my-roadmap/core/frontmatter";
 
 let cwd = "";
@@ -497,7 +497,7 @@ describe("merged global + project config", () => {
   });
 
   async function writeGlobal(text: string): Promise<void> {
-    const filePath = path.join(home, ".omp", "oh-my-roadmap", "config.yml");
+    const filePath = path.join(homeConfigDir(home), "config.yml");
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, text, "utf8");
   }
@@ -593,5 +593,197 @@ describe("merged global + project config", () => {
     expect(merged.moshi?.enabled).toBe(false);
     // The global socket_path survives where the project does not override it.
     expect(merged.moshi?.socket_path).toBe("/tmp/global.sock");
+  });
+
+  test("project budgets override global budgets (whole-section)", async () => {
+    await writeGlobal(
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 60\n    hard: 90\n",
+    );
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 50\n",
+    );
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    // Project budgets win wholesale (like disabled).
+    expect(merged.budgets).toEqual({ thresholds: { warn: 50 } });
+  });
+
+  test("falls back to global budgets when project has none", async () => {
+    await writeGlobal(
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 70\n    hard: 100\n",
+    );
+    await writeFile(".omr/config.yml", "agents:\n  worker: {}\n  reviewer: {}\n");
+
+    const merged = await loadMergedConfig(cwd, home);
+
+    expect(merged.budgets).toEqual({ thresholds: { warn: 70, hard: 100 } });
+  });
+});
+
+describe("budgets config parsing", () => {
+  let home = "";
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-budgets-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  async function loadProject(): Promise<RoadmapProjectConfig> {
+    return loadMergedConfig(cwd, home);
+  }
+
+  test("parses a valid budgets threshold policy", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 75\n    soft: 90\n    hard: 100\n",
+    );
+
+    const merged = await loadProject();
+
+    expect(merged.budgets).toEqual({
+      thresholds: { warn: 75, soft: 90, hard: 100 },
+    });
+  });
+
+  test("parses a partial threshold policy (only some levels)", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 80\n",
+    );
+
+    const merged = await loadProject();
+
+    expect(merged.budgets).toEqual({ thresholds: { warn: 80 } });
+    expect(merged.budgets?.thresholds.soft).toBeUndefined();
+    expect(merged.budgets?.thresholds.hard).toBeUndefined();
+  });
+
+  test("config without budgets parses without error (backward compat)", async () => {
+    await writeFile(".omr/config.yml", "agents:\n  worker: {}\n  reviewer: {}\n");
+
+    const merged = await loadProject();
+
+    expect(merged.budgets).toBeUndefined();
+  });
+
+  test("rejects unknown keys in budgets section", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 75\n  ceiling: 50\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets contains unsupported key/);
+  });
+
+  test("rejects unknown threshold levels", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 75\n    danger: 50\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets\.thresholds contains unsupported key/);
+  });
+
+  test("rejects missing thresholds key", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets: {}\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets\.thresholds must be an object/);
+  });
+
+  test("rejects negative percentage", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: -1\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets\.thresholds\.warn must be an integer 0-100/);
+  });
+
+  test("rejects percentage over 100", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    hard: 101\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets\.thresholds\.hard must be an integer 0-100/);
+  });
+
+  test("rejects non-integer percentage", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    soft: 50.5\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets\.thresholds\.soft must be an integer 0-100/);
+  });
+
+  test("rejects non-number percentage", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: high\n",
+    );
+
+    expect(loadProject()).rejects.toThrow(/budgets\.thresholds\.warn must be an integer 0-100/);
+  });
+
+  test("boundary values 0 and 100 are valid", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 0\n    hard: 100\n",
+    );
+
+    const merged = await loadProject();
+
+    expect(merged.budgets).toEqual({ thresholds: { warn: 0, hard: 100 } });
+  });
+});
+
+describe("budgets ensureConfig preservation", () => {
+  let home = "";
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-ensure-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  test("ensureConfig preserves budgets field on re-init", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\nbudgets:\n  thresholds:\n    warn: 80\n    hard: 95\n",
+    );
+
+    const created = await ensureConfig(cwd);
+    expect(created).toBe(false);
+
+    const content = await readFile(".omr/config.yml");
+    // budgets section is preserved unchanged.
+    expect(content).toContain("budgets:");
+    expect(content).toContain("warn: 80");
+    expect(content).toContain("hard: 95");
+
+    // The preserved config still parses correctly.
+    const merged = await loadMergedConfig(cwd, home);
+    expect(merged.budgets).toEqual({ thresholds: { warn: 80, hard: 95 } });
+  });
+
+  test("ensureConfig does not add budgets when absent", async () => {
+    await writeFile(".omr/config.yml", "agents:\n  worker: {}\n  reviewer: {}\n");
+
+    const created = await ensureConfig(cwd);
+    expect(created).toBe(false);
+
+    const content = await readFile(".omr/config.yml");
+    expect(content).not.toContain("budgets");
   });
 });

@@ -1,7 +1,7 @@
-import type {ExtensionAPI} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
-import {withDiagnosticTiming} from '@oh-my-roadmap/core/diagnostics'
-import {setProjectDisabled} from '@oh-my-roadmap/core/project-init'
-import {loadState, markActivePaused, markActiveResumed, nowIso} from '@oh-my-roadmap/core/store/index'
+import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import { withDiagnosticTiming } from '@oh-my-roadmap/core/diagnostics'
+import { setProjectDisabled } from '@oh-my-roadmap/core/project-init'
+import { loadState, markActivePaused, markActiveResumed, nowIso } from '@oh-my-roadmap/core/store/index'
 import {
 	ADHOC_COMMANDS,
 	COMMANDS,
@@ -11,13 +11,17 @@ import {
 	FINDINGS_CLEAR_COMMAND,
 	LEARN_STYLE_COMMAND,
 	PLAN_DETAILS_COMMAND,
-	USAGE_COMMAND
+	USAGE_COMMAND,
+	BUDGET_OVERRIDE_COMMAND,
+	BUDGET_SET_COMMAND,
+	BUDGET_SHOW_COMMAND,
 } from './catalog'
-import {showPlanDetails, showRoadmapDetails} from './details'
-import {adhocCommandPrompt, learnStylePrompt} from './prompts'
-import {queueCommandPrompt, sendCommandMessage, sendCommandPrompt} from './messages'
-import {showRoadmapUsage} from './usage'
-import {clearFindingsReportTile} from '../../findings.ts'
+import { showPlanDetails, showRoadmapDetails } from './details'
+import { adhocCommandPrompt, learnStylePrompt } from './prompts'
+import { queueCommandPrompt, sendCommandMessage, sendCommandPrompt } from './messages'
+import { showRoadmapUsage } from './usage'
+import { handleBudgetCommand } from './budget'
+import { clearFindingsReportTile } from '../../findings.ts'
 
 async function adhocSummary(cwd: string): Promise<string> {
 	const state = await loadState(cwd)
@@ -30,6 +34,12 @@ async function adhocSummary(cwd: string): Promise<string> {
 		`Tasks ${done}/${plan.tasks.length} done across ${plan.waves.length} wave(s); step ${plan.progress.step}`,
 	].join('\n')
 }
+
+const BUDGET_COMMAND_DESCRIPTIONS = {
+	[BUDGET_SHOW_COMMAND]: 'Show active budget ceilings, usage, and override audit records',
+	[BUDGET_SET_COMMAND]: 'Set, lower, or clear one active budget ceiling without prompting the model',
+	[BUDGET_OVERRIDE_COMMAND]: 'Audit a budget ceiling raise or one-shot continue without prompting the model',
+} as const
 
 
 export function registerRoadmapCommands(api: ExtensionAPI): void {
@@ -80,6 +90,22 @@ export function registerRoadmapCommands(api: ExtensionAPI): void {
 			})
 		},
 	})
+
+	for (const name of [BUDGET_SHOW_COMMAND, BUDGET_SET_COMMAND, BUDGET_OVERRIDE_COMMAND] as const) {
+		api.registerCommand(name, {
+			description: BUDGET_COMMAND_DESCRIPTIONS[name],
+			handler: async (args, ctx) => {
+				await withDiagnosticTiming({
+					component: 'command',
+					operation: name,
+					cwd: ctx.cwd,
+					slowMs: 1000,
+				}, async () => {
+					await handleBudgetCommand(api, ctx, name, args)
+				})
+			},
+		})
+	}
 
 	api.registerCommand(FINDINGS_CLEAR_COMMAND, {
 		description: 'Clear the active findings report tile',

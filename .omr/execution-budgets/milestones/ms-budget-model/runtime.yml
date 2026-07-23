@@ -1,0 +1,70 @@
+tasks:
+  - id: budget-config
+    status: done
+  - id: elapsed-time
+    status: done
+  - id: budget-model
+    status: done
+waves:
+  - id: wave-1
+    status: complete
+  - id: wave-2
+    status: complete
+progress:
+  active_wave_id: wave-1
+  step: closeout_ready
+  active_task_ids: []
+  worker_runs:
+    - task_id: budget-config
+      wave_id: wave-1
+      worker: worker-light
+      agent_id: WorkerBudgetConfig
+      job_id: WorkerBudgetConfig
+      owned_files:
+        - packages/core/src/project-init.ts
+        - test/project-init.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T21:10:03.668Z
+      updated_at: 2026-07-22T21:15:10.088Z
+      transport_failures: 0
+    - task_id: elapsed-time
+      wave_id: wave-1
+      worker: worker
+      agent_id: WorkerElapsedTime
+      job_id: WorkerElapsedTime
+      owned_files:
+        - packages/core/src/elapsed-time.ts
+        - test/elapsed-time.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T21:10:03.684Z
+      updated_at: 2026-07-22T21:15:10.122Z
+      transport_failures: 0
+    - task_id: budget-model
+      wave_id: wave-2
+      worker: worker-heavy
+      agent_id: WorkerBudgetModel
+      job_id: WorkerBudgetModel
+      owned_files:
+        - packages/core/src/budget.ts
+        - packages/core/src/paths.ts
+        - packages/core/src/store/persistence.ts
+        - packages/core/src/store/index.ts
+        - test/budget.test.ts
+      owned_modules: []
+      status: completed
+      started_at: 2026-07-22T21:22:14.667Z
+      updated_at: 2026-07-22T21:40:00.419Z
+      transport_failures: 0
+  updated_at: 2026-07-22T21:45:33.354Z
+wave_flow_check:
+  status: passed
+  checked_by: wave-flow-checker
+  checked_at: 2026-07-22T20:57:33.965Z
+  summary: "ms-budget-model plan is well-formed: wave-1 (budget-config,
+    elapsed-time) has no intra-wave deps or ownership collisions, wave-2
+    (budget-model) depends only on wave-1's elapsed-time, shared interfaces are
+    consistent across the dependency edge, and all tasks/waves have objectives,
+    done criteria, workers, and runnable verification."
+  findings: []

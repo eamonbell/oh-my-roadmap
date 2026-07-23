@@ -27,6 +27,9 @@ export const DISABLE_COMMAND = 'omr:disable'
 export const ENABLE_COMMAND = 'omr:enable'
 export const LEARN_STYLE_COMMAND = 'omr:learn-style'
 export const PLAN_DETAILS_COMMAND = 'omr:plan-details'
+export const BUDGET_SHOW_COMMAND = 'omr:budget-show'
+export const BUDGET_SET_COMMAND = 'omr:budget-set'
+export const BUDGET_OVERRIDE_COMMAND = 'omr:budget-override'
 
 // Ad-hoc plan commands (roadmap-free lightweight flow), prompt-driven like the roadmap commands.
 export const ADHOC_COMMANDS = [

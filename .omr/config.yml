@@ -1,0 +1,24 @@
+agents:
+  worker-light:
+    model: openai/gpt-5.6-luna
+    thinking: high
+  worker:
+    model: openai/gpt-5.6-terra
+    thinking: high
+  worker-heavy:
+    model: openai/gpt-5.6-sol
+    thinking: high
+  reviewer:
+    model: openai/gpt-5.6-terra
+    thinking: medium
+  wave-flow-checker:
+    model: openai/gpt-5.6-terra
+    thinking: high
+  roadmap-milestone-checker:
+    model: openai/gpt-5.6-terra
+    thinking: high
+  style-scout:
+    model: openai/gpt-5.6-luna
+    thinking: medium
+orchestration:
+  transport_resume_attempts: 3

@@ -1,10 +1,12 @@
-import type {ExtensionAPI, ExtensionCommandContext} from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
+import type { ExtensionAPI, ExtensionCommandContext } from '@oh-my-pi/pi-coding-agent/extensibility/extensions'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import {usageLines} from '@oh-my-roadmap/core/report/shared'
-import {loadState} from '@oh-my-roadmap/core/store/index'
-import type {RoadmapUsageSummary} from '@oh-my-roadmap/core/usage'
-import {sendCommandMessage} from './messages'
+import { formatBudgetSummaryLines, loadBudgetSummary } from '@oh-my-roadmap/core/budget-report'
+import type { BudgetSummary } from '@oh-my-roadmap/core/budget-report'
+import { usageLines } from '@oh-my-roadmap/core/report/shared'
+import { loadState } from '@oh-my-roadmap/core/store/index'
+import type { RoadmapUsageSummary } from '@oh-my-roadmap/core/usage'
+import { sendCommandMessage } from './messages'
 
 export interface UsageCommandOptions {
 	format: 'markdown' | 'json';
@@ -31,15 +33,25 @@ export function parseUsageArgs(args: string): UsageCommandOptions {
 		rest.push(token)
 	}
 	const exportPath = rest[0]
-	return {format, ...(exportPath ? {exportPath} : {})}
+	return { format, ...(exportPath ? { exportPath } : {}) }
 }
 
 export function renderUsageReport(
 	usage: RoadmapUsageSummary,
-	options: { format: 'markdown' | 'json'; milestoneId?: string; changeRequestId?: string },
+	options: {
+		format: 'markdown' | 'json';
+		milestoneId?: string;
+		changeRequestId?: string;
+		budgetSummary?: BudgetSummary;
+	},
 ): string {
 	if (options.format === 'json') return JSON.stringify(usage, null, 2)
-	const lines = usageLines(usage, options.milestoneId, options.changeRequestId)
+	const lines = usageLines(
+		usage,
+		options.milestoneId,
+		options.changeRequestId,
+		options.budgetSummary ? formatBudgetSummaryLines(options.budgetSummary) : [],
+	)
 	return [`# Roadmap usage: ${usage.roadmap_id}`, ...lines.map((line) => `- ${line}`)].join('\n')
 }
 
@@ -49,11 +61,13 @@ export async function showRoadmapUsage(api: ExtensionAPI, ctx: ExtensionCommandC
 		sendCommandMessage(api, 'No roadmap usage recorded yet.')
 		return
 	}
-	const {format, exportPath} = parseUsageArgs(args)
+	const { format, exportPath } = parseUsageArgs(args)
+	const budgetSummary = format === 'markdown' ? await loadBudgetSummary(ctx.cwd, { state }) : undefined
 	const content = renderUsageReport(state.usage, {
 		format,
-		...(state.active?.milestone_id ? {milestoneId: state.active.milestone_id} : {}),
-		...(state.active?.change_request_id ? {changeRequestId: state.active.change_request_id} : {}),
+		...(state.active?.milestone_id ? { milestoneId: state.active.milestone_id } : {}),
+		...(state.active?.change_request_id ? { changeRequestId: state.active.change_request_id } : {}),
+		...(budgetSummary ? { budgetSummary } : {}),
 	})
 	if (exportPath) {
 		const target = path.isAbsolute(exportPath) ? exportPath : path.join(ctx.cwd, exportPath)

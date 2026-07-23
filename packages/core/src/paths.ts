@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import {ROADMAP_ROOT} from './types'
+import { ROADMAP_ROOT } from './types'
 
 export function roadmapsDir(cwd: string): string {
 	return path.join(cwd, ROADMAP_ROOT)
@@ -79,6 +79,9 @@ export function roadmapEventsPath(cwd: string, roadmapId: string): string {
 export function roadmapBlockersPath(cwd: string, roadmapId: string): string {
 	return path.join(roadmapDir(cwd, roadmapId), 'blockers.yml')
 }
+export function roadmapBudgetPath(cwd: string, roadmapId: string): string {
+	return path.join(roadmapDir(cwd, roadmapId), 'budget.yml')
+}
 
 export function roadmapScoutFindingsPath(cwd: string, roadmapId: string): string {
 	return path.join(roadmapDir(cwd, roadmapId), 'scout-findings.jsonl')
@@ -110,6 +113,9 @@ export function milestoneNotesPath(cwd: string, roadmapId: string, milestoneId: 
 
 export function milestoneCloseoutPath(cwd: string, roadmapId: string, milestoneId: string): string {
 	return path.join(milestoneDir(cwd, roadmapId, milestoneId), 'closeout.md')
+}
+export function milestoneBudgetPath(cwd: string, roadmapId: string, milestoneId: string): string {
+	return path.join(milestoneDir(cwd, roadmapId, milestoneId), 'budget.yml')
 }
 
 export function changeRequestPath(
