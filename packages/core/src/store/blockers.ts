@@ -17,6 +17,22 @@ import {appendBlockerEvent} from './events'
 import {loadRoadmapBlockers, loadState, storeTiming, withStoreMutationRollback, writeRoadmapBlockers} from './persistence'
 import {nowIso, roadmapBlockerId} from './shared'
 
+// Optional routing hint that decides whether a blocking note auto-mints a canonical
+// (hard) blocker. Only needs-user-decision findings mint one; worker-fixable (advisory)
+// findings are recorded as a note and routed to the rework queue elsewhere, so they must
+// NOT synchronously mint a blocker. Undefined preserves legacy behavior (mint) so existing
+// callers that pass blocking:true without a kind keep working unchanged.
+export type NoteBlockingKind = 'worker_fixable' | 'needs_user'
+export type AppendNoteInputWithKind = AppendNoteInput & {blockingKind?: NoteBlockingKind}
+
+// A blocking note auto-mints a canonical blocker only for needs-user-decision findings
+// (or the legacy unspecified case). Worker-fixable / advisory findings are recorded as a
+// note and routed to the rework queue instead of hard-blocking.
+function shouldMintCanonicalBlocker(input: AppendNoteInputWithKind): boolean {
+	if (input.blocking !== true) return false
+	return input.blockingKind !== 'worker_fixable'
+}
+
 export function activeBlockerScope(
 	loaded: LoadedState,
 	input: OpenBlockerInput,
@@ -71,7 +87,9 @@ export async function openBlockerImpl(cwd: string, input: OpenBlockerInput): Pro
 	return await withStoreWriteLock(cwd, async () => {
 		const loaded = await loadState(cwd)
 		const scope = activeBlockerScope(loaded, input)
-		const actor = input.createdBy?.trim() || 'user'
+		// Never synthesize 'user': blocker lifecycle ops are performed by the orchestrator role
+		// when no explicit actor is supplied. Explicit createdBy still passes through unchanged.
+		const actor = input.createdBy?.trim() || 'orchestrator'
 
 		return await withStoreMutationRollback(cwd, scope.roadmap_id, async () => {
 			const blocker: RoadmapBlocker = {
@@ -108,12 +126,19 @@ export async function resolveBlockerImpl(cwd: string, input: ResolveBlockerInput
 		const loaded = await loadState(cwd)
 		const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id
 		if (!roadmapId) throw new Error('resolve_blocker requires an active roadmap or roadmapId')
-		const actor = input.resolvedBy?.trim() || 'user'
+		// Never synthesize 'user': default the resolver to the orchestrator role. Explicit
+		// resolvedBy still passes through unchanged.
+		const actor = input.resolvedBy?.trim() || 'orchestrator'
 
 		return await withStoreMutationRollback(cwd, roadmapId, async () => {
 			const blockers = await loadRoadmapBlockers(cwd, roadmapId)
 			const {blocker, index} = findBlocker(blockers, input.blockerId)
-			if (blocker.status !== 'open') throw new Error(`Blocker is not open: ${input.blockerId}`)
+			// A deferred blocker can be resolved once a worker fixes the deferred finding
+			// (deferred -> resolved is the normal path); any defer_* fields are left intact as
+			// history. Only an already-resolved blocker cannot be resolved again.
+			if (blocker.status !== 'open' && blocker.status !== 'deferred') {
+				throw new Error(`Blocker is not open or deferred: ${input.blockerId}`)
+			}
 			const updated: RoadmapBlocker = {
 				...blocker,
 				status: 'resolved',
@@ -136,7 +161,9 @@ export async function deferBlockerImpl(cwd: string, input: DeferBlockerInput): P
 		const loaded = await loadState(cwd)
 		const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id
 		if (!roadmapId) throw new Error('defer_blocker requires an active roadmap or roadmapId')
-		const actor = input.deferredBy?.trim() || 'user'
+		// Never synthesize 'user': default the deferrer to the orchestrator role. Explicit
+		// deferredBy still passes through unchanged.
+		const actor = input.deferredBy?.trim() || 'orchestrator'
 
 		return await withStoreMutationRollback(cwd, roadmapId, async () => {
 			const blockers = await loadRoadmapBlockers(cwd, roadmapId)
@@ -161,7 +188,7 @@ export async function deferBlockerImpl(cwd: string, input: DeferBlockerInput): P
 
 export async function appendNoteEntry(
 	cwd: string,
-	input: AppendNoteInput,
+	input: AppendNoteInputWithKind,
 	blockerId?: string,
 ): Promise<{ filePath: string; scope: RoadmapEventScope }> {
 	const loaded = await loadState(cwd)
@@ -192,6 +219,7 @@ export async function appendNoteEntry(
 		task_id: input.taskId,
 		worker_id: input.workerId,
 		blocking: input.blocking ?? false,
+		...(input.blockingKind ? {blocking_kind: input.blockingKind} : {}),
 		...(blockerId ? {blocker_id: blockerId} : {}),
 		status: input.status ?? 'open',
 		at: nowIso(),
@@ -207,14 +235,19 @@ export async function appendNoteEntry(
 	return {filePath, scope}
 }
 
-export async function appendNoteImpl(cwd: string, input: AppendNoteInput): Promise<string> {
+export async function appendNoteImpl(cwd: string, input: AppendNoteInputWithKind): Promise<string> {
 	return await withStoreWriteLock(cwd, async () => {
 		const loaded = await loadState(cwd)
 		const roadmapId = input.roadmapId ?? loaded.active?.roadmap_id ?? loaded.adhocActive?.adhoc_id
 		if (!roadmapId) throw new Error('append_note requires an active roadmap and milestone')
 
 		return await withStoreMutationRollback(cwd, roadmapId, async () => {
-			const blockerId = input.blocking ? roadmapBlockerId() : undefined
+			// Only needs-user-decision (or legacy unspecified) blocking notes mint a canonical
+			// blocker. Worker-fixable/advisory blocking notes are recorded but mint nothing.
+			const mintsBlocker = shouldMintCanonicalBlocker(input)
+			// A blocking note that deliberately does NOT mint a canonical blocker is advisory.
+			const advisory = input.blocking === true && !mintsBlocker
+			const blockerId = mintsBlocker ? roadmapBlockerId() : undefined
 			const {filePath, scope} = await appendNoteEntry(cwd, input, blockerId)
 			if (blockerId) {
 				const actor = input.workerId?.trim() || input.kind
@@ -251,7 +284,11 @@ export async function appendNoteImpl(cwd: string, input: AppendNoteInput): Promi
 					kind: input.kind,
 					blocking: input.blocking ?? false,
 					status: input.status ?? 'open',
+					...(input.blockingKind ? {blocking_kind: input.blockingKind} : {}),
+					// Signal on the receipt whether a canonical blocker was minted: present when
+					// minted; advisory:true marks a blocking note recorded without a hard blocker.
 					...(blockerId ? {blocker_id: blockerId} : {}),
+					...(advisory ? {advisory: true} : {}),
 				},
 			})
 			return filePath
@@ -431,7 +468,7 @@ export async function deferBlocker(cwd: string, input: DeferBlockerInput): Promi
 	}, async () => await deferBlockerImpl(cwd, input))
 }
 
-export async function appendNote(cwd: string, input: AppendNoteInput): Promise<string> {
+export async function appendNote(cwd: string, input: AppendNoteInputWithKind): Promise<string> {
 	return await storeTiming('appendNote', cwd, {
 		kind: input.kind,
 		roadmap_id: input.roadmapId,

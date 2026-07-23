@@ -241,6 +241,9 @@ export interface WorkerRun {
 	transport_failures: number;
 	last_error?: string;
 	replaces_agent_id?: string;
+	// Id of the review finding / rework-queue item this dispatch addresses, when the run was
+	// spawned to resolve a worker-fixable review finding rather than to do fresh task work.
+	rework_of?: string;
 }
 
 // Reviewers have a much simpler lifecycle than workers: a reviewer is either the current
@@ -261,6 +264,50 @@ export interface ReviewerRun {
 	replaces_agent_id?: string;
 }
 
+// Review findings model. Reviewers classify each finding by severity so the orchestrator can
+// route worker-fixable findings into the rework queue instead of raising hard blockers, and
+// distinguish advisory notes from findings that require the user.
+export type ReviewFindingSeverity =
+	| 'pass'
+	| 'advisory'
+	| 'blocking_worker_fixable'
+	| 'blocking_needs_user';
+
+export interface ReviewFinding {
+	severity: ReviewFindingSeverity;
+	text: string;
+	task_id?: string;
+}
+
+// Worker-fixable review findings become rework-queue items rather than blockers, so they can be
+// dispatched back to a worker and tracked to resolution.
+export interface ReworkQueueItem {
+	id: string;
+	task_id: string;
+	wave_id: string;
+	finding_text: string;
+	source_finding_severity: ReviewFindingSeverity;
+	status: 'pending' | 'in_progress' | 'resolved';
+	created_at: string;
+	created_by: string;
+	resolved_at?: string;
+}
+
+// Verification baseline captured at implementation start; reviewers diff current verification
+// results against it to separate pre-existing failures from regressions introduced by a wave.
+export interface VerificationBaselineCommandResult {
+	command: string;
+	exit_status?: number;
+	failing_tests: string[];
+	failure_count: number;
+}
+
+export interface VerificationBaseline {
+	captured_at: string;
+	captured_by: string;
+	command_results: VerificationBaselineCommandResult[];
+}
+
 export interface ImplementationProgress {
 	active_wave_id?: string;
 	step: ImplementationProgressStep;
@@ -269,6 +316,8 @@ export interface ImplementationProgress {
 	reviewer_runs: ReviewerRun[];
 	blocked_reason?: string;
 	updated_at: string;
+	rework_queue?: ReworkQueueItem[];
+	verification_baseline?: VerificationBaseline;
 }
 
 export interface TaskRuntime {

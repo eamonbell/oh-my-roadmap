@@ -10,6 +10,7 @@ import {
 	type RecordWaveResultInput,
 	recordWaveReview,
 	type RecordWaveReviewInput,
+	type RecordWaveReviewResult,
 	recordWorkerAbandoned,
 	recordWorkerDispatch,
 	type RecordWorkerDispatchInput,
@@ -70,9 +71,15 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 			agentId: z.string(),
 			jobId: z.string(),
 			replacesAgentId: z.string().optional(),
+			// Genuine rework linkage to a reviewer-driven rework-queue item, persisted as
+			// WorkerRun.rework_of. Independent of replacesAgentId (a run can be a rework without
+			// replacing a prior transport-failed run). camelCase matches the other params here and
+			// the redispatch instruction text that tells agents to set `reworkOf`.
+			reworkOf: z.string().optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
-			const result = await recordWorkerDispatch(ctx.cwd, params as RecordWorkerDispatchInput)
+			const input = params as RecordWorkerDispatchInput & {reworkOf?: string}
+			const result = await recordWorkerDispatch(ctx.cwd, input)
 			return receiptResult(ctx.cwd, `Recorded worker dispatch for ${result.task_id}.`, result)
 		},
 	} as ToolDefinition)
@@ -102,9 +109,14 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 			taskId: z.string(),
 			agentId: z.string().optional(),
 			jobId: z.string().optional(),
+			// Rework linkage carried into the replacement assignment: when set, the returned
+			// instructions tell the caller to pass the same reworkOf on to omr_record_worker_dispatch
+			// so WorkerRun.rework_of is persisted (enabling owned-file self-verification on rework).
+			reworkOf: z.string().optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
-			const result = await prepareWorkerRedispatch(ctx.cwd, params as PrepareWorkerRedispatchInput)
+			const input = params as PrepareWorkerRedispatchInput & {reworkOf?: string}
+			const result = await prepareWorkerRedispatch(ctx.cwd, input)
 			return textResult(JSON.stringify(result), result)
 		},
 	} as ToolDefinition)
@@ -187,11 +199,35 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 			status: z.enum(['passed', 'failed']),
 			summary: z.string(),
 			findings: z.array(z.string()).optional(),
+			structured_findings: z
+			.array(
+				z.object({
+					severity: z.enum(['pass', 'advisory', 'blocking_worker_fixable', 'blocking_needs_user']),
+					text: z.string(),
+					task_id: z.string().optional(),
+				}),
+			)
+			.optional(),
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			const input = params as RecordWaveReviewInput
 			const result = await recordWaveReview(ctx.cwd, input)
-			return receiptResult(ctx.cwd, `Recorded wave review as ${input.status}.`, result)
+			return receiptResult(ctx.cwd, recordWaveReviewReceipt(input, result), result)
 		},
 	} as ToolDefinition)
+}
+
+// Summarize the routing outcome of a recorded review. For a structured failed review, report the
+// count of needs-user blockers opened (result.blockers, deduped) and worker-fixable rework items
+// queued (one per blocking_worker_fixable finding). Falls back to the legacy blocker-count wording
+// for the string-based path so back-compat receipts are unchanged in spirit.
+function recordWaveReviewReceipt(input: RecordWaveReviewInput, result: RecordWaveReviewResult): string {
+	if (input.status === 'passed') return 'Recorded wave review as passed.'
+	const structured = input.structured_findings
+	if (structured && structured.length > 0) {
+		const needsUser = result.blockers.length
+		const rework = structured.filter((finding) => finding.severity === 'blocking_worker_fixable').length
+		return `Recorded failed review: ${needsUser} needs-user blocker(s) opened, ${rework} rework item(s) queued.`
+	}
+	return `Recorded failed review: ${result.blockers.length} blocker(s) opened.`
 }

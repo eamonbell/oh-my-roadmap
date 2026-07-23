@@ -78,11 +78,44 @@ const CLI_ASSUMPTION_TOOLS = new Set<string>([
 const VERIFICATION_PREFLIGHT_GUIDANCE =
 	'Run assigned verification when practical. If a verification command depends on an unavailable external CLI or service, stop and append a blocking note with the missing prerequisite instead of inventing a substitute.'
 
-const WORKER_VERIFICATION_GUIDANCE = [
-	'Do NOT run builds, compilers, test suites, or these verification commands, and do not write throwaway scripts that build or execute the code. Concurrent sibling tasks in THIS wave may still be incomplete, so a build or test can fail for reasons entirely outside your task.',
-	'The wave reviewer owns all build and test execution and runs it after every task in the wave is done. Record the verification the reviewer should run (and anything you could not confirm by reading code) in your worker note.',
-	'If a verification command depends on an unavailable external CLI or service, still stop and append a blocking note with the missing prerequisite instead of inventing a substitute.',
-]
+export interface WorkerVerificationPermissionInput {
+	// True when the active wave being dispatched has exactly one task in flight, i.e. no
+	// concurrent sibling worker can collide with a build/test run.
+	singleWorker: boolean;
+	// True when this dispatch is a rework redispatch (a transport/abandon continuation via
+	// prepareWorkerRedispatch, or an explicit rework_of marker): review has already run for
+	// the wave, so any remaining siblings are complete by definition.
+	isRework: boolean;
+}
+
+// Computes the worker-facing verification guidance for a dispatch. LSP diagnostics are always
+// mandatory; running the task's own verification_commands against OWNED files is additionally
+// permitted when there is no concurrent sibling risk (single-task wave) or when this dispatch is
+// a rework (siblings are, by definition, already complete because review has already run).
+export function WORKER_VERIFICATION_GUIDANCE(permission: WorkerVerificationPermissionInput): string[] {
+	const ownedTestsPermitted = permission.singleWorker || permission.isRework
+	const lines = [
+		'Mandatory, in every dispatch: run LSP diagnostics (e.g. xd://lsp) on every file you touch before you yield.',
+	]
+	if (ownedTestsPermitted) {
+		lines.push(
+			"You MAY run your task's own verification_commands against your OWNED files (e.g. `bun test <your owned test file>`); do NOT run the full test suite, a whole-project build, or any command touching files you do not own.",
+			permission.singleWorker
+				? 'This wave has exactly one task in flight, so there is no concurrent sibling to collide with.'
+				: 'This is a rework dispatch: review has already run for this wave, so any remaining siblings are complete by definition.',
+		)
+	} else {
+		lines.push(
+			'Do NOT run builds, compilers, test suites, or these verification commands, and do not write throwaway scripts that build or execute the code. Concurrent sibling tasks in THIS wave may still be incomplete, so a build or test can fail for reasons entirely outside your task.',
+			'The wave reviewer owns all build and test execution and runs it after every task in the wave is done.',
+		)
+	}
+	lines.push(
+		'Record in your worker note the exact commands you ran and their results (command receipts), the verification the reviewer should still run, and anything you could not confirm by reading code.',
+		'If a verification command depends on an unavailable external CLI or service, still stop and append a blocking note with the missing prerequisite instead of inventing a substitute.',
+	)
+	return lines
+}
 
 export function manifestForTask(ctx: ActivePlanContext, task: TaskPlan): PlanDerivedManifest {
 	return {
@@ -148,27 +181,41 @@ If an external CLI warning appears above, do not shell out to that CLI unless th
 // Worker-facing preflight: workers must NOT build or test. A concurrent sibling task in the
 // same wave may be incomplete, so a build/test could fail for reasons outside this task; the
 // reviewer runs the wave's build and verification after every task is done.
-export function workerVerificationPreflightPromptSection(preflight: VerificationPreflightHint): string {
+export function workerVerificationPreflightPromptSection(
+	preflight: VerificationPreflightHint,
+	permission: WorkerVerificationPermissionInput,
+): string {
 	const warnings = preflight.cli_assumption_warnings.length > 0
 		? preflight.cli_assumption_warnings.map((item) => `- ${item}`).join('\n')
 		: '- (none)'
+	const commandsHeader = permission.singleWorker || permission.isRework
+		? 'Commands (LSP diagnostics are mandatory; owned-file verification_commands are permitted per the guidance below):'
+		: 'Commands the reviewer will run after this wave (do NOT run them yourself; LSP diagnostics are still mandatory):'
 	return `Verification preflight:
-Commands the reviewer will run after this wave (do NOT run them yourself):
+${commandsHeader}
 ${preflight.commands.length > 0 ? preflight.commands.map((item) => `- ${item}`).join('\n') : '- (none)'}
 CLI assumption warnings:
 ${warnings}
 Guidance:
-${WORKER_VERIFICATION_GUIDANCE.map((item) => `- ${item}`).join('\n')}`
+${WORKER_VERIFICATION_GUIDANCE(permission).map((item) => `- ${item}`).join('\n')}`
 }
 
 function workerPrompt(
 	ctx: ActivePlanContext,
 	task: TaskPlan,
+	permission: WorkerVerificationPermissionInput,
 	continuation?: WorkerContinuation,
 ): string {
 	const reserved = reservedSiblingScope(ctx, task)
 	const manifestSection = manifestPromptSection(manifestForTask(ctx, task))
-	const preflightSection = workerVerificationPreflightPromptSection(verificationPreflightFor(task.verification_commands))
+	const preflightSection = workerVerificationPreflightPromptSection(
+		verificationPreflightFor(task.verification_commands),
+		permission,
+	)
+	const ownedTestsPermitted = permission.singleWorker || permission.isRework
+	const verificationCommandsHeader = ownedTestsPermitted
+		? 'Verification commands (you MAY run these restricted to your OWNED files — see the verification preflight below for the exact permission and mandatory LSP step):'
+		: 'Verification commands (the reviewer runs these after the wave — you do not run builds or tests; LSP diagnostics on touched files are still mandatory — see the verification preflight below):'
 	const scopeHeader = ctx.isAdhoc
 		? `Ad-hoc plan: ${ctx.roadmapId}\n`
 		: `Roadmap: ${ctx.roadmapId}\nMilestone: ${ctx.milestoneId}\n${ctx.changeRequestId ? `Change request: ${ctx.changeRequestId}\n` : ''}`
@@ -185,7 +232,7 @@ ${task.implementation_notes.map((item) => `- ${item}`).join('\n')}
 Done criteria:
 ${task.done_criteria.map((item) => `- ${item}`).join('\n')}
 
-Verification commands (the reviewer runs these after the wave — you do not run builds or tests):
+${verificationCommandsHeader}
 ${task.verification_commands.map((item) => `- ${item}`).join('\n')}
 
 Ownership:
@@ -200,11 +247,16 @@ ${manifestSection}
 
 ${preflightSection}
 
-You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. Do NOT run builds, compilers, or tests — the wave reviewer owns build and test execution and runs it once the whole wave is complete. Only append a blocking note if you need something genuinely outside the plan or a required decision is ambiguous. Report completed, failed, or blocked status with a concise summary, the verification the reviewer should run, and any blocker details for the orchestrator to record with omr_record_wave_result.`
+You own the files and modules listed above. You may also edit files owned by OTHER waves if your task genuinely requires it — waves run strictly sequentially, so those waves are already complete or have not yet started and no concurrent worker holds their files. Do NOT edit the files/modules reserved by concurrent sibling tasks in THIS wave; those workers are running now and editing them would collide. ${ownedTestsPermitted ? 'You MAY run your task\'s own verification_commands against your OWNED files (see the verification preflight above); do NOT run the full test suite, a whole-project build, or touch unowned files.' : 'Do NOT run builds, compilers, or tests — the wave reviewer owns build and test execution and runs it once the whole wave is complete.'} Running LSP diagnostics (e.g. xd://lsp) on every file you touch before you yield is mandatory regardless of the above. Only append a blocking note if you need something genuinely outside the plan or a required decision is ambiguous. Report completed, failed, or blocked status with a concise summary, the exact commands you ran and their results (command receipts), the verification the reviewer should run, and any blocker details for the orchestrator to record with omr_record_wave_result.`
 	return continuation ? `${base}${continuationSection(continuation)}` : base
 }
 
-function assignment(ctx: ActivePlanContext, task: TaskPlan, continuation?: WorkerContinuation): WaveWorkerAssignment {
+function assignment(
+	ctx: ActivePlanContext,
+	task: TaskPlan,
+	permission: WorkerVerificationPermissionInput,
+	continuation?: WorkerContinuation,
+): WaveWorkerAssignment {
 	return {
 		task_id: task.id,
 		title: task.title,
@@ -215,7 +267,7 @@ function assignment(ctx: ActivePlanContext, task: TaskPlan, continuation?: Worke
 		dependencies: task.depends_on,
 		manifest: manifestForTask(ctx, task),
 		verification_preflight: verificationPreflightFor(task.verification_commands),
-		prompt: workerPrompt(ctx, task, continuation),
+		prompt: workerPrompt(ctx, task, permission, continuation),
 	}
 }
 
@@ -474,7 +526,9 @@ export async function prepareWaveDispatch(
 			wave_id: ctx.activeWave.id,
 			wave_goal: ctx.activeWave.goal,
 			progress_step: 'dispatching',
-			assignments: incompleteTasks.map((task) => assignment(ctx, task)),
+			assignments: incompleteTasks.map((task) =>
+				assignment(ctx, task, { singleWorker: incompleteTasks.length === 1, isRework: false })
+			),
 			active_runs: [],
 			instructions:
 				'Dispatch each assignment as a background subagent (the task tool, run in the background) using the assignment\'s exact worker and prompt. Immediately call omr_record_worker_dispatch with the returned agentId and jobId before polling workers via the hub tool (op:jobs / op:wait).',
@@ -484,7 +538,10 @@ export async function prepareWaveDispatch(
 
 export async function prepareWorkerRedispatch(
 	cwd: string,
-	input: PrepareWorkerRedispatchInput,
+	// reworkOf is an optional bridge to a reviewer-driven rework-queue item: when set, the
+	// caller should pass the same value to omr_record_worker_dispatch's reworkOf so the
+	// resulting WorkerRun.rework_of marker is persisted independently of replaces_agent_id.
+	input: PrepareWorkerRedispatchInput & { reworkOf?: string },
 ): Promise<PrepareWorkerRedispatchResult> {
 	return await withDiagnosticTiming({
 		component: 'core',
@@ -555,15 +612,29 @@ export async function prepareWorkerRedispatch(
 			milestone_id: reloaded.milestoneId,
 			...(reloaded.changeRequestId ? { change_request_id: reloaded.changeRequestId } : {}),
 			wave_id: reloaded.activeWave.id,
-			assignment: assignment(reloaded, reloadedTask, continuation),
+			// isRework must reflect GENUINE rework linkage (a post-review rework-queue item),
+			// not merely "went through the redispatch path" — a plain transport-failure/abandon
+			// continuation has no review behind it and concurrent siblings may still be running.
+			// singleWorker is computed independently from the wave's own current incomplete-task
+			// count, so a single-task wave still gets the owned-file permission either way.
+			assignment: assignment(
+				reloaded,
+				reloadedTask,
+				{
+					singleWorker: reloaded.activeTasks.filter((t) => t.status !== 'done').length === 1,
+					isRework: Boolean(input.reworkOf),
+				},
+				continuation,
+			),
 			prior_run: {
 				agent_id: prior.agent_id,
 				job_id: prior.job_id,
 				transport_failures: prior.transport_failures ?? 0,
 				...(prior.last_error ? { last_error: prior.last_error } : {}),
 			},
-			instructions:
-				`Spawn the replacement as a background subagent (the task tool, run in the background) using the assignment's exact worker and prompt (the prompt carries CONTINUATION CONTEXT, the prior worker's history://${prior.agent_id} transcript pointer, and a live-peer coordination warning). Only spawn after the prior peer is stopped and confirmed gone via hub op:list (hub op:cancel its job if still live). Then call omr_record_worker_dispatch with the new agentId and jobId and replacesAgentId set to ${prior.agent_id}.`,
+			instructions: input.reworkOf
+				? `Spawn the replacement as a background subagent (the task tool, run in the background) using the assignment's exact worker and prompt (the prompt carries CONTINUATION CONTEXT, the prior worker's history://${prior.agent_id} transcript pointer, and a live-peer coordination warning). Only spawn after the prior peer is stopped and confirmed gone via hub op:list (hub op:cancel its job if still live). Then call omr_record_worker_dispatch with the new agentId and jobId, replacesAgentId set to ${prior.agent_id}, and reworkOf set to ${input.reworkOf}.`
+				: `Spawn the replacement as a background subagent (the task tool, run in the background) using the assignment's exact worker and prompt (the prompt carries CONTINUATION CONTEXT, the prior worker's history://${prior.agent_id} transcript pointer, and a live-peer coordination warning). Only spawn after the prior peer is stopped and confirmed gone via hub op:list (hub op:cancel its job if still live). Then call omr_record_worker_dispatch with the new agentId and jobId and replacesAgentId set to ${prior.agent_id}.`,
 		}
 	})
 }

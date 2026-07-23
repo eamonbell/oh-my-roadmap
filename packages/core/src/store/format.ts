@@ -150,6 +150,7 @@ export function normalizeWorkerRun(value: unknown): WorkerRun | undefined {
 		transport_failures: valueNumber(raw.transport_failures, 0),
 		...(valueString(raw.last_error) ? {last_error: valueString(raw.last_error)} : {}),
 		...(valueString(raw.replaces_agent_id) ? {replaces_agent_id: valueString(raw.replaces_agent_id)} : {}),
+		...(valueString(raw.rework_of) ? {rework_of: valueString(raw.rework_of)} : {}),
 	}
 }
 
@@ -211,6 +212,8 @@ export function normalizeProgress(value: unknown, waves: WavePlan[]): Implementa
 		reviewer_runs: normalizeReviewerRuns(raw.reviewer_runs),
 		...(typeof raw.blocked_reason === 'string' ? {blocked_reason: raw.blocked_reason} : {}),
 		updated_at: raw.updated_at ?? nowIso(),
+		...(raw.verification_baseline ? {verification_baseline: raw.verification_baseline} : {}),
+		...(Array.isArray(raw.rework_queue) ? {rework_queue: raw.rework_queue} : {}),
 	}
 }
 

@@ -111,7 +111,7 @@ after, a validation signal for future transcripts, and impact/complexity/confide
 
 ---
 
-#### R1. Overhaul the review-findings → blocker pipeline (state-integrity defect cluster)
+#### R1. Overhaul the review-findings → blocker pipeline (state-integrity defect cluster) ✅ Implemented (Wave 2)
 
 **Impact: Critical · Complexity: Medium-High · Confidence: High**
 
@@ -242,7 +242,7 @@ context cost drops to roughly the cost of re-running the verification commands.
 
 ---
 
-#### R3. Replace the blanket worker test ban with scoped self-verification + evidence handoff (the user's hypothesis — strongly supported)
+#### R3. Replace the blanket worker test ban with scoped self-verification + evidence handoff (the user's hypothesis — strongly supported) ✅ Implemented (Wave 2)
 
 **Impact: High · Complexity: Medium · Confidence: High**
 
@@ -308,7 +308,7 @@ command receipts.
 
 ---
 
-#### R4. Record a verification baseline at implementation start; reviewers diff against it
+#### R4. Record a verification baseline at implementation start; reviewers diff against it ✅ Implemented (Wave 2)
 
 **Impact: High · Complexity: Medium · Confidence: High**
 
@@ -427,7 +427,7 @@ or fix the skill text and the error message to say "after `record_worker_abandon
 **unfollowable across sessions** ("Unknown agent", n20–21) — note in the skill that
 `history://` is session-scoped and that persisted worker notes are the cross-session memory.
 
-#### R8. Make `omr_next_action` phase-aware and never stale (two observed stalls/detours)
+#### R8. Make `omr_next_action` phase-aware and never stale (two observed stalls/detours) ✅ Implemented (Wave 2)
 
 **Impact: Medium-High · Complexity: Medium · Confidence: High**
 
@@ -497,7 +497,7 @@ would have interrupted the user. Add to the `prepareWaveReview` package
 tasks → owned files/acceptance items**, and tell the reviewer template to judge only the active
 wave's exit criteria. **Signal:** zero review findings about scope owned by later waves.
 
-#### R12. Specify rework authorization ordering; give rework runs a first-class record
+#### R12. Specify rework authorization ordering; give rework runs a first-class record ✅ Implemented (Wave 2)
 
 **Impact: Medium · Complexity: Low-Medium · Confidence: High**
 
@@ -627,18 +627,18 @@ itself is the use case the feature was requested for.
 
 | #      | Recommendation                                                                                                                                   | Impact   | Complexity | Owning surface                                                         |
 |--------|--------------------------------------------------------------------------------------------------------------------------------------------------|----------|------------|------------------------------------------------------------------------|
-| R1     | Review-findings→blocker pipeline overhaul (severity model, no auto-mint, gate exemption for rework, resolvable deferred blockers, honest actors) | Critical | Med-High   | core: store/blockers.ts, wave-orchestration/review.ts, validation.ts   |
+| R1     | Review-findings→blocker pipeline overhaul (severity model, no auto-mint, gate exemption for rework, resolvable deferred blockers, honest actors) — ✅ Implemented (Wave 2) | Critical | Med-High   | core: store/blockers.ts, wave-orchestration/review.ts, validation.ts   |
 | R2     | Reviewer identity + wake-don't-respawn (prompt fix now, reviewer-run state + re-review receipt next) — ✅ Implemented (Wave 1)                    | High     | Medium     | prompts.ts:55, SKILL.md:93-96, wave-orchestration/review.ts + types.ts |
-| R3     | Scoped worker self-verification + evidence handoff to reviewer (mandatory LSP; conditional owned-file tests; command receipts in notes)          | High     | Medium     | worker templates, dispatch.ts prompt builder, reviewer package         |
-| R4     | Verification baseline at start_implementation; reviewers diff against it                                                                         | High     | Medium     | reviewer template, wave-orchestration, milestone runtime               |
+| R3     | Scoped worker self-verification + evidence handoff to reviewer (mandatory LSP; conditional owned-file tests; command receipts in notes) — ✅ Implemented (Wave 2) | High     | Medium     | worker templates, dispatch.ts prompt builder, reviewer package         |
+| R4     | Verification baseline at start_implementation; reviewers diff against it — ✅ Implemented (Wave 2)                                                | High     | Medium     | reviewer template, wave-orchestration, milestone runtime               |
 | R5     | Milestone-count parsimony rule + checker fragmentation check — ✅ Implemented (Wave 1)                                                            | High     | Low        | roadmap-planner SKILL.md, roadmap-milestone-checker AGENT.md           |
-| R8     | Phase-aware, never-stale next_action (init/discovery gap; post-deferral wave unblock)                                                            | Med-High | Medium     | report/next-action.ts, omr_init, defer/resolve receipts                |
+| R8     | Phase-aware, never-stale next_action (init/discovery gap; post-deferral wave unblock) — ✅ Implemented (Wave 2)                                   | Med-High | Medium     | report/next-action.ts, omr_init, defer/resolve receipts                |
 | R6     | Auto-advance wave (or receipt payload) after passed review — ✅ Implemented (Wave 1)                                                              | Medium   | Low        | wave-orchestration/review.ts                                           |
 | R7     | prepare_worker_redispatch accepts abandoned runs (or skill/error text fixed); history:// scoping note — ✅ Implemented (Wave 1)                   | Medium   | Low        | dispatch.ts, implementation-orchestrator SKILL.md                      |
 | R9     | plan-validation self-overlap false positive — ✅ Implemented (Wave 1)                                                                             | Medium   | Low        | plan-validation.ts:86-96                                               |
 | R10    | Scout-finding recording trigger for inline scouting — ✅ Implemented (Wave 1)                                                                     | Medium   | Low        | planner skills                                                         |
 | R11    | Later-wave ownership map in reviewer package                                                                                                     | Medium   | Low        | wave-orchestration/review.ts, reviewer template                        |
-| R12    | Rework authorization ordering + rework-marked dispatch records + gate text                                                                       | Medium   | Low-Med    | prompts.ts/SKILL.md, worker-runs.ts, gate text                         |
+| R12    | Rework authorization ordering + rework-marked dispatch records + gate text — ✅ Implemented (Wave 2)                                              | Medium   | Low-Med    | prompts.ts/SKILL.md, worker-runs.ts, gate text                         |
 | R16    | Worker context-hygiene rules (batch reads, trust receipts)                                                                                       | Medium   | Low        | worker templates                                                       |
 | R18    | Cross-model prompt robustness (single-source invariants w/ rationale + procedure) — ✅ Implemented (Wave 1)                                       | Medium   | Medium     | prompts.ts, skills                                                     |
 | R13-15 | Receipt/copy batch: append_note enum, planner gate text, uniform rich receipts — ✅ Implemented (Wave 1)                                          | Low-Med  | Low        | tool registrations, gate.ts messages                                   |

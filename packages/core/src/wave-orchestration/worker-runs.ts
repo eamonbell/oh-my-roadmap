@@ -89,7 +89,10 @@ export function assertNoActiveOwnershipOverlap(ctx: ActivePlanContext, task: Tas
 
 export async function recordWorkerDispatch(
 	cwd: string,
-	input: RecordWorkerDispatchInput,
+	// reworkOf is independent of replacesAgentId: a run can be a rework redispatch (addressing
+	// a review finding / rework-queue item) and/or a transport-failure continuation. Either,
+	// both, or neither may be set on a given dispatch.
+	input: RecordWorkerDispatchInput & {reworkOf?: string},
 ): Promise<RecordWorkerRunResult> {
 	return await withDiagnosticTiming({
 		component: 'core',
@@ -118,6 +121,7 @@ export async function recordWorkerDispatch(
 			updated_at: now,
 			transport_failures: 0,
 			...(input.replacesAgentId ? {replaces_agent_id: input.replacesAgentId} : {}),
+			...(input.reworkOf ? {rework_of: input.reworkOf} : {}),
 		}
 		const tasks = updateTaskStatusLocal(ctx.plan.tasks, task.id, 'started')
 		const activeTaskIds = Array.from(new Set([...ctx.plan.progress.active_task_ids, task.id]))

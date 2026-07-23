@@ -51,9 +51,9 @@ function expectWorkerDirectives(body: string): void {
   expect(body).toContain(
     "Before editing files, call `omr_style_guide` with the files you will edit",
   );
-  // Workers must not run builds or tests — that is the reviewer's job.
+  // Workers self-verify: LSP diagnostics always, owned-file verification commands only when granted.
   expect(body).toContain(
-    "Do not run builds, compilers, test suites, or the assigned verification commands",
+    "Mandatory on every dispatch, with no exception: run LSP diagnostics",
   );
   expectNoAskToolDirective(body);
 }
@@ -113,9 +113,9 @@ describe("project init scaffold", () => {
     expect(reviewer.body).toContain(
       "Before creating throwaway verification code or code-level repros, call `omr_style_guide`",
     );
-    // Reviewer owns build/test execution for the wave; workers do not run them.
+    // Reviewer verifies worker command receipts and re-runs milestone-level verification once for integration.
     expect(reviewer.body).toContain(
-      "You own running the wave's build, tests, and verification commands",
+      "VERIFY those receipts rather than re-discovering or re-running everything",
     );
     expectNoAskToolDirective(reviewer.body);
 

@@ -26,6 +26,7 @@ Command-specific workflow for /omr:ms-implement:
 - Drive the whole milestone/change implementation in this turn: loop dispatch -> collect results -> review -> advance to the next wave, one wave at a time, until no waves remain or the run terminally pauses. Do not end the turn after a single wave when more waves remain.
 - If the current roadmap phase is milestone_approved, first call omr_transition with operation start_implementation; do not call omr_prepare_wave_dispatch until implementation is legally open.
 - If the active change request status is approved, first call omr_transition with operation start_implementation before dispatching change-request workers.
+- At implementation start, before the first wave dispatch, run the plan's verification commands once and record the results with omr_record_verification_baseline (including any pre-existing failing tests/counts), so later wave reviews can judge results relative to this baseline (no new failures, no lost passes) instead of an absolute bar.
 - If the current phase is reviewing or closeout, do not dispatch workers; follow omr_next_action and closeout next actions instead.
 - Call omr_prepare_wave_dispatch before dispatching implementation work. If it returns active_runs, do not redispatch those tasks.
 - For each active run, first check the current session's hub job snapshot (op:jobs) and peer roster (op:list) for the run's jobId/job_id or agentId/agent_id. If neither the hub op:jobs snapshot nor the op:list peer roster lists that run, call omr_record_worker_abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session.
@@ -71,7 +72,7 @@ Command-specific workflow for /${name}:
 Command-specific workflow for /omr:blk-resolve:
 - Parse user arguments as <blocker-id> <resolution>.
 - If either value is missing, call omr_list_blockers with status: 'open', show available blockers, and ask for the missing blocker ID or resolution.
-- When both values are present, call omr_resolve_blocker with the blocker ID and resolution.
+- When both values are present, call omr_resolve_blocker with the blocker ID and resolution. omr_resolve_blocker accepts a deferred blocker directly (deferred -> resolved), not only an open one; do not reopen a deferred blocker first when it is now genuinely fixed.
 - Call omr_validate after resolving the blocker.
 - Report the resolved blocker and tell the user to run /omr:rm-resume.`
 	}
@@ -195,7 +196,7 @@ Follow the oh-my-roadmap workflow strictly:
 - For implementation progress, prefer omr_prepare_wave_dispatch, omr_record_wave_result, omr_prepare_wave_review, and omr_record_wave_review; use update_task_status, update_wave_status, and update_implementation_progress only for manual recovery.
 - For implementation resume, treat the persisted progress cursor as authoritative for active wave, orchestration step, active tasks, and blocker reason.
 - Before closing milestones or changes, call omr_prepare_closeout to get ordinal item IDs and an example_closeout template, fill the example_closeout with actual statuses and reasons, then call omr_transition operation record_closeout with that evidence.
-- Workers must not run builds, compilers, or tests: a concurrent sibling task may be incomplete, so a build/test could fail for reasons outside a worker's task. Build and test execution belongs to the wave reviewer, who runs it after the whole wave completes.
+- Workers self-verify before yielding: they always run LSP diagnostics on the files they touch, and may additionally run their task's own verification commands against their OWNED files only when their dispatch grants it (a single-worker wave, or a genuine rework) — never the full test suite, a whole-project build, or files they do not own while siblings are still running. Workers record command receipts (a Commands run: section and/or VERIFIED: lines) in their note. The reviewer verifies those receipts and re-runs the plan's milestone-level verification commands once, for the whole-wave integration pass.
 - If a reviewer writes a temporary verification script or comparison command, make it print a clear PASS: or FAIL: line and exit non-zero only when the code must be revised; treat non-zero output with actionable diagnostics as test feedback, not an unexplained tool failure.
 - For milestone and change implementation, do not edit files yourself; call the wave orchestration tools, dispatch each returned task to the exact agent named by assignment.worker, dispatch reviewer for wave reviews, and collect evidence closeout.
 - If implementation is not legally open, do not edit files.

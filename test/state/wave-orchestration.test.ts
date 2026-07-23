@@ -884,11 +884,12 @@ describe("roadmap wave orchestration state", () => {
     expect(assignment!.prompt).toContain("Plan-derived manifest:");
     expect(assignment!.prompt).toContain("Verification preflight:");
     expect(assignment!.prompt).toContain("NOT proof that any listed path exists");
-    // Workers must not build or test; the reviewer runs verification after the wave.
-    expect(assignment!.prompt).toContain("do NOT run them yourself");
-    expect(assignment!.prompt).toContain(
-      "Do NOT run builds, compilers, test suites, or these verification commands",
-    );
+    // LSP diagnostics on touched files are always mandatory, in every dispatch.
+    expect(assignment!.prompt).toContain("Mandatory, in every dispatch: run LSP diagnostics");
+    // w01 is a single-task wave by default (only t01-state), so owned-file verification_commands
+    // are permitted; the reviewer-verifies-only ban is withheld in this case.
+    expect(assignment!.prompt).toContain("You MAY run your task's own verification_commands");
+    expect(assignment!.prompt).toContain("no concurrent sibling to collide with");
   });
 
   test("review package carries a de-duplicated manifest and verification preflight", async () => {
@@ -923,8 +924,12 @@ describe("roadmap wave orchestration state", () => {
     expect(reviewPreflight.guidance).toHaveLength(1);
     expect(review.prompt).toContain("Plan-derived manifest:");
     expect(review.prompt).toContain("Verification preflight:");
-    // Reviewer explicitly owns build/test execution for the wave.
-    expect(review.prompt).toContain("You own running the wave's build, tests, and verification commands");
+    // New self-verify model: workers self-verify and record receipts; the reviewer verifies those
+    // receipts and runs the milestone-level verification commands once to validate the whole wave.
+    expect(review.prompt).toContain("Workers self-verify before yielding");
+    expect(review.prompt).toContain("run the plan's milestone-level verification commands above yourself");
+    expect(review.prompt).toContain("Verify those receipts rather than re-discovering");
+    expect(review.prompt).toContain("RELATIVE TO the verification_baseline");
   });
 });
 

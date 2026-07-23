@@ -151,15 +151,16 @@ After milestone approval, run:
 The orchestrator should not edit code directly. It should:
 
 1. Read the active progress cursor.
-2. Call `omr_prepare_wave_dispatch`.
-3. Dispatch only the active wave assignments.
-4. Use each task's exact worker: `worker-light`, `worker`, or `worker-heavy`.
-5. Record each worker dispatch immediately.
-6. Wait for worker results.
-7. Record each result.
-8. Dispatch `reviewer` after all active wave tasks complete.
-9. Record review.
-10. Advance to the next wave only after review passes.
+2. Before the first wave, record a verification baseline with `omr_record_verification_baseline` (the plan's verification commands run once, capturing any pre-existing failures) so later reviews can be judged against it instead of an absolute full-suite-green bar.
+3. Call `omr_prepare_wave_dispatch`.
+4. Dispatch only the active wave assignments.
+5. Use each task's exact worker: `worker-light`, `worker`, or `worker-heavy`.
+6. Record each worker dispatch immediately.
+7. Wait for worker results.
+8. Record each result.
+9. Dispatch `reviewer` after all active wave tasks complete.
+10. Record review.
+11. Advance to the next wave only after review passes.
 
 Implementation proceeds one wave at a time.
 
@@ -175,6 +176,8 @@ The milestone plan chooses the worker role. You usually do not need to pick manu
 - `roadmap-milestone-checker`: checks roadmap milestone sequencing before roadmap approval.
 
 Workers should stay inside their assigned ownership. If a worker needs unowned files, it should stop and report a blocker.
+
+Workers always run LSP diagnostics on every touched file before yielding. They may also run their own task's verification commands against their owned files, but only in a single-worker wave or a genuine rework dispatch — never the full suite, a whole-project build, or unowned files. Workers record the exact commands they ran in their note (a "Commands run:" section and/or "VERIFIED:" lines); the reviewer treats those as starting-point receipts rather than re-discovering everything from scratch.
 
 ## 8. Resume After A Pause Or Crash
 
@@ -199,6 +202,8 @@ The persisted progress cursor is authoritative. Notes are supporting evidence, n
 
 ## 9. Handle Blockers
 
+Not every failed review finding becomes a blocker. Reviewers submit structured findings with a severity: `pass` and `advisory` findings are informational and never block; `blocking_worker_fixable` findings (a concrete fix a worker can make without a user decision) become an item in the wave's rework queue instead of a blocker, so the wave can be unblocked by dispatching the worker to fix it and re-reviewing; only `blocking_needs_user` findings (something that genuinely needs a user decision) open a canonical blocker. The commands below apply to canonical blockers.
+
 List blockers:
 
 ```text
@@ -222,6 +227,8 @@ Example:
 ```text
 /omr:blk-resolve blk_123 Fixed the stale API route and reran go test ./actn/... -run '^$' -count=1.
 ```
+
+A deferred blocker can later be resolved with `/omr:blk-resolve` once the deferred issue is actually fixed — deferring is not a dead end.
 
 Defer a blocker only when you intentionally accept the risk:
 
@@ -269,9 +276,11 @@ After every wave, the orchestrator dispatches `reviewer` and records the dispatc
 
 A passed review lets the workflow advance to the next wave automatically; no separate transition is needed before the next `omr_prepare_wave_dispatch`.
 
-When review finds problems the original worker can simply fix (a concrete code correction, no user decision needed), the orchestrator wakes that worker over the `hub` tool to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes. For re-review, a failed `omr_prepare_wave_review` returns the prior reviewer's identity and findings, and the orchestrator wakes that same reviewer rather than spawning a new one.
+The reviewer package includes the verification baseline recorded at the start of implementation (see step 6) and, when workers reported their own verification commands, their command receipts. The reviewer verifies those receipts rather than re-running everything from scratch, then runs the plan's milestone-level verification commands once for the whole wave, judging results against the baseline (no new failures, no lost passes) rather than an absolute full-suite-green bar.
 
-A failed review only opens blockers for findings that genuinely need a user decision (ambiguous acceptance, scope/approval, or risk disposition). Positive findings such as `PASS:` or informational findings should not block. If blockers are opened, use:
+Reviewers submit structured findings with a severity (`pass`, `advisory`, `blocking_worker_fixable`, `blocking_needs_user`) to `omr_record_wave_review`; a plain string `findings` list is still accepted. When review finds problems the original worker can simply fix (`blocking_worker_fixable` — a concrete code correction, no user decision needed), the finding becomes an item in the wave's rework queue rather than a blocker, and the orchestrator wakes that worker over the `hub` tool (recording the redispatch with `reworkOf` set to the rework-queue item's id) to rework in-context and re-reviews — without a user blocker round-trip. If the original worker is gone (for example after resuming in a new session), it spawns a fresh worker seeded with the findings and the task's worker notes. For re-review, a failed `omr_prepare_wave_review` returns the prior reviewer's identity and findings, and the orchestrator wakes that same reviewer rather than spawning a new one.
+
+A failed review only opens a canonical blocker for a `blocking_needs_user` finding — something that genuinely needs a user decision (ambiguous acceptance, scope/approval, or risk disposition). `pass`, `advisory`, and `blocking_worker_fixable` findings do not open blockers. If blockers are opened, use:
 
 ```text
 /omr:blk-list
