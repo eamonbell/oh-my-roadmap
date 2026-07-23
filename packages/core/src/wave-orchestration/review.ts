@@ -4,14 +4,19 @@ import { searchContext } from '../context'
 import type { ContextEntryResult } from '../context-types'
 import { listBlockers, nowIso, openBlocker, transition, } from '../store/index'
 import type { NextActionHint } from '../report/index'
-import type { ImplementationProgressStep, ReworkQueueItem, RoadmapBlocker, WavePlan } from '../types'
+import type { ImplementationProgressStep, ReworkQueueItem, RoadmapBlocker, WaveCheckpoint, WavePlan } from '../types'
+import { loadProjectGitCheckpoints } from '../project-init'
 import { activePlanContext, type ActivePlanContext, assertImplementationReady, writePlanRuntime, } from './context'
 import {
 	manifestPromptSection,
+	ownedPathspecsForWave,
 	setProgress,
 	verificationPreflightFor,
 	verificationPreflightPromptSection,
+	type WaveWithGit,
 } from './dispatch'
+import { buildWaveChanges, commitWaveCheckpoint, resolveGitBoundary } from './git'
+import type { CommitWaveCheckpointInput } from './git'
 import { loadWaveContextSources, sliceReviewerSeededContext } from './context-seeding'
 import type {
 	PlanDerivedManifest,
@@ -221,6 +226,16 @@ export async function prepareWaveReview(
 		// worker notes already fetched above (see parseWorkerCommandReceipts for the convention).
 		const commandReceipts = parseWorkerCommandReceipts(workerNotes.results)
 
+		// R24 wave diffs: whenever the cwd is a usable git repo, build an on-demand change package by
+		// diffing the recorded start boundary (captured at fresh dispatch) against the current worktree,
+		// scoped to the wave's owned pathspecs. Independent of the checkpoints flag and purely additive:
+		// an unusable repo yields available:false with warnings, which is still informative.
+		const waveChanges = await buildWaveChanges(
+			cwd,
+			(ctx.activeWave as WaveWithGit).git?.start?.start_head,
+			ownedPathspecsForWave(ctx.activeTasks),
+		)
+
 		return {
 			roadmap_id: ctx.roadmapId,
 			milestone_id: ctx.milestoneId,
@@ -248,6 +263,7 @@ export async function prepareWaveReview(
 			...(verificationBaseline ? { verification_baseline: verificationBaseline } : {}),
 			...(pendingRework.length > 0 ? { rework_queue: pendingRework } : {}),
 			...(commandReceipts.length > 0 ? { worker_command_receipts: commandReceipts } : {}),
+			wave_changes: waveChanges,
 		}
 	})
 }
@@ -439,6 +455,85 @@ async function applyPassedWaveAdvance(
 	return 'ready_for_next_wave'
 }
 
+// Build the checkpoint commit input from the active plan context. Workflow + ids are sourced from
+// ctx: a change request wins (workflow:'change-request' with roadmap/milestone/change-request ids);
+// otherwise an ad-hoc plan (workflow:'adhoc' with its adhoc_id); otherwise a roadmap milestone
+// (workflow:'roadmap' with roadmap/milestone ids). predirty rides from the recorded git.start so the
+// commit can warn about pre-existing uncommitted changes it swept in.
+function buildCheckpointInput(ctx: ActivePlanContext, ownedPathspecs: string[]): CommitWaveCheckpointInput {
+	const predirty = (ctx.activeWave as WaveWithGit).git?.start?.predirty
+	const common = {
+		waveId: ctx.activeWave.id,
+		waveGoal: ctx.activeWave.goal,
+		taskIds: ctx.activeTasks.map((task) => task.id),
+		ownedPathspecs,
+		...(predirty && predirty.length > 0 ? { predirty } : {}),
+	}
+	if (ctx.changeRequestId) {
+		return {
+			...common,
+			workflow: 'change-request',
+			roadmapId: ctx.roadmapId,
+			milestoneId: ctx.milestoneId,
+			changeRequestId: ctx.changeRequestId,
+		}
+	}
+	if (ctx.isAdhoc) {
+		const adhocId = 'adhoc_id' in ctx.plan ? ctx.plan.adhoc_id : ctx.roadmapId
+		return { ...common, workflow: 'adhoc', adhocId }
+	}
+	return { ...common, workflow: 'roadmap', roadmapId: ctx.roadmapId, milestoneId: ctx.milestoneId }
+}
+
+// Persist a checkpoint (or skipped record) onto the active wave's git.checkpoint. Mirrors the failed
+// branch's rework persistence: reload, set the field on the reloaded wave (git.start is preserved via
+// the round-tripped wave.git), and write runtime carrying the current progress forward. Ordered so a
+// crash after the commit but before completion leaves the checkpoint persisted and the wave still
+// reviewing — a re-run re-commits idempotently (HEAD trailer) and then completes.
+async function persistWaveCheckpoint(
+	cwd: string,
+	input: RecordWaveReviewInput,
+	checkpoint: WaveCheckpoint,
+): Promise<void> {
+	const reloaded = await activePlanContext(cwd, input)
+	const wave = reloaded.plan.waves.find((candidate) => candidate.id === reloaded.activeWave.id) as
+		| WaveWithGit
+		| undefined
+	if (!wave) return
+	wave.git = { ...(wave.git ?? {}), checkpoint }
+	await writePlanRuntime(cwd, reloaded.plan)
+}
+
+// Passed-wave checkpoint (F1). Runs AFTER the no-blocking-blockers assertion and BEFORE the wave is
+// marked complete, so a failing hook / commit error propagates and leaves the wave reviewing rather
+// than completed-but-uncommitted. Returns undefined when checkpoints are disabled (no checkpoint
+// field on the result). Unusable git (no repo / detached HEAD) records a skipped checkpoint and never
+// blocks completion. THROWS from commitWaveCheckpoint are intentionally not caught.
+async function checkpointPassedWave(
+	cwd: string,
+	input: RecordWaveReviewInput,
+	ctx: ActivePlanContext,
+): Promise<{ status: WaveCheckpoint['status']; commit?: string; warnings: string[] } | undefined> {
+	if (!(await loadProjectGitCheckpoints(cwd))) return undefined
+
+	const ownedPathspecs = ownedPathspecsForWave(ctx.activeTasks)
+	const boundary = await resolveGitBoundary(cwd)
+	if (!boundary.available || boundary.detached) {
+		const reason = boundary.available ? 'detached HEAD' : `git unavailable: ${boundary.reason ?? 'not a git work tree'}`
+		const warning = `Wave ${ctx.activeWave.id} checkpoint skipped: ${reason}`
+		await persistWaveCheckpoint(cwd, input, { status: 'skipped', reason, warnings: [warning], at: nowIso() })
+		return { status: 'skipped', warnings: [warning] }
+	}
+
+	const checkpoint = await commitWaveCheckpoint(cwd, buildCheckpointInput(ctx, ownedPathspecs))
+	await persistWaveCheckpoint(cwd, input, checkpoint)
+	return {
+		status: checkpoint.status,
+		...(checkpoint.commit ? { commit: checkpoint.commit } : {}),
+		warnings: checkpoint.warnings,
+	}
+}
+
 export async function recordWaveReview(
 	cwd: string,
 	input: RecordWaveReviewInput,
@@ -458,6 +553,10 @@ export async function recordWaveReview(
 
 		if (input.status === 'passed') {
 			await assertNoOpenBlockingBlockers(cwd, ctx)
+			// F1 checkpoint runs here — after the blocking-blocker gate, before the complete
+			// transition — so a commit failure (e.g. a failing pre-commit hook) propagates and the
+			// wave stays reviewing rather than completing without a commit. Disabled -> undefined.
+			const checkpoint = await checkpointPassedWave(cwd, input, ctx)
 			await transition(cwd, {
 				operation: 'update_wave_status',
 				waveId: ctx.activeWave.id,
@@ -477,6 +576,7 @@ export async function recordWaveReview(
 				progress_step: progressStep,
 				blockers: [],
 				...(nextActions ? { next_actions: nextActions } : {}),
+				...(checkpoint ? { checkpoint } : {}),
 			}
 		}
 

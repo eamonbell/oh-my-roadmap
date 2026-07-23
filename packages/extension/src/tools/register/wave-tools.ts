@@ -222,7 +222,22 @@ export function registerWaveTools(ctx: ToolRegistrationContext): void {
 // queued (one per blocking_worker_fixable finding). Falls back to the legacy blocker-count wording
 // for the string-based path so back-compat receipts are unchanged in spirit.
 function recordWaveReviewReceipt(input: RecordWaveReviewInput, result: RecordWaveReviewResult): string {
-	if (input.status === 'passed') return 'Recorded wave review as passed.'
+	if (input.status === 'passed') {
+		const checkpoint = result.checkpoint
+		if (!checkpoint) return 'Recorded wave review as passed.'
+		let suffix: string
+		if (checkpoint.status === 'created') {
+			suffix = ` Git checkpoint ${checkpoint.commit} created.`
+		} else if (checkpoint.status === 'no_changes') {
+			suffix = ' Git checkpoint skipped: no changes.'
+		} else {
+			suffix = ' Git checkpoint skipped.'
+		}
+		if (checkpoint.warnings.length > 0) {
+			suffix += ` Warnings: ${checkpoint.warnings.join('; ')}`
+		}
+		return `Recorded wave review as passed.${suffix}`
+	}
 	const structured = input.structured_findings
 	if (structured && structured.length > 0) {
 		const needsUser = result.blockers.length

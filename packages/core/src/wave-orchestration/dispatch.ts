@@ -12,7 +12,8 @@ import {
 	writeMilestoneBudgetState,
 	writeRoadmapBudgetState,
 } from '../store/index'
-import type { ImplementationProgressStep, TaskPlan, WorkerRun } from '../types'
+import type { ImplementationProgressStep, TaskPlan, WaveGitState, WavePlan, WorkerRun } from '../types'
+import { loadProjectGitCheckpoints } from '../project-init'
 import {
 	activePlanContext,
 	type ActivePlanContext,
@@ -21,7 +22,9 @@ import {
 	assertDispatchableWave,
 	assertImplementationReady,
 	assertTaskDispatchFields,
+	writePlanRuntime,
 } from './context'
+import { captureWaveGitStart, resolveGitBoundary } from './git'
 import { loadWaveContextSources, sliceTaskSeededContext } from './context-seeding'
 import type {
 	PlanDerivedManifest,
@@ -34,6 +37,38 @@ import type {
 	WaveWorkerAssignment,
 } from './types'
 import { replaceWorkerRun, requireTaskInActiveWave, writeProgressWithRuns } from './worker-runs'
+
+// git is a runtime-only projection carried on WaveRuntime (see types.ts / format.ts round-trip);
+// the WavePlan type intentionally does not declare it, so every access goes through this cast.
+// Confining the cast to a single alias keeps the runtime-vs-definition split explicit.
+export type WaveWithGit = WavePlan & { git?: WaveGitState };
+
+// Owned pathspecs for a wave: the deduped union of every task's owned_files and owned_modules
+// across the wave's tasks. Used to scope Git start capture, diffs, and checkpoint staging.
+export function ownedPathspecsForWave(tasks: TaskPlan[]): string[] {
+	const seen = new Set<string>()
+	for (const task of tasks) {
+		for (const owner of [...task.owned_files, ...task.owned_modules]) seen.add(owner)
+	}
+	return [...seen]
+}
+
+// Build the dispatch result's wave_git summary. available reflects whether the cwd is a usable
+// git repo (equivalently: whether captureWaveGitStart would return a boundary rather than null);
+// warnings name the reason when it is not. The checkpoints flag gates only the commit, not diffs.
+async function waveGitDispatchField(
+	cwd: string,
+	waveId: string,
+): Promise<{ available: boolean; checkpoints_enabled: boolean; warnings: string[] }> {
+	const boundary = await resolveGitBoundary(cwd)
+	const checkpoints_enabled = await loadProjectGitCheckpoints(cwd)
+	if (boundary.available) return { available: true, checkpoints_enabled, warnings: [] }
+	return {
+		available: false,
+		checkpoints_enabled,
+		warnings: [`Wave ${waveId} Git boundary unavailable: ${boundary.reason ?? 'not a git work tree'}`],
+	}
+}
 
 export function notesText(notes: string[] | undefined): string {
 	return notes && notes.length > 0 ? notes.join('\n') : ''
@@ -527,13 +562,36 @@ export async function prepareWaveDispatch(
 				active_runs: activeRuns,
 				instructions:
 					'Do not redispatch tasks with active worker runs. First check the current session\'s hub job snapshot (hub op:jobs) and peer roster (hub op:list) for each run\'s job_id or agent_id. If neither the hub op:jobs snapshot nor the op:list peer roster lists the run, record it abandoned immediately; do not poll, probe, or wait. Only poll or probe runs that exist in the current session. If an existing current-session run has a transport failure, record transport_failed, then prefer waking the existing worker: hub op:list to find its peer, hub op:send to it a narrow "resume from your existing transcript" message (never broadcast to:"all"), and wait up to 2 minutes for recovery. Re-resume the same worker up to the configured resume cap before abandoning; an ack is a liveness signal, not grounds to abandon, and hub op:list peer status (not the op:jobs snapshot) is the liveness authority. Do not record a transport failure as a wave result; that opens a blocker. Only after the cap is hit or a fresh op:list confirms the peer is gone, stop the peer (hub op:cancel its job) and record abandoned, then use omr_prepare_worker_redispatch before redispatching only that task.',
+				// Reuse/redispatch short-circuit: do NOT re-capture the Git boundary; report current
+				// availability only so the caller still sees whether checkpoints/diffs are possible.
+				wave_git: await waveGitDispatchField(cwd, ctx.activeWave.id),
 			}
 		}
 
-		if (ctx.activeWave.status === 'pending') {
+		// Only a fresh pending->running dispatch captures the Git start boundary; a redispatch of an
+		// already-running wave must leave any existing wave.git untouched (captured exactly once).
+		const isFreshDispatch = ctx.activeWave.status === 'pending'
+		if (isFreshDispatch) {
 			await transition(cwd, { operation: 'update_wave_status', waveId: ctx.activeWave.id, waveStatus: 'running' })
 		}
 		await setProgress(cwd, ctx, 'dispatching', incompleteTasks.map((task) => task.id))
+		// Capture the Git start boundary EXACTLY ONCE, on the fresh path only, and persist it onto the
+		// active wave's git.start. This never blocks dispatch: a null capture (git unavailable) simply
+		// persists nothing. It rides on a runtime write immediately after the progress transition so a
+		// reload overlays it back (format.ts round-trips WaveRuntime.git).
+		if (isFreshDispatch) {
+			const start = await captureWaveGitStart(cwd, ownedPathspecsForWave(ctx.activeTasks))
+			if (start) {
+				const reloaded = await activePlanContext(cwd, input)
+				const wave = reloaded.plan.waves.find((candidate) => candidate.id === reloaded.activeWave.id) as
+					| WaveWithGit
+					| undefined
+				if (wave) {
+					wave.git = { ...(wave.git ?? {}), start }
+					await writePlanRuntime(cwd, reloaded.plan)
+				}
+			}
+		}
 		// New-wave dispatch: consume a one-shot if the hard breach was resolvable
 		// and start per-scope time clocks for budget consumption tracking.
 		if (budgetGate.mustConsumeOneShot) {
@@ -555,6 +613,7 @@ export async function prepareWaveDispatch(
 			active_runs: [],
 			instructions:
 				'Dispatch each assignment as a background subagent (the task tool, run in the background) using the assignment\'s exact worker and prompt. Immediately call omr_record_worker_dispatch with the returned agentId and jobId before polling workers via the hub tool (op:jobs / op:wait).',
+			wave_git: await waveGitDispatchField(cwd, ctx.activeWave.id),
 		}
 	})
 }

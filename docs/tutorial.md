@@ -142,6 +142,36 @@ Before milestone approval, the agent must dispatch `wave-flow-checker`. If the c
 
 Approve the milestone only after the plan is specific enough for workers to execute without guessing.
 
+### Optional: Enable Git Checkpoints
+
+If you want OMR to automatically commit each wave's changes after review passes, enable git checkpoints in `.omr/config.yml`:
+
+```yaml
+orchestration:
+  git_checkpoints: true
+```
+
+This is optional and off by default. It requires a git repository; if you enable it in a directory without git or with a detached HEAD, OMR will skip the checkpoint with a warning and continue normally.
+
+When checkpoints are enabled and a wave's review passes, you'll see one of these in the receipt:
+
+**Checkpoint created:**
+```
+Recorded wave review as passed. Git checkpoint abc1234 created.
+```
+
+**No changes to commit:**
+```
+Recorded wave review as passed. Git checkpoint skipped: no changes.
+```
+
+**Pre-existing collision warning:**
+```
+Recorded wave review as passed. Git checkpoint def5678 created. Warnings: Checkpoint includes pre-existing uncommitted changes in: src/foo.ts
+```
+
+If you did not enable checkpoints, no checkpoint message appears. Either way, the review receipt includes git-backed diffs of all changed files whenever the working directory is a git repository.
+
 ### Add Structured Context To Every Task
 
 Every task requires `relevant_existing_code` and `shared_interface_contracts`, even when one of the arrays is empty. For example, a producer task can point at existing code:

@@ -16,6 +16,8 @@ Required process:
 - Use the review package's `seeded_context` before broad rediscovery: inspect its verified relevant-code references, shared-interface contracts, scout
   findings, repository primer, and typed omission/truncation warnings first. Live repository code remains authoritative; broaden discovery only for
   gaps that the seeded package does not answer.
+- Use the review package's `wave_changes` (git-backed changed-file list with per-file diffs) as the authoritative "what changed in this wave" source
+  — inspect it before broad file rediscovery. Fall back to reading files and worker/review notes when `wave_changes.available` is false.
 - Use `seeded_context.style_guidance` as the complete assembled style slice before creating throwaway verification code or code-level repros. An
   explicit “No recorded code-style guidance for these files.” is authoritative; do not perform a separate style lookup or invent language-specific
   rules. Style guidance is advisory and cannot gate review unless the same issue independently breaks correctness, ownership, active criteria, or

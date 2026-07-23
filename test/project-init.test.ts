@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ensureConfig, homeConfigDir, initProject, loadMergedConfig, type RoadmapProjectConfig } from "@oh-my-roadmap/core/project-init";
+import { ensureConfig, homeConfigDir, initProject, loadMergedConfig, loadProjectGitCheckpoints, type RoadmapProjectConfig } from "@oh-my-roadmap/core/project-init";
 import { parseMarkdownDocument, parseYaml } from "@oh-my-roadmap/core/frontmatter";
 
 let cwd = "";
@@ -80,7 +80,7 @@ describe("project init scaffold", () => {
         "roadmap-milestone-checker": {},
         "style-scout": {},
       },
-      orchestration: { transport_resume_attempts: 3 },
+      orchestration: { transport_resume_attempts: 3, git_checkpoints: false },
     });
 
     const workerLight = parseMarkdownDocument(await readFile(".omp/agents/worker-light.md"));
@@ -166,7 +166,7 @@ describe("project init scaffold", () => {
         "roadmap-milestone-checker": {},
         "style-scout": {},
       },
-      orchestration: { transport_resume_attempts: 3 },
+      orchestration: { transport_resume_attempts: 3, git_checkpoints: false },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
@@ -309,7 +309,7 @@ describe("project init scaffold", () => {
         "roadmap-milestone-checker": {},
         "style-scout": {},
       },
-      orchestration: { transport_resume_attempts: 3 },
+      orchestration: { transport_resume_attempts: 3, git_checkpoints: false },
     });
 
     const worker = parseMarkdownDocument(await readFile(".omp/agents/worker.md"));
@@ -795,5 +795,118 @@ describe("budgets ensureConfig preservation", () => {
 
     const content = await readFile(".omr/config.yml");
     expect(content).not.toContain("budgets");
+  });
+});
+
+describe("git_checkpoints config flag", () => {
+  test("loadProjectGitCheckpoints returns false when project config is absent", async () => {
+    const value = await loadProjectGitCheckpoints(cwd);
+    expect(value).toBe(false);
+  });
+
+  test("loadProjectGitCheckpoints returns false when git_checkpoints is explicitly false", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  git_checkpoints: false\n",
+    );
+
+    const value = await loadProjectGitCheckpoints(cwd);
+    expect(value).toBe(false);
+  });
+
+  test("loadProjectGitCheckpoints returns true when git_checkpoints is explicitly true", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  git_checkpoints: true\n",
+    );
+
+    const value = await loadProjectGitCheckpoints(cwd);
+    expect(value).toBe(true);
+  });
+
+  test("loadProjectGitCheckpoints returns false on any read/parse error", async () => {
+    await writeFile(".omr/config.yml", "invalid: yaml: content:");
+
+    const value = await loadProjectGitCheckpoints(cwd);
+    expect(value).toBe(false);
+  });
+
+  test("project git_checkpoints is not affected by global config", async () => {
+    let home = await fs.mkdtemp(path.join(os.tmpdir(), "oh-my-roadmap-git-global-"));
+
+    try {
+      const globalConfigDir = homeConfigDir(home);
+      await fs.mkdir(globalConfigDir, { recursive: true });
+      await fs.writeFile(
+        path.join(globalConfigDir, "config.yml"),
+        "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  git_checkpoints: true\n",
+        "utf8",
+      );
+
+      // Project config absent or has false: should return false, not inherit global true
+      const valueAbsent = await loadProjectGitCheckpoints(cwd);
+      expect(valueAbsent).toBe(false);
+
+      await writeFile(".omr/config.yml", "agents:\n  worker: {}\n  reviewer: {}\n");
+      const valueProjectMissing = await loadProjectGitCheckpoints(cwd);
+      expect(valueProjectMissing).toBe(false);
+
+      await writeFile(
+        ".omr/config.yml",
+        "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  git_checkpoints: false\n",
+      );
+      const valueProjectExplicitFalse = await loadProjectGitCheckpoints(cwd);
+      expect(valueProjectExplicitFalse).toBe(false);
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("ensureConfig preserves git_checkpoints: true on re-init", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  git_checkpoints: true\n",
+    );
+
+    const created = await ensureConfig(cwd);
+    expect(created).toBe(false);
+
+    const config = parseYaml<Record<string, any>>(await readFile(".omr/config.yml"));
+    expect(config.orchestration.git_checkpoints).toBe(true);
+  });
+
+  test("ensureConfig defaults git_checkpoints to false when absent", async () => {
+    await writeFile(".omr/config.yml", "agents:\n  worker: {}\n  reviewer: {}\n");
+
+    const created = await ensureConfig(cwd);
+    expect(created).toBe(false);
+
+    const config = parseYaml<Record<string, any>>(await readFile(".omr/config.yml"));
+    expect(config.orchestration.git_checkpoints).toBe(false);
+  });
+
+  test("rejects non-boolean git_checkpoints with exact error message", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  git_checkpoints: yes\n",
+    );
+
+    expect(initProject(cwd)).rejects.toThrow("orchestration.git_checkpoints must be a boolean");
+  });
+
+  test("still rejects unknown orchestration keys", async () => {
+    await writeFile(
+      ".omr/config.yml",
+      "agents:\n  worker: {}\n  reviewer: {}\norchestration:\n  unknown_key: true\n",
+    );
+
+    expect(initProject(cwd)).rejects.toThrow("orchestration contains unsupported key: unknown_key");
+  });
+
+  test("default config scaffolds git_checkpoints: false", async () => {
+    await initProject(cwd);
+
+    const config = parseYaml<Record<string, any>>(await readFile(".omr/config.yml"));
+    expect(config.orchestration.git_checkpoints).toBe(false);
   });
 });

@@ -14,9 +14,21 @@ export type {
 	RecordWorkerDispatchInput,
 	RecordWorkerRunResult,
 	RecordWorkerRunStatusInput,
+	WaveChangeFile,
+	WaveChangePackage,
 	WaveOrchestrationTargetInput,
 	WaveWorkerAssignment,
 } from './types'
+export type {
+	CommitWaveCheckpointInput,
+	GitBoundary,
+} from './git'
+export {
+	buildWaveChanges,
+	captureWaveGitStart,
+	commitWaveCheckpoint,
+	resolveGitBoundary,
+} from './git'
 export {prepareWaveDispatch, prepareWorkerRedispatch} from './dispatch'
 export {
 	recordReviewerDispatch,

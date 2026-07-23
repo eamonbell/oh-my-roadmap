@@ -89,6 +89,28 @@ Each worker assignment receives its task slice as required `seeded_context`; fre
 - Blocker lifecycle actors (open/resolve/defer) default to `'orchestrator'` when not given explicitly; they are never silently attributed to `'user'`.
 - Recovery and rework are hub-first: the orchestrator prefers waking the existing worker (which still holds its transcript and context) over spawning a replacement, coordinating through OMP's unified `hub` tool (peer messaging + job control; `hub op:list`/`op:send`/`op:wait`). On a transient/transport failure it resumes the worker in place; for review findings the original worker can fix, it wakes the worker to rework in-context and re-reviews, reserving canonical blockers for findings that need a user decision. It spawns a replacement only when the worker is aborted/non-revivable, is no longer a live peer (e.g. a resumed session), or delivery fails. Transport/socket errors are recorded as `transport_failed`, never as blockers. Reviewers get the same treatment: `omr_record_reviewer_dispatch` persists the reviewer's identity, and a failed `omr_prepare_wave_review` returns re-review context (the prior reviewer's agent id and findings) so the orchestrator wakes that same reviewer for re-review instead of spawning a fresh one. A worker run may be redispatched via `omr_prepare_worker_redispatch` once it is recorded as `transport_failed` or `abandoned`. See [`irc.md`](./irc.md) for the full coordination playbook.
 
+## Git Checkpoints and Wave-Backed Diffs
+
+**Checkpoints (optional).**
+
+When `orchestration.git_checkpoints: true` is set in a project's `.omr/config.yml` (default is `false`), OMR automatically commits the current wave's changes as a checkpoint after the wave's review passes. The config is project-local: a profile-global `true` does not enable it for a project — the project must set it explicitly.
+
+Each checkpoint is an ordinary `git commit` that honors the repository's hooks and signing configuration. The commit message has subject `omr(<wave-id>): <wave goal>` and includes standard trailers (`OMR-Workflow`, `OMR-Wave`, `OMR-Tasks`, and roadmap/milestone or change-request or ad-hoc identifiers). The commit contains **only** the wave's owned paths (its tasks' `owned_files` and `owned_modules`); unrelated working-tree changes are left untouched and uncommitted.
+
+Checkpoints are idempotent: if a run is retried after the commit was already created, no duplicate commit is made (detected via the `OMR-Wave` trailer on HEAD). The commit SHA and status are recorded in the wave's runtime state for recovery and auditing.
+
+**Collision detection and warnings.**
+
+If an owned path already had uncommitted changes before the wave started, those changes cannot be separated from the wave's work. The checkpoint commits the whole path, and the receipt warns that pre-existing changes were included so the user can review and handle the collision if needed.
+
+**Graceful skip with warning.**
+
+If the directory is not a git repository, git is missing, or HEAD is detached, checkpoints are skipped with a warning. The wave completes normally and is never blocked by an unusable git state. The receipt reports `Git checkpoint skipped: [reason].`
+
+**Wave-backed diffs (always on in a git repo).**
+
+Whenever the working directory is a git repository — regardless of the `git_checkpoints` flag — the wave-review package includes `wave_changes`: a list of changed files plus per-file diffs. Reviewers no longer reconstruct changes by hand; this context is always available when a git repo exists. The flag only gates whether a commit is created; the diffs are independent of it.
+
 Task, wave, and cursor progress is recorded with `omr_transition` operations `update_task_status`, `update_wave_status`, and `update_implementation_progress`. The extension does not schedule workers itself; orchestration remains prompt-guided and state-validated.
 
 Implementation resume is driven by a persisted progress cursor on milestone and change plans. The cursor records the active wave, orchestration step, active task IDs, blocker reason, and timestamp. Status and resume commands treat this structured cursor as authoritative; notes provide context and evidence.
